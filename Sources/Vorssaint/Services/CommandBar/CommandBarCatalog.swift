@@ -624,6 +624,14 @@ enum CommandBarCatalog {
                 shortcut: roleShortcut(.quickLauncher),
                 run: { _ in afterBeat { QuickLauncherService.shared.show() } }))
         }
+        entries.append(CommandBarEntry(
+            id: CommandBarPreferences.emojiBrowserRowID,
+            title: bar.sourceEmoji,
+            subtitle: bar.pageTitle,
+            keywords: bar.kindEmoji,
+            icon: .symbol("face.smiling"),
+            keepsBarOpen: true,
+            run: { _ in CommandBarService.shared.enterCategory(.emoji) }))
         let feedback = FeatureStrings.feedback(language)
         entries.append(CommandBarEntry(
             id: "action.feedback.bug",

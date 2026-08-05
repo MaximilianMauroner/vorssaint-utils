@@ -8,8 +8,8 @@ import SwiftUI
 /// The command bar: one floating field, summoned by a global shortcut, that
 /// finds and runs everything the app can do. The panel never activates, so
 /// the app the person was using keeps focus the whole time; actions that type
-/// or paste land exactly where the caret already is. Closed, the feature is
-/// one registered hotkey and nothing else.
+/// or paste land exactly where the caret already is. Closed, it keeps one
+/// prepared panel and the stable Emoji index, with no polling or observers.
 final class CommandBarService: ObservableObject {
     static let shared = CommandBarService()
 
@@ -97,6 +97,7 @@ final class CommandBarService: ObservableObject {
     private var entriesByID: [String: CommandBarEntry] = [:]
     private var normalizedByID: [String: (title: String, keywords: String)] = [:]
     private var entriesByStableKey: [String: CommandBarEntry] = [:]
+    private var hasFullIndex = false
     private var appEntries: [CommandBarEntry] = []
     private var windowEntries: [CommandBarEntry] = []
     private var quitEntries: [CommandBarEntry] = []
@@ -108,6 +109,11 @@ final class CommandBarService: ObservableObject {
     private var windowsLoadedAt: Date?
     private var menuEntries: [CommandBarEntry] = []
     private var emojiEntries: [CommandBarEntry] = []
+    private var normalizedEmojiByID: [String: (title: String, keywords: String)] = [:]
+    private var emojiLanguage: AppLanguage?
+    private var emojiAccessibility: Bool?
+    /// True when the panel opened through Emoji without paying to prepare home.
+    private var needsHomePreparation = false
     /// Rows that act on what was selected when the bar opened. Read once per
     /// opening and thrown away on close: a selection is a moment, not a state.
     private var selectionEntries: [CommandBarEntry] = []
@@ -159,6 +165,15 @@ final class CommandBarService: ObservableObject {
         shortcutRegistrationFailed = !hotkey.sync(enabled: enabled, shortcut: shortcut)
         reloadPreferenceCaches()
         syncRowHotkeys()
+        if available {
+            // Build the one view tree and the stable Emoji index after launch,
+            // outside the keystroke that asks to see either of them.
+            DispatchQueue.main.async { [weak self] in
+                guard AppFeature.commandBar.isAvailable, let self else { return }
+                _ = self.ensurePanel()
+                self.prepareEmojiEntriesIfNeeded()
+            }
+        }
         if !available {
             hide()
             panel = nil
@@ -170,10 +185,15 @@ final class CommandBarService: ObservableObject {
             quitEntries = []
             menuEntries = []
             emojiEntries = []
+            normalizedEmojiByID = [:]
+            emojiLanguage = nil
+            emojiAccessibility = nil
+            needsHomePreparation = false
             menuOwnerPID = nil
             menusLoadedAt = nil
             entriesByID = [:]
             normalizedByID = [:]
+            hasFullIndex = false
             cachedApps = []
             windowsLoadedAt = nil
             rows = []
@@ -200,6 +220,33 @@ final class CommandBarService: ObservableObject {
     func show() {
         guard AppFeature.commandBar.isAvailable else { return }
         let panel = ensurePanel()
+        beginPresentation(category: nil)
+        reloadPreferenceCaches()
+        needsHomePreparation = false
+        rebuildCatalog(index: false)
+        rebuildRunningEntries()
+        query = ""
+        refreshResults()
+        startBackgroundLoads()
+        present(panel)
+    }
+
+    /// Emoji owns a small launch path because its rows do not depend on the
+    /// apps, windows or menus that make home expensive to prepare.
+    func showEmoji() {
+        guard AppFeature.commandBar.isAvailable else { return }
+        let panel = ensurePanel()
+        beginPresentation(category: .emoji)
+        reloadPreferenceCaches()
+        prepareEmojiEntriesIfNeeded()
+        indexEmojiEntries()
+        needsHomePreparation = true
+        query = ""
+        refreshResults()
+        present(panel)
+    }
+
+    private func beginPresentation(category: CommandBarSource?) {
         presentationID = UUID()
         mode = .search
         savedQuery = ""
@@ -208,12 +255,18 @@ final class CommandBarService: ObservableObject {
         lastPointerLocation = NSEvent.mouseLocation
         selectedID = nil
         lastRankedQuery = nil
-        activeCategory = nil
+        activeCategory = category
+    }
+
+    private func prepareHomeForCurrentPresentation() {
         reloadPreferenceCaches()
-        rebuildCatalog()
+        needsHomePreparation = false
+        rebuildCatalog(index: false)
         rebuildRunningEntries()
-        query = ""
-        refreshResults()
+        startBackgroundLoads()
+    }
+
+    private func startBackgroundLoads() {
         refreshAutomationStatus()
         refreshStorageAnswer()
         refreshWiFiState()
@@ -221,15 +274,14 @@ final class CommandBarService: ObservableObject {
         loadWindowsIfNeeded()
         loadMenusIfNeeded()
         loadSelection()
+    }
+
+    private func present(_ panel: NSPanel) {
         position(panel)
         installMonitors(for: panel)
-        panel.alphaValue = 0
+        panel.alphaValue = 1
         panel.orderFrontRegardless()
         panel.makeKey()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.13
-            panel.animator().alphaValue = 1
-        }
     }
 
     func hide() {
@@ -253,7 +305,7 @@ final class CommandBarService: ObservableObject {
             selectionEntries = []
             selectionPreview = ""
             selectedText = ""
-            indexEntries()
+            reindexForPresentation()
         }
         // What was typed is remembered for the next opening, where the first
         // keystroke replaces it. It never reaches disk: the promise is that
@@ -348,12 +400,15 @@ final class CommandBarService: ObservableObject {
         if refused != refusedRowShortcutKeys { refusedRowShortcutKeys = refused }
     }
 
-    /// Runs a row from its own combination, with no bar involved. The catalog
-    /// is built on the spot: it is the same work one keystroke of typing does,
-    /// and it keeps the feature costing nothing while nothing is pressed.
+    /// Runs a row from its own combination, with no bar involved. Ordinary
+    /// rows build the live catalog on demand; Emoji has its prepared path.
     private func runRow(withStableKey key: String) {
-        if entriesByStableKey[key] == nil {
-            rebuildCatalog()
+        if key == CommandBarPreferences.emojiBrowserRowID {
+            showEmoji()
+            return
+        }
+        if !hasFullIndex {
+            rebuildCatalog(index: false)
             rebuildRunningEntries()
         }
         guard let entry = entriesByStableKey[key] else {
@@ -430,11 +485,26 @@ final class CommandBarService: ObservableObject {
     }
 
     func setCategory(_ source: CommandBarSource?) {
-        guard activeCategory != source else { return }
+        changeCategory(to: source, clearingQuery: false)
+    }
+
+    func enterCategory(_ source: CommandBarSource) {
+        changeCategory(to: source, clearingQuery: true)
+    }
+
+    private func changeCategory(to source: CommandBarSource?, clearingQuery: Bool) {
+        guard activeCategory != source || (clearingQuery && !query.isEmpty) else { return }
+        if needsHomePreparation, source != .emoji {
+            prepareHomeForCurrentPresentation()
+        }
         activeCategory = source
         selectedID = nil
         lastRankedQuery = nil
-        refreshResults()
+        if clearingQuery, !query.isEmpty {
+            query = ""
+        } else {
+            refreshResults()
+        }
     }
 
     /// Whether a category is worth a chip.
@@ -553,11 +623,11 @@ final class CommandBarService: ObservableObject {
     }
 
     /// The readable name of whatever a stored key points at, so the Settings
-    /// lists never show a bare id. Builds the catalog once if the bar has not
-    /// been opened yet this session.
+    /// lists never show a bare id. Settings needs the complete index even when
+    /// Emoji has prepared only its own.
     func entryTitle(forStableKey key: String) -> String? {
-        if entriesByStableKey.isEmpty {
-            rebuildCatalog()
+        if entriesByStableKey[key] == nil {
+            rebuildCatalog(index: false)
             rebuildRunningEntries()
         }
         return entriesByStableKey[key]?.title
@@ -612,15 +682,32 @@ final class CommandBarService: ObservableObject {
 
     private func refreshAfterPreferenceChange() {
         reloadPreferenceCaches()
-        indexEntries()
+        reindexForPresentation()
         refreshResults()
     }
 
-    private func rebuildCatalog() {
+    private func rebuildCatalog(index: Bool = true) {
         catalog = CommandBarCatalog.build(automationDenied: finderAutomationDenied)
-        emojiEntries = CommandBarCatalog.emojiEntries(bar: FeatureStrings.commandBar(L10n.shared.language))
+        prepareEmojiEntriesIfNeeded()
         builtLanguage = L10n.shared.language
-        indexEntries()
+        if index { indexEntries() }
+    }
+
+    @discardableResult
+    private func prepareEmojiEntriesIfNeeded() -> Bool {
+        let language = L10n.shared.language
+        let accessibility = Permissions.shared.accessibility
+        guard emojiLanguage != language || emojiAccessibility != accessibility
+        else { return false }
+        emojiEntries = CommandBarCatalog.emojiEntries(
+            bar: FeatureStrings.commandBar(language))
+        normalizedEmojiByID = Dictionary(uniqueKeysWithValues: emojiEntries.map { entry in
+            (entry.id, (CommandBarSearch.normalized(entry.matchTitle ?? entry.title),
+                        CommandBarSearch.normalized(entry.keywords)))
+        })
+        emojiLanguage = language
+        emojiAccessibility = accessibility
+        return true
     }
 
     /// Every row the bar can rank right now, in the order the pool builds
@@ -631,23 +718,47 @@ final class CommandBarService: ObservableObject {
     }
 
     private func indexEntries() {
+        index(indexableEntries)
+        hasFullIndex = true
+    }
+
+    private func indexEmojiEntries() {
+        index(emojiEntries)
+        hasFullIndex = false
+    }
+
+    private func reindexForPresentation() {
+        if needsHomePreparation {
+            indexEmojiEntries()
+        } else {
+            indexEntries()
+        }
+    }
+
+    private func index(_ entries: [CommandBarEntry]) {
         entriesByID = [:]
-        for entry in indexableEntries {
+        for entry in entries {
             entriesByID[entry.id] = entry
         }
         // Folding a thousand titles on every keystroke is the one thing that
-        // could make typing feel heavy. It happens here instead, once per
-        // rebuild.
+        // could make typing feel heavy. Dynamic rows fold once per rebuild;
+        // Emoji borrows the stable index prepared after launch.
         normalizedByID = [:]
         entriesByStableKey = [:]
         let names = aliases
-        for entry in indexableEntries {
+        for entry in entries {
             entriesByStableKey[entry.stableKey] = entry
             // A name the person gave is searchable text like any other, so the
             // row surfaces even when its real title shares nothing with it.
-            let alias = names[entry.stableKey].map { " " + $0 } ?? ""
-            normalizedByID[entry.id] = (CommandBarSearch.normalized(entry.matchTitle ?? entry.title),
-                                        CommandBarSearch.normalized(entry.keywords + alias))
+            let alias = names[entry.stableKey]
+                .map { " " + CommandBarSearch.normalized($0) } ?? ""
+            if let emoji = normalizedEmojiByID[entry.id] {
+                normalizedByID[entry.id] = (emoji.title, emoji.keywords + alias)
+            } else {
+                normalizedByID[entry.id] = (
+                    CommandBarSearch.normalized(entry.matchTitle ?? entry.title),
+                    CommandBarSearch.normalized(entry.keywords) + alias)
+            }
         }
     }
 
@@ -663,22 +774,28 @@ final class CommandBarService: ObservableObject {
                                                   runningBundleIDs: bundleIDs,
                                                   runningPaths: paths,
                                                   bar: bar)
-        indexEntries()
+        reindexForPresentation()
     }
 
     private func refreshResults() {
         guard !isTearingDown else { return }
-        if let builtLanguage, builtLanguage != L10n.shared.language {
-            rebuildCatalog()
+        if needsHomePreparation {
+            if prepareEmojiEntriesIfNeeded() { indexEmojiEntries() }
+        } else if let builtLanguage, builtLanguage != L10n.shared.language {
+            rebuildCatalog(index: false)
             rebuildRunningEntries()
         }
         switch mode {
         case .search:
             let trimmed = query.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty {
-                let disabled = CommandBarPreferences.disabledSources(from: disabledSourcesRaw)
-                categoryChips = Self.chipOrder.filter {
-                    !disabled.contains($0) && categoryHasContent($0)
+                if needsHomePreparation {
+                    categoryChips = [.emoji]
+                } else {
+                    let disabled = CommandBarPreferences.disabledSources(from: disabledSourcesRaw)
+                    categoryChips = Self.chipOrder.filter {
+                        !disabled.contains($0) && categoryHasContent($0)
+                    }
                 }
                 if let category = activeCategory {
                     let bar = FeatureStrings.commandBar(L10n.shared.language)
@@ -1615,7 +1732,7 @@ final class CommandBarService: ObservableObject {
             if !menuEntries.isEmpty {
                 menuEntries = []
                 menuOwnerPID = nil
-                indexEntries()
+                reindexForPresentation()
             }
             return
         }
@@ -1628,7 +1745,7 @@ final class CommandBarService: ObservableObject {
         // walk lands: pressing one would act on an app nobody is looking at.
         if menuOwnerPID != pid, !menuEntries.isEmpty {
             menuEntries = []
-            indexEntries()
+            reindexForPresentation()
         }
         guard !menusLoading else { return }
         menusLoading = true
@@ -1644,7 +1761,7 @@ final class CommandBarService: ObservableObject {
                 self.menusLoadedAt = Date()
                 let bar = FeatureStrings.commandBar(L10n.shared.language)
                 self.menuEntries = CommandBarCatalog.menuEntries(items, appName: name, bar: bar)
-                self.indexEntries()
+                self.reindexForPresentation()
                 if self.isVisible { self.refreshResults() }
             }
         }
@@ -1662,7 +1779,7 @@ final class CommandBarService: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.selectionLoading = false
-                guard self.isVisible else { return }
+                guard self.isVisible, !self.needsHomePreparation else { return }
                 let bar = FeatureStrings.commandBar(L10n.shared.language)
                 self.selectedText = text
                 self.selectionEntries = CommandBarCatalog.selectionEntries(text, bar: bar) {
@@ -1672,7 +1789,7 @@ final class CommandBarService: ObservableObject {
                     self?.query = selected
                 }
                 self.selectionPreview = text.isEmpty ? "" : CommandBarText.preview(text)
-                self.indexEntries()
+                self.reindexForPresentation()
                 self.refreshResults()
             }
         }
@@ -1692,7 +1809,7 @@ final class CommandBarService: ObservableObject {
             if !windowEntries.isEmpty {
                 windowEntries = []
                 windowsLoadedAt = nil
-                indexEntries()
+                reindexForPresentation()
             }
             return
         }
@@ -1710,7 +1827,7 @@ final class CommandBarService: ObservableObject {
                 self.windowsLoadedAt = Date()
                 let bar = FeatureStrings.commandBar(L10n.shared.language)
                 self.windowEntries = CommandBarCatalog.windowEntries(windows, bar: bar)
-                self.indexEntries()
+                self.reindexForPresentation()
                 if self.isVisible { self.refreshResults() }
             }
         }
@@ -1726,7 +1843,7 @@ final class CommandBarService: ObservableObject {
                 guard let self, CommandBarCatalog.cachedBootVolumeSpace?.free != space?.free
                 else { return }
                 CommandBarCatalog.cachedBootVolumeSpace = space
-                if self.isVisible {
+                if self.isVisible, !self.needsHomePreparation {
                     self.rebuildCatalog()
                     self.refreshResults()
                 }
@@ -1743,7 +1860,7 @@ final class CommandBarService: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, CommandBarExtras.cachedWiFiPower != state else { return }
                 CommandBarExtras.cachedWiFiPower = state
-                if self.isVisible {
+                if self.isVisible, !self.needsHomePreparation {
                     self.rebuildCatalog()
                     self.refreshResults()
                 }
@@ -1760,7 +1877,7 @@ final class CommandBarService: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, self.finderAutomationDenied != denied else { return }
                 self.finderAutomationDenied = denied
-                if self.isVisible {
+                if self.isVisible, !self.needsHomePreparation {
                     self.rebuildCatalog()
                     self.refreshResults()
                 }
