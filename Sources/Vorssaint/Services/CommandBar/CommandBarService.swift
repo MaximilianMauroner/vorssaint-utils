@@ -98,6 +98,7 @@ final class CommandBarService: ObservableObject {
     private var normalizedByID: [String: (title: String, keywords: String)] = [:]
     private var entriesByStableKey: [String: CommandBarEntry] = [:]
     private var presentationLifecycle = CommandBarPresentationLifecycle()
+    private var deferredRowShortcut = CommandBarDeferredRowShortcut()
     private var appEntries: [CommandBarEntry] = []
     private var windowEntries: [CommandBarEntry] = []
     private var quitEntries: [CommandBarEntry] = []
@@ -215,9 +216,14 @@ final class CommandBarService: ObservableObject {
     }
 
     func show() {
+        show(promptingFor: nil)
+    }
+
+    private func show(promptingFor stableKey: String?) {
         guard AppFeature.commandBar.isAvailable else { return }
         let panel = ensurePanel()
         let id = beginPresentation(category: nil)
+        if let stableKey { deferredRowShortcut.schedule(stableKey, for: id) }
         reloadPreferenceCaches()
         query = ""
         refreshResults()
@@ -230,6 +236,10 @@ final class CommandBarService: ObservableObject {
                     id, isVisible: self.isVisible) else { return }
             self.prepareHomeForCurrentPresentation()
             self.refreshResults()
+            if let key = self.deferredRowShortcut.take(for: id),
+               let entry = self.entriesByStableKey[key] {
+                self.run(entry)
+            }
         }
     }
 
@@ -249,6 +259,7 @@ final class CommandBarService: ObservableObject {
 
     @discardableResult
     private func beginPresentation(category: CommandBarSource?) -> UUID {
+        deferredRowShortcut.cancel()
         let id = UUID()
         presentationID = id
         if category == .emoji {
@@ -307,6 +318,7 @@ final class CommandBarService: ObservableObject {
     }
 
     func hide() {
+        deferredRowShortcut.cancel()
         // Closing while listening for a combination must give every global key
         // back, or the whole app would go quiet until the next relaunch.
         if case .capturingShortcut = mode { endCapturingShortcut() }
@@ -431,11 +443,7 @@ final class CommandBarService: ObservableObject {
             showEmoji()
             return
         }
-        if !presentationLifecycle.hasFullIndex {
-            rebuildCatalog(index: false)
-            rebuildRunningEntries()
-        }
-        guard let entry = entriesByStableKey[key] else {
+        guard let entry = freshFullEntry(forStableKey: key) else {
             NSSound.beep()
             return
         }
@@ -444,8 +452,7 @@ final class CommandBarService: ObservableObject {
         // Emptying the Trash on one keypress with nothing asked is not a
         // shortcut, it is an accident with a name.
         guard !entry.needsPrompt else {
-            show()
-            if let fresh = entriesByStableKey[key] { run(fresh) }
+            show(promptingFor: key)
             return
         }
         if isVisible { hide() }
@@ -652,11 +659,7 @@ final class CommandBarService: ObservableObject {
     /// lists never show a bare id. Settings needs the complete index even when
     /// Emoji has prepared only its own.
     func entryTitle(forStableKey key: String) -> String? {
-        if !presentationLifecycle.hasFullIndex {
-            rebuildCatalog(index: false)
-            rebuildRunningEntries()
-        }
-        return entriesByStableKey[key]?.title
+        freshFullEntry(forStableKey: key)?.title
     }
 
     func alias(for entry: CommandBarEntry) -> String? {
@@ -717,6 +720,14 @@ final class CommandBarService: ObservableObject {
         prepareEmojiEntriesIfNeeded()
         builtLanguage = L10n.shared.language
         if index { indexEntries() }
+    }
+
+    /// Global shortcuts and Settings need every live row, but borrowing that
+    /// lookup must not replace the Emoji search index visible in the panel.
+    private func freshFullEntry(forStableKey key: String) -> CommandBarEntry? {
+        rebuildCatalog(index: false)
+        rebuildRunningEntries(index: false)
+        return indexableEntries.last { $0.stableKey == key }
     }
 
     @discardableResult
@@ -796,7 +807,7 @@ final class CommandBarService: ObservableObject {
 
     /// The rows that depend on what is running right now. Cheap enough to
     /// redo on every open, which is the only way the live dot tells the truth.
-    private func rebuildRunningEntries() {
+    private func rebuildRunningEntries(index: Bool = true) {
         let bar = FeatureStrings.commandBar(L10n.shared.language)
         let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
         quitEntries = CommandBarCatalog.quitEntries(running, bar: bar)
@@ -806,7 +817,7 @@ final class CommandBarService: ObservableObject {
                                                   runningBundleIDs: bundleIDs,
                                                   runningPaths: paths,
                                                   bar: bar)
-        reindexForPresentation()
+        if index { reindexForPresentation() }
     }
 
     private func refreshResults() {
@@ -1749,15 +1760,9 @@ final class CommandBarService: ObservableObject {
                 guard let self else { return }
                 self.cachedApps = apps
                 self.appsLoading = false
-                guard self.presentationLifecycle.acceptsHomeUpdates(
-                    id, isVisible: self.isVisible) else {
-                    let current = self.presentationID
-                    if self.presentationLifecycle.acceptsHomeUpdates(
-                        current, isVisible: self.isVisible) {
-                        self.loadAppsIfNeeded(for: current)
-                    }
-                    return
-                }
+                guard self.presentationLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: id, currentID: self.presentationID,
+                    isVisible: self.isVisible) else { return }
                 self.rebuildRunningEntries()
                 self.refreshResults()
             }
@@ -1917,8 +1922,9 @@ final class CommandBarService: ObservableObject {
                 guard let self, CommandBarCatalog.cachedBootVolumeSpace?.free != space?.free
                 else { return }
                 CommandBarCatalog.cachedBootVolumeSpace = space
-                if self.presentationLifecycle.acceptsHomeUpdates(
-                    id, isVisible: self.isVisible) {
+                if self.presentationLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: id, currentID: self.presentationID,
+                    isVisible: self.isVisible) {
                     self.rebuildCatalog()
                     self.refreshResults()
                 }
@@ -1935,8 +1941,9 @@ final class CommandBarService: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, CommandBarExtras.cachedWiFiPower != state else { return }
                 CommandBarExtras.cachedWiFiPower = state
-                if self.presentationLifecycle.acceptsHomeUpdates(
-                    id, isVisible: self.isVisible) {
+                if self.presentationLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: id, currentID: self.presentationID,
+                    isVisible: self.isVisible) {
                     self.rebuildCatalog()
                     self.refreshResults()
                 }
@@ -1953,8 +1960,9 @@ final class CommandBarService: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, self.finderAutomationDenied != denied else { return }
                 self.finderAutomationDenied = denied
-                if self.presentationLifecycle.acceptsHomeUpdates(
-                    id, isVisible: self.isVisible) {
+                if self.presentationLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: id, currentID: self.presentationID,
+                    isVisible: self.isVisible) {
                     self.rebuildCatalog()
                     self.refreshResults()
                 }

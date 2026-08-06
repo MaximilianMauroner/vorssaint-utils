@@ -11627,6 +11627,28 @@ struct MetricsTests {
                 && !barLifecycle.acceptsHomeUpdates(firstBarPresentation, isVisible: true)
                 && !barLifecycle.acceptsHomeUpdates(secondBarPresentation, isVisible: false),
                "background rows update only their still-visible home presentation")
+        expect(barLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: firstBarPresentation,
+                    currentID: secondBarPresentation,
+                    isVisible: true),
+               "a shared cache completion refreshes the newer visible Home")
+        barLifecycle.beginEmoji(secondBarPresentation)
+        expect(!barLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: firstBarPresentation,
+                    currentID: secondBarPresentation,
+                    isVisible: true),
+               "a shared cache completion never mutates the visible Emoji surface")
+
+        var deferredShortcut = CommandBarDeferredRowShortcut()
+        deferredShortcut.schedule("action.trash", for: firstBarPresentation)
+        expect(deferredShortcut.take(for: secondBarPresentation) == nil
+                && deferredShortcut.take(for: firstBarPresentation) == "action.trash"
+                && deferredShortcut.take(for: firstBarPresentation) == nil,
+               "a prompt shortcut runs once and only on the presentation that requested it")
+        deferredShortcut.schedule("action.trash", for: firstBarPresentation)
+        deferredShortcut.cancel()
+        expect(deferredShortcut.take(for: firstBarPresentation) == nil,
+               "closing or superseding a presentation cancels its prompt shortcut")
 
         expect(CommandBarSearch.normalized("  Brilho   da\tTela ") == "brilho da tela",
                "command bar folds case and collapses whitespace")

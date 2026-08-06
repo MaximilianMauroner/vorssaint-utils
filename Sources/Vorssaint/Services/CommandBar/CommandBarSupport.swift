@@ -57,6 +57,15 @@ struct CommandBarPresentationLifecycle {
         isVisible && surface == .home(id)
     }
 
+    /// A shared cache is useful to whichever Home is current when its work
+    /// finishes, even when another presentation started that work. Emoji and
+    /// a hidden panel still reject the accompanying UI refresh.
+    func acceptsSharedCacheCompletion(startedBy _: UUID,
+                                      currentID: UUID,
+                                      isVisible: Bool) -> Bool {
+        acceptsHomeUpdates(currentID, isVisible: isVisible)
+    }
+
     @discardableResult
     mutating func completeHomeHydration(_ id: UUID, isVisible: Bool) -> Bool {
         guard acceptsHomeHydration(id, isVisible: isVisible) else { return false }
@@ -78,6 +87,27 @@ struct CommandBarPresentationLifecycle {
 
     mutating func markEmojiIndex() {
         index = .emoji
+    }
+}
+
+/// A shortcut that needs the panel waits for Home's deferred hydration before
+/// it enters confirmation, argument or setup mode. Its presentation id keeps
+/// a close, Emoji or a newer opening from running yesterday's request.
+struct CommandBarDeferredRowShortcut {
+    private var pending: (presentationID: UUID, stableKey: String)?
+
+    mutating func schedule(_ stableKey: String, for presentationID: UUID) {
+        pending = (presentationID, stableKey)
+    }
+
+    mutating func cancel() {
+        pending = nil
+    }
+
+    mutating func take(for presentationID: UUID) -> String? {
+        guard pending?.presentationID == presentationID else { return nil }
+        defer { pending = nil }
+        return pending?.stableKey
     }
 }
 
