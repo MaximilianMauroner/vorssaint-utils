@@ -425,11 +425,11 @@ final class CommandBarService: ObservableObject {
             NSSound.beep()
             return
         }
-        // A row that would confirm, ask for a number or send the person to a
-        // Settings page has to do the same from a key as it does from the bar.
+        // A row that would confirm, ask for input, or keep the field visible
+        // needs a real presentation just as it does when chosen from the bar.
         // Emptying the Trash on one keypress with nothing asked is not a
         // shortcut, it is an accident with a name.
-        guard !entry.needsPrompt else {
+        guard !entry.needsPrompt, !entry.keepsBarOpen else {
             show(promptingFor: key)
             return
         }
