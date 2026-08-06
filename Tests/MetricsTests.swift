@@ -12634,9 +12634,10 @@ struct MetricsTests {
                 == [1, 0],
                "the app named exactly what was typed leads, invisible mark and all")
         expect(CommandBarPreferences.rankBias(for: .menus) < 0
-                && CommandBarPreferences.rankBias(for: .apps) == 0
+                && CommandBarPreferences.rankBias(for: .apps)
+                    > CommandBarPreferences.rankBias(for: .actions)
                 && CommandBarPreferences.rankBias(for: .actions) == 0,
-               "a borrowed menu row sits under what this Mac owns")
+               "apps lead owned actions, and borrowed menu rows sit below both")
         let borrowed = [
             CommandBarCandidate(index: 0, title: "Tela cheia",
                                 boost: CommandBarPreferences.rankBias(for: .menus)),
@@ -12653,6 +12654,30 @@ struct MetricsTests {
         expect(CommandBarSearch.rankedIndexes(candidates: sharper, matching: "fechar aba")
                 .first == 0,
                "the step down never buries a menu command that is what was typed")
+        let appBeforeDiscovery = [
+            CommandBarCandidate(index: 0, title: "What's New",
+                                boost: CommandBarPreferences.rankBias(for: .settingsPages)),
+            CommandBarCandidate(index: 1, title: "WhatsApp",
+                                boost: CommandBarPreferences.rankBias(for: .apps)),
+        ]
+        expect(CommandBarSearch.rankedIndexes(candidates: appBeforeDiscovery, matching: "what")
+                .first == 1,
+               "an equally good app match leads a low-priority discovery page")
+        let exactBeforeHabit = [
+            CommandBarCandidate(index: 0, title: "What", boost: -500),
+            CommandBarCandidate(index: 1, title: "WhatsApp", boost: 2_000),
+        ]
+        expect(CommandBarSearch.rankedIndexes(candidates: exactBeforeHabit, matching: "what")
+                .first == 0,
+               "usage and learned choices never cross a better textual match tier")
+        let namedApp = [
+            CommandBarCandidate(index: 0, title: "Codex"),
+            CommandBarCandidate(index: 1, title: "Visual Studio Code",
+                                keywords: "codex", priority: 2_400),
+        ]
+        expect(CommandBarSearch.rankedIndexes(candidates: namedApp, matching: "codex")
+                .first == 1,
+               "a name deliberately given to an app still leads its ordinary title match")
 
         // Two rows with one id is undefined behaviour in a SwiftUI list, and
         // the list is stitched from six providers plus whatever was saved.
@@ -12872,6 +12897,67 @@ struct MetricsTests {
                "no habit outruns a literal text hit")
         expect(CommandBarUsage.boost(for: nil, now: barNow) == 0,
                "no usage, no boost")
+
+        let habitKey = Data(repeating: 0x31, count: 32)
+        let otherHabitKey = Data(repeating: 0x72, count: 32)
+        let preparedWhat = CommandBarQueryHabits.prepare("what", key: habitKey)
+        let preparedWhatsApp = CommandBarQueryHabits.prepare("whatsapp", key: habitKey)
+        var queryHabits: CommandBarQueryHabits.Store = [:]
+        queryHabits = CommandBarQueryHabits.recording(
+            queryHabits, preparedQuery: preparedWhat,
+            resultID: "app./Applications/WhatsApp.app", now: barNow)
+        queryHabits = CommandBarQueryHabits.recording(
+            queryHabits, preparedQuery: preparedWhat,
+            resultID: "app./Applications/WhatsApp.app", now: barNow + 10)
+        let learnedExact = CommandBarQueryHabits.boost(
+            for: "app./Applications/WhatsApp.app", preparedQuery: preparedWhat,
+            store: queryHabits, now: barNow + 20)
+        let learnedRelated = CommandBarQueryHabits.boost(
+            for: "app./Applications/WhatsApp.app", preparedQuery: preparedWhatsApp,
+            store: queryHabits, now: barNow + 20)
+        expect(learnedExact > 0 && learnedRelated > 0,
+               "repeated choices teach the exact query and a longer related query")
+        expect(CommandBarQueryHabits.boost(
+                    for: "app./Applications/WhatsApp Beta.app", preparedQuery: preparedWhat,
+                    store: queryHabits,
+                    now: barNow + 20) == 0,
+               "a learned query lifts only the selected installation")
+        let encodedQueryHabits = CommandBarQueryHabits.encode(queryHabits)
+        let hexadecimal = CharacterSet(charactersIn: "0123456789abcdef")
+        let otherPreparedWhat = CommandBarQueryHabits.prepare("what", key: otherHabitKey)
+        let otherKeyHabits = CommandBarQueryHabits.recording(
+            [:], preparedQuery: otherPreparedWhat, resultID: "app.test", now: barNow)
+        let encodedKeysAreDigests = queryHabits.keys.allSatisfy { key in
+            key.count == 24 && key.unicodeScalars.allSatisfy(hexadecimal.contains)
+        }
+        let keysAreInstallationSpecific = Set(queryHabits.keys)
+            .isDisjoint(with: Set(otherKeyHabits.keys))
+        let habitsRoundTrip = CommandBarQueryHabits.decode(encodedQueryHabits) == queryHabits
+        expect(encodedKeysAreDigests && preparedWhat.keyCount == 2
+                && keysAreInstallationSpecific && habitsRoundTrip,
+               "query habits round-trip as per-install keyed digests, prepared once per query")
+        expect(CommandBarQueryHabits.removing(
+                    resultID: "app./Applications/WhatsApp.app", from: queryHabits).isEmpty,
+               "forgetting an app removes its learned query choices")
+        let learnedCompletion = CommandBarCompletion.queryForLearning(
+            current: "WhatsApp", beforeCompletion: "whts")
+        let retainedCompletion = CommandBarCompletion.retainedOriginal(
+            "whts", completedValue: "WhatsApp", afterChangingTo: "WhatsApp")
+        let editedCompletion = CommandBarCompletion.retainedOriginal(
+            "whts", completedValue: "WhatsApp", afterChangingTo: "WhatsApp b")
+        expect(learnedCompletion == "whts" && retainedCompletion == "whts"
+                && editedCompletion == nil,
+               "Tab remembers the fuzzy search unless the completed field is edited")
+
+        let learningDefaultsName = "org.vorssaint.tests.command-bar-learning"
+        let learningDefaults = UserDefaults(suiteName: learningDefaultsName)!
+        learningDefaults.set("usage", forKey: DefaultsKey.commandBarUsage)
+        learningDefaults.set("habits", forKey: DefaultsKey.commandBarQueryHabits)
+        CommandBarLearning.forgetAll(in: learningDefaults)
+        expect(learningDefaults.object(forKey: DefaultsKey.commandBarUsage) == nil
+                && learningDefaults.object(forKey: DefaultsKey.commandBarQueryHabits) == nil,
+               "forgetting all learned use clears usage and query choices together")
+        learningDefaults.removePersistentDomain(forName: learningDefaultsName)
 
         let barSuggestions = CommandBarUsage.suggestionIDs(
             usage: barUsage,

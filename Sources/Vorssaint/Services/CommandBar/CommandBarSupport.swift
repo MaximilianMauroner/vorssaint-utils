@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import CryptoKit
 import Foundation
+import Security
 
 enum CommandBarClipboardAccess {
     static func canUseHistory(captureEnabled: Bool, hasSavedItems: Bool) -> Bool {
@@ -92,19 +94,31 @@ struct CommandBarCandidate {
     /// Already folded, so a long list is not re-folded on every keystroke.
     let normalizedTitle: String
     let normalizedKeywords: String
+    /// An explicit name given by the person leads ordinary textual matches.
+    let priority: Int
     let boost: Int
 
-    init(index: Int, title: String, keywords: String = "", boost: Int = 0) {
+    init(index: Int,
+         title: String,
+         keywords: String = "",
+         priority: Int = 0,
+         boost: Int = 0) {
         self.init(index: index,
                   normalizedTitle: CommandBarSearch.normalized(title),
                   normalizedKeywords: CommandBarSearch.normalized(keywords),
+                  priority: priority,
                   boost: boost)
     }
 
-    init(index: Int, normalizedTitle: String, normalizedKeywords: String, boost: Int = 0) {
+    init(index: Int,
+         normalizedTitle: String,
+         normalizedKeywords: String,
+         priority: Int = 0,
+         boost: Int = 0) {
         self.index = index
         self.normalizedTitle = normalizedTitle
         self.normalizedKeywords = normalizedKeywords
+        self.priority = priority
         self.boost = boost
     }
 }
@@ -215,16 +229,36 @@ enum CommandBarSearch {
     /// order so equally good rows stay where the catalog put them.
     static func rankedIndexes(candidates: [CommandBarCandidate], matching query: String) -> [Int] {
         let normalizedQuery = normalized(query)
-        let scored: [(index: Int, score: Int, position: Int)] = candidates.enumerated()
+        let scored: [(index: Int, priority: Int, tier: Int, score: Int, position: Int)] = candidates.enumerated()
             .compactMap { position, candidate in
                 guard let base = score(normalizedTitle: candidate.normalizedTitle,
                                        normalizedKeywords: candidate.normalizedKeywords,
                                        normalizedQuery: normalizedQuery) else { return nil }
-                return (candidate.index, base + candidate.boost, position)
+                let tier = matchTier(title: candidate.normalizedTitle,
+                                     keywords: candidate.normalizedKeywords,
+                                     query: normalizedQuery)
+                return (candidate.index, candidate.priority, tier,
+                        base + candidate.boost, position)
             }
         return scored
-            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.position < $1.position }
+            .sorted {
+                if $0.priority != $1.priority { return $0.priority > $1.priority }
+                if $0.tier != $1.tier { return $0.tier > $1.tier }
+                if $0.score != $1.score { return $0.score > $1.score }
+                return $0.position < $1.position
+            }
             .map(\.index)
+    }
+
+    /// Broad text quality is compared before usage and source preferences.
+    /// Those signals can reorder two prefix matches, but cannot bury the app
+    /// whose title is exactly what was typed.
+    private static func matchTier(title: String, keywords: String, query: String) -> Int {
+        if title == query { return 5 }
+        if title.hasPrefix(query) { return 4 }
+        if title.contains(query) { return 3 }
+        if !keywords.isEmpty, keywords.contains(query) { return 2 }
+        return 1
     }
 
     private static func bestTokenScore(_ token: String, in words: [String], haystack: String) -> Int? {
@@ -437,8 +471,8 @@ extension CommandBarSearch {
     }
 }
 
-/// How often and how recently one command ran. Stored per command id, never
-/// per query: what the person typed is never written anywhere.
+/// How often and how recently one command ran. Query habits reuse it behind
+/// keyed digests; what the person typed is never written anywhere.
 struct CommandBarUse: Codable, Equatable {
     var count: Int
     var lastUsed: Double
@@ -514,5 +548,174 @@ enum CommandBarUsage {
             }
         }
         return picked
+    }
+}
+
+/// Which app won after a typed query. Preferences hold only keyed digests of
+/// query prefixes; the per-install key lives separately in the Keychain.
+enum CommandBarQueryHabits {
+    typealias Store = [String: [String: CommandBarUse]]
+
+    struct PreparedQuery {
+        fileprivate let keys: [(digest: String, specificity: Int)]
+        var keyCount: Int { keys.count }
+    }
+
+    static let storedQueryLimit = 320
+    private static let resultLimit = 4
+
+    static func decode(_ raw: String?) -> Store {
+        guard let raw, let data = raw.data(using: .utf8),
+              let store = try? JSONDecoder().decode(Store.self, from: data)
+        else { return [:] }
+        return store
+    }
+
+    static func encode(_ store: Store) -> String? {
+        guard let data = try? JSONEncoder().encode(store) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func recording(_ store: Store,
+                          preparedQuery: PreparedQuery,
+                          resultID: String,
+                          now: Double) -> Store {
+        var next = store
+        for queryKey in preparedQuery.keys {
+            var choices = next[queryKey.digest] ?? [:]
+            var use = choices[resultID] ?? CommandBarUse(count: 0, lastUsed: now)
+            use.count = min(use.count + 1, 999)
+            use.lastUsed = now
+            choices[resultID] = use
+            if choices.count > resultLimit {
+                for choice in choices.sorted(by: { $0.value.lastUsed < $1.value.lastUsed })
+                    .prefix(choices.count - resultLimit) {
+                    choices.removeValue(forKey: choice.key)
+                }
+            }
+            next[queryKey.digest] = choices
+        }
+        if next.count > storedQueryLimit {
+            let surplus = next.sorted { latestUse(in: $0.value) < latestUse(in: $1.value) }
+                .prefix(next.count - storedQueryLimit)
+            for entry in surplus { next.removeValue(forKey: entry.key) }
+        }
+        return next
+    }
+
+    static func boost(for resultID: String,
+                      preparedQuery: PreparedQuery,
+                      store: Store,
+                      now: Double) -> Int {
+        preparedQuery.keys.reduce(0) { best, queryKey in
+            guard let use = store[queryKey.digest]?[resultID] else { return best }
+            let learned = CommandBarUsage.boost(for: use, now: now) * 5
+                + queryKey.specificity * 6
+            return max(best, min(learned, 720))
+        }
+    }
+
+    static func removing(resultID: String, from store: Store) -> Store {
+        store.reduce(into: Store()) { result, entry in
+            var choices = entry.value
+            choices.removeValue(forKey: resultID)
+            if !choices.isEmpty { result[entry.key] = choices }
+        }
+    }
+
+    static func prepare(_ query: String) -> PreparedQuery {
+        prepare(query, key: installationKey)
+    }
+
+    /// Injectable so the storage and ranking rules stay deterministic in
+    /// tests without reading or writing the person's Keychain.
+    static func prepare(_ query: String, key: Data) -> PreparedQuery {
+        prepare(query, key: SymmetricKey(data: key))
+    }
+
+    private static func prepare(_ query: String, key: SymmetricKey) -> PreparedQuery {
+        let characters = Array(CommandBarSearch.normalized(query).prefix(24))
+        guard characters.count >= 3 else { return PreparedQuery(keys: []) }
+        let keys = (3...characters.count).map { length in
+            let prefix = String(characters.prefix(length))
+            let digest = HMAC<SHA256>.authenticationCode(for: Data(prefix.utf8), using: key)
+                .prefix(12)
+                .map { String(format: "%02x", $0) }.joined()
+            return (digest, length)
+        }
+        return PreparedQuery(keys: keys)
+    }
+
+    private static func latestUse(in choices: [String: CommandBarUse]) -> Double {
+        choices.values.map(\.lastUsed).max() ?? 0
+    }
+
+    private static let installationKey: SymmetricKey = {
+        let service = "org.vorssaint.command-bar-query-habits"
+        let account = "hmac-key"
+        if let data = storedKey(service: service, account: account) {
+            return SymmetricKey(data: data)
+        }
+
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            return SymmetricKey(size: .bits256)
+        }
+        let data = Data(bytes)
+        let identity: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+        var insert = identity
+        insert.merge([
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecValueData: data,
+        ]) { _, new in new }
+        let status = SecItemAdd(insert as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            // Another process may have won the first launch race. Its key is
+            // canonical; only replace an existing malformed value.
+            if let stored = storedKey(service: service, account: account) {
+                return SymmetricKey(data: stored)
+            }
+            SecItemUpdate(identity as CFDictionary,
+                          [kSecValueData: data] as CFDictionary)
+        }
+        return SymmetricKey(data: data)
+    }()
+
+    private static func storedKey(service: String, account: String) -> Data? {
+        let lookup: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(lookup as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data, data.count == 32
+        else { return nil }
+        return data
+    }
+}
+
+enum CommandBarLearning {
+    static func forgetAll(in defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: DefaultsKey.commandBarUsage)
+        defaults.removeObject(forKey: DefaultsKey.commandBarQueryHabits)
+    }
+}
+
+enum CommandBarCompletion {
+    static func queryForLearning(current: String, beforeCompletion: String?) -> String {
+        beforeCompletion ?? current
+    }
+
+    static func retainedOriginal(_ original: String?,
+                                 completedValue: String?,
+                                 afterChangingTo value: String) -> String? {
+        value == completedValue ? original : nil
     }
 }

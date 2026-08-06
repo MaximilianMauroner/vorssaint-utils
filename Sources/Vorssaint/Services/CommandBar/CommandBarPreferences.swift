@@ -116,7 +116,9 @@ enum CommandBarPreferences {
     static func rankBias(for source: CommandBarSource) -> Int {
         switch source {
         case .menus: return -80
-        case .actions, .apps, .windows, .quitApps, .settingsPages, .snippets, .clipboard,
+        case .apps: return 80
+        case .settingsPages: return -40
+        case .actions, .windows, .quitApps, .snippets, .clipboard,
              .emoji, .folders, .answers, .calculator, .selection, .links:
             return 0
         }

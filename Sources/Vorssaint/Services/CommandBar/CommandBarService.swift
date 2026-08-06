@@ -51,7 +51,15 @@ final class CommandBarService: ObservableObject {
     }
 
     @Published var query = "" {
-        didSet { if query != oldValue { refreshResults() } }
+        didSet {
+            guard query != oldValue else { return }
+            queryBeforeCompletion = CommandBarCompletion.retainedOriginal(
+                queryBeforeCompletion,
+                completedValue: completedQuery,
+                afterChangingTo: query)
+            if queryBeforeCompletion == nil { completedQuery = nil }
+            refreshResults()
+        }
     }
     @Published private(set) var rows: [CommandBarEntry] = []
     @Published private(set) var isShowingSuggestions = false
@@ -127,6 +135,10 @@ final class CommandBarService: ObservableObject {
     private var finderAutomationDenied = false
     /// The query to restore when Esc leaves argument or confirm mode.
     private var savedQuery = ""
+    /// Tab replaces the field with a title, but the search that found that
+    /// title is what app-choice learning should remember.
+    private var queryBeforeCompletion: String?
+    private var completedQuery: String?
     /// The last thing typed, kept only in memory so reopening can offer it.
     private var lastQuery = ""
     /// Where the pointer sat when the bar opened. A row under a pointer that
@@ -251,6 +263,8 @@ final class CommandBarService: ObservableObject {
         sectionTitles = [:]
         mode = .search
         savedQuery = ""
+        queryBeforeCompletion = nil
+        completedQuery = nil
         queryWhenRun = ""
         selectionWhenRun = ""
         lastPointerLocation = NSEvent.mouseLocation
@@ -670,6 +684,12 @@ final class CommandBarService: ObservableObject {
             UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage))
         usage.removeValue(forKey: entry.id)
         UserDefaults.standard.set(CommandBarUsage.encode(usage), forKey: DefaultsKey.commandBarUsage)
+        let storedHabits = UserDefaults.standard.string(forKey: DefaultsKey.commandBarQueryHabits)
+        let habits = CommandBarQueryHabits.removing(
+            resultID: entry.id,
+            from: CommandBarQueryHabits.decode(storedHabits))
+        UserDefaults.standard.set(CommandBarQueryHabits.encode(habits),
+                                  forKey: DefaultsKey.commandBarQueryHabits)
         refreshAfterPreferenceChange()
     }
 
@@ -1026,6 +1046,11 @@ final class CommandBarService: ObservableObject {
 
         let usage = CommandBarUsage.decode(
             UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage))
+        let queryHabits = CommandBarQueryHabits.decode(
+            UserDefaults.standard.string(forKey: DefaultsKey.commandBarQueryHabits))
+        // HMAC work depends only on the query. Preparing it here keeps the
+        // app loop below to dictionary lookups.
+        let preparedHabitQuery = CommandBarQueryHabits.prepare(effectiveQuery)
         let now = Date().timeIntervalSince1970
 
         // The clipboard is searched with everything that was typed: digits
@@ -1083,6 +1108,7 @@ final class CommandBarService: ObservableObject {
                                                               query: effectiveQuery),
                                 normalizedKeywords: folded?.keywords
                                     ?? CommandBarSearch.normalized(entry.keywords),
+                                priority: aliasBoost,
                                 // A running app is likelier to be the one
                                 // wanted, but never enough to beat a better
                                 // name match.
@@ -1090,7 +1116,13 @@ final class CommandBarService: ObservableObject {
                                         ? CommandBarUsage.boost(for: usage[entry.id], now: now)
                                         : 0)
                                     + (entry.isActive ? 20 : 0)
-                                    + aliasBoost
+                                    + (sources[index] == .apps
+                                        ? CommandBarQueryHabits.boost(
+                                            for: entry.id,
+                                            preparedQuery: preparedHabitQuery,
+                                            store: queryHabits,
+                                            now: now)
+                                        : 0)
                                     // What the Mac itself holds leads what is
                                     // borrowed from the app in front.
                                     + CommandBarPreferences.rankBias(for: sources[index])
@@ -1142,6 +1174,8 @@ final class CommandBarService: ObservableObject {
     /// does, so the next keystroke refines instead of starting over.
     func completeSelection() {
         guard case .search = mode, let entry = selectedEntry, !entry.isAnswer else { return }
+        if queryBeforeCompletion == nil { queryBeforeCompletion = query }
+        completedQuery = entry.title
         query = entry.title
     }
 
@@ -1580,12 +1614,27 @@ final class CommandBarService: ObservableObject {
     }
 
     private func finish(_ entry: CommandBarEntry, value: Int?) {
+        let now = Date().timeIntervalSince1970
         if entry.countsUsage {
             let stored = UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage)
             let next = CommandBarUsage.recording(CommandBarUsage.decode(stored),
                                                  id: entry.id,
-                                                 now: Date().timeIntervalSince1970)
+                                                 now: now)
             UserDefaults.standard.set(CommandBarUsage.encode(next), forKey: DefaultsKey.commandBarUsage)
+        }
+        let typedQuery = CommandBarCompletion.queryForLearning(
+            current: query,
+            beforeCompletion: queryBeforeCompletion)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if CommandBarPreferences.source(ofRowID: entry.id) == .apps, !typedQuery.isEmpty {
+            let stored = UserDefaults.standard.string(forKey: DefaultsKey.commandBarQueryHabits)
+            let next = CommandBarQueryHabits.recording(
+                CommandBarQueryHabits.decode(stored),
+                preparedQuery: CommandBarQueryHabits.prepare(typedQuery),
+                resultID: entry.id,
+                now: now)
+            UserDefaults.standard.set(CommandBarQueryHabits.encode(next),
+                                      forKey: DefaultsKey.commandBarQueryHabits)
         }
         // Handed over before hiding, which wipes the field and the selection.
         queryWhenRun = query
