@@ -10524,13 +10524,18 @@ struct MetricsTests {
 
         // MARK: Command bar emoji
 
-        expect(CommandBarEmoji.emoji.count > 150, "the curated emoji set is there")
+        expect(CommandBarEmoji.emoji.count > 1_000, "the searchable Unicode emoji set is there")
         expect(CommandBarEmoji.emoji.allSatisfy { !$0.name.isEmpty && !$0.character.isEmpty },
                "every emoji carries the words that find it")
         expect(CommandBarEmoji.emoji.contains { $0.character == "🔥" && $0.name.contains("fire") },
                "the names come from Unicode itself")
         expect(CommandBarEmoji.emoji.contains { $0.name.contains("heart") },
                "the ones people look for by feeling are findable")
+        expect(CommandBarEmoji.emoji.contains {
+            $0.character == "💀" && $0.name == "skull" && $0.keywords.contains("dead")
+        }, "common emoji answer to both Unicode names and human aliases")
+        expect(CommandBarEmoji.emoji.first?.character == "😀",
+               "popular emoji keep a predictable lead over the Unicode long tail")
         expect(Set(CommandBarEmoji.emoji.map(\.character)).count == CommandBarEmoji.emoji.count,
                "no emoji is offered twice")
 

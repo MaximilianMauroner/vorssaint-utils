@@ -12,16 +12,17 @@ enum CommandBarEmoji {
     struct Emoji {
         let character: String
         let name: String
+        let keywords: String
     }
 
-    /// The emoji people actually reach for, in the order they are usually
-    /// wanted. Kept deliberately short: a full set would bury every other
-    /// kind of row, and the system's own picker exists for the long tail.
-    private static let emojiCharacters = [
+    /// The emoji people reach for most, in the order they are usually wanted.
+    /// They lead browsing and break equally good search ties; the Unicode set
+    /// below supplies the long tail without displacing these familiar rows.
+    private static let popularEmojiCharacters = [
         "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "😉", "😊",
         "😍", "🥰", "😘", "😗", "😜", "🤪", "🤔", "🤗", "🤩", "🥳", "😎", "🤓",
         "😐", "😑", "😶", "🙄", "😏", "😥", "😮", "😴", "😌", "😔", "😪", "🤤",
-        "😭", "😢", "😤", "😠", "😡", "🤬", "🤯", "😳", "🥺", "😱", "😨", "😰",
+        "😭", "😢", "😤", "😠", "😡", "🤬", "🤯", "😳", "🥺", "😱", "😨", "😰", "💀", "☠️",
         "🙏", "👍", "👎", "👌", "🤌", "✌️", "🤞", "🤟", "🤘", "👏", "🙌", "👐",
         "💪", "🫶", "👋", "🤝", "✍️", "💅", "👀", "🧠", "🫀", "🦾", "🦿", "👣",
         "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "💔", "❣️", "💕", "💞",
@@ -37,13 +38,75 @@ enum CommandBarEmoji {
         "⏰", "⏳", "📅", "📈", "📉", "📊", "💰", "💳", "🏆", "🥇", "🎯", "🧩",
     ]
 
-    /// The curated set with its Unicode names resolved once.
+    /// Human search terms that Unicode's formal names do not carry. Keep this
+    /// deliberately compact: names cover literal searches, aliases cover the
+    /// common intent words people actually type into an emoji picker.
+    private static let aliases: [String: String] = [
+        "😂": "lol laugh laughing tears funny",
+        "🤣": "lol rofl laugh laughing funny",
+        "😊": "happy smile blush",
+        "🥰": "love affection hearts",
+        "😘": "kiss love",
+        "😎": "cool sunglasses",
+        "🤔": "think thinking hmm",
+        "🙄": "eyeroll whatever",
+        "😭": "cry crying sad sob",
+        "🥺": "please pleading puppy eyes",
+        "😡": "angry mad rage",
+        "🤬": "swear cursing angry",
+        "💀": "dead death dying skeleton halloween",
+        "☠️": "dead death danger poison pirate",
+        "🙏": "please thanks thank you pray prayer high five",
+        "👍": "yes good approve like okay",
+        "👎": "no bad disapprove dislike",
+        "👌": "okay perfect good",
+        "👏": "clap applause congrats congratulations",
+        "🙌": "hooray celebrate praise",
+        "🫶": "love heart hands",
+        "👀": "look looking eyes see",
+        "❤️": "love heart red",
+        "💔": "heartbreak broken heart sad",
+        "🔥": "fire hot lit trending",
+        "✨": "sparkle sparkles magic clean",
+        "🎉": "party celebrate celebration congrats congratulations",
+        "✅": "check done yes complete success",
+        "❌": "cross no wrong error fail",
+        "⚠️": "warning caution alert",
+        "💡": "idea lightbulb tip",
+        "🚀": "launch ship rocket fast",
+    ]
+
+    /// Popular emoji first, followed by every single-scalar emoji in Unicode
+    /// sorted by name. Resolved once, so searching the larger set does not
+    /// repeat Unicode-name work on each keystroke.
     static let emoji: [Emoji] = {
-        emojiCharacters.compactMap { character in
-            guard let name = unicodeName(of: character) else { return nil }
-            return Emoji(character: character, name: name)
+        var seen: Set<String> = []
+        func makeEmoji(_ character: String) -> Emoji? {
+            guard seen.insert(canonicalCharacter(character)).inserted,
+                  let name = unicodeName(of: character) else { return nil }
+            return Emoji(character: character,
+                         name: name,
+                         keywords: aliases[character] ?? "")
         }
+
+        let popular = popularEmojiCharacters.compactMap(makeEmoji)
+        let longTail = (0...0x1FAFF).compactMap(Unicode.Scalar.init)
+            .filter { scalar in
+                scalar.properties.isEmojiPresentation
+                    && !scalar.properties.isEmojiModifier
+                    && !(0x1F1E6...0x1F1FF).contains(scalar.value)
+            }
+            .compactMap { makeEmoji(String($0)) }
+            .sorted { $0.name < $1.name }
+        return popular + longTail
     }()
+
+    /// Variation selectors change presentation, not identity. Folding them
+    /// keeps a popular text-style sequence from returning once more as the
+    /// equivalent bare Unicode scalar in the long tail.
+    private static func canonicalCharacter(_ character: String) -> String {
+        String(character.unicodeScalars.filter { $0.value != 0xFE0F && $0.value != 0xFE0E })
+    }
 
     /// "❤️" becomes "heavy black heart". Foundation exposes the Unicode name
     /// table, so the words that find an emoji cost nothing to ship.
