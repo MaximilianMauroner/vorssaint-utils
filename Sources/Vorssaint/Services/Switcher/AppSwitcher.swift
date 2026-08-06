@@ -104,6 +104,18 @@ final class AppSwitcher: ObservableObject {
     private var routePendingSessionStart: SwitcherPendingSessionStart?
     private var sessionStartGeneration: UInt64 = 0
 
+    /// Enumeration touches every regular app through Accessibility, so it is
+    /// warmed away from the event tap and reused when a shortcut arrives.
+    private let enumerationQueue = DispatchQueue(label: "com.vorssaint.switcher.enumeration",
+                                                  qos: .userInitiated)
+    private let enumerationLock = NSLock()
+    private var cachedWindowItems: [SwitcherItem]?
+    private var cachedWindowGroupByApp = false
+    private var cachedWindowPreservesGroupedWindows = false
+    private var windowCacheEnabled = false
+    private var enumerationScheduled = false
+    private var enumerationRefreshRequested = false
+    private var workspaceTokens: [NSObjectProtocol] = []
     private var pendingShow: DispatchWorkItem?
     /// True once the user moved the selection themselves.
     private var userNavigated = false
@@ -175,6 +187,7 @@ final class AppSwitcher: ObservableObject {
             // the first ⌘Tab.
             let panel = ensurePanel()
             panel.contentViewController?.view.layoutSubtreeIfNeeded()
+            startWindowCache()
             if !capturesPreviews {
                 WindowPreviewProvider.shared.stopWarming()
             } else {
@@ -184,6 +197,7 @@ final class AppSwitcher: ObservableObject {
             stopObservingKeyboardLayout()
             stopObservingWake()
             removeTap()
+            stopWindowCache()
             WindowPreviewProvider.shared.stopWarming()
         }
     }
@@ -735,14 +749,27 @@ final class AppSwitcher: ObservableObject {
         }) else { return }
         let allApps = requested.scope == .allApps
         let mergeWindowsByApp = UserDefaults.standard.bool(forKey: DefaultsKey.switcherMergeTabs)
-        let allWindows = WindowEnumerator.listWindows(
-            groupByApp: allApps && mergeWindowsByApp,
-            preservingGroupedWindows: SwitcherSupport.preservesGroupedWindowsDuringEnumeration(
-                allApps: allApps,
-                mergeWindowsByApp: mergeWindowsByApp,
-                simpleMode: simpleModeEnabled
-            )
+        let groupByApp = allApps && mergeWindowsByApp
+        let preservesGroupedWindows = SwitcherSupport.preservesGroupedWindowsDuringEnumeration(
+            allApps: allApps,
+            mergeWindowsByApp: mergeWindowsByApp,
+            simpleMode: simpleModeEnabled
         )
+        var allWindows = cachedWindows(groupByApp: groupByApp,
+                                       preservingGroupedWindows: preservesGroupedWindows)
+        if allWindows == nil {
+            // The warm-up normally wins this race. Keep the first shortcut
+            // functional when the feature was enabled only a moment ago.
+            let enumerated = WindowEnumerator.listWindows(
+                groupByApp: groupByApp,
+                preservingGroupedWindows: preservesGroupedWindows
+            )
+            storeCachedWindows(enumerated,
+                               groupByApp: groupByApp,
+                               preservingGroupedWindows: preservesGroupedWindows)
+            allWindows = enumerated
+        }
+        guard let allWindows else { return }
         let windows: [SwitcherItem]
         switch requested.scope {
         case .allApps:
@@ -760,7 +787,10 @@ final class AppSwitcher: ObservableObject {
             }
             windows = scoped
         }
-        let focusedSourceWindowID = focusedWindowID(for: reportedFrontPID)
+        let focusedSourceWindowID = SwitcherSupport.needsFocusedWindowLookup(
+            frontmostPID: reportedFrontPID,
+            items: windows
+        ) ? focusedWindowID(for: reportedFrontPID) : nil
         // The foreground window is what a session is measured against, and it
         // does not always exist: an app left with no windows, or with all of
         // them minimized or on another Space, still owns the keyboard. The
@@ -847,6 +877,7 @@ final class AppSwitcher: ObservableObject {
         if !pending.commitWhenReady {
             scheduleShowPanel()
         }
+        scheduleWindowCacheRefresh()
     }
 
     private func discardPendingSessionStart(generation: UInt64) {
@@ -856,6 +887,105 @@ final class AppSwitcher: ObservableObject {
                 pendingGeneration: routePendingSessionStart?.generation
             ) else { return }
             routePendingSessionStart = nil
+        }
+    }
+
+    // MARK: - Window cache
+
+    /// Keeps the expensive Accessibility walk off the shortcut callback. App
+    /// lifecycle changes refresh it, and every session starts another refresh
+    /// for window changes that do not activate a different application.
+    private func startWindowCache() {
+        enumerationLock.withLock { windowCacheEnabled = true }
+        if workspaceTokens.isEmpty {
+            let center = NSWorkspace.shared.notificationCenter
+            let names: [Notification.Name] = [
+                NSWorkspace.didActivateApplicationNotification,
+                NSWorkspace.didLaunchApplicationNotification,
+                NSWorkspace.didTerminateApplicationNotification
+            ]
+            workspaceTokens = names.map { name in
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    self?.scheduleWindowCacheRefresh()
+                }
+            }
+        }
+        scheduleWindowCacheRefresh()
+    }
+
+    private func stopWindowCache() {
+        let center = NSWorkspace.shared.notificationCenter
+        for token in workspaceTokens { center.removeObserver(token) }
+        workspaceTokens = []
+        enumerationLock.withLock {
+            windowCacheEnabled = false
+            enumerationRefreshRequested = false
+            cachedWindowItems = nil
+        }
+    }
+
+    private func scheduleWindowCacheRefresh() {
+        let shouldSchedule = enumerationLock.withLock { () -> Bool in
+            guard windowCacheEnabled else { return false }
+            if enumerationScheduled {
+                enumerationRefreshRequested = true
+                return false
+            }
+            enumerationScheduled = true
+            return true
+        }
+        guard shouldSchedule else { return }
+        enumerationQueue.async { [weak self] in
+            guard let self else { return }
+            while true {
+                let groupByApp = UserDefaults.standard.bool(forKey: DefaultsKey.switcherMergeTabs)
+                let preservesGroupedWindows = SwitcherSupport.preservesGroupedWindowsDuringEnumeration(
+                    allApps: true,
+                    mergeWindowsByApp: groupByApp,
+                    simpleMode: self.simpleModeEnabled
+                )
+                let items = WindowEnumerator.listWindows(
+                    groupByApp: groupByApp,
+                    preservingGroupedWindows: preservesGroupedWindows
+                )
+                let shouldRepeat = self.enumerationLock.withLock { () -> Bool in
+                    guard self.windowCacheEnabled else {
+                        self.enumerationScheduled = false
+                        self.enumerationRefreshRequested = false
+                        return false
+                    }
+                    self.cachedWindowItems = items
+                    self.cachedWindowGroupByApp = groupByApp
+                    self.cachedWindowPreservesGroupedWindows = preservesGroupedWindows
+                    guard self.enumerationRefreshRequested else {
+                        self.enumerationScheduled = false
+                        return false
+                    }
+                    self.enumerationRefreshRequested = false
+                    return true
+                }
+                guard shouldRepeat else { return }
+            }
+        }
+    }
+
+    private func cachedWindows(groupByApp: Bool,
+                               preservingGroupedWindows: Bool) -> [SwitcherItem]? {
+        enumerationLock.withLock {
+            guard cachedWindowGroupByApp == groupByApp,
+                  cachedWindowPreservesGroupedWindows == preservingGroupedWindows
+            else { return nil }
+            return cachedWindowItems
+        }
+    }
+
+    private func storeCachedWindows(_ items: [SwitcherItem],
+                                    groupByApp: Bool,
+                                    preservingGroupedWindows: Bool) {
+        enumerationLock.withLock {
+            cachedWindowItems = items
+            cachedWindowGroupByApp = groupByApp
+            cachedWindowPreservesGroupedWindows = preservingGroupedWindows
         }
     }
 
