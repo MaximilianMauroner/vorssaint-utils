@@ -11253,6 +11253,77 @@ struct MetricsTests {
 
         // MARK: Command bar search and ranking
 
+        let firstBarPresentation = UUID()
+        let secondBarPresentation = UUID()
+        var barLifecycle = CommandBarPresentationLifecycle()
+        barLifecycle.beginEmoji(firstBarPresentation)
+        barLifecycle.markEmojiIndex()
+        expect(barLifecycle.usesEmojiIndex && !barLifecycle.hasFullIndex,
+               "a direct Emoji presentation owns only the Emoji index")
+
+        var titleCache = CommandBarEntryTitleCache()
+        titleCache.replace(with: ["app.whatsapp": "WhatsApp", "emoji.skull": "Skull"])
+        expect(titleCache.title(for: "app.whatsapp") == "WhatsApp"
+                && titleCache.title(for: "emoji.skull") == "Skull",
+               "one full title index resolves both app and Emoji metadata")
+        let nonEmojiAliasOwner = CommandBarPreferences.rowUsingAlias(
+            "chat", in: ["app.whatsapp": "chat"], excluding: "emoji.skull")
+        expect(barLifecycle.usesEmojiIndex
+                && nonEmojiAliasOwner.flatMap { titleCache.title(for: $0) } == "WhatsApp",
+               "Emoji naming can identify an alias owned outside its narrow index")
+        titleCache.invalidate()
+        expect(!titleCache.isPrepared && titleCache.title(for: "app.whatsapp") == nil,
+               "dynamic catalog inputs invalidate every cached title together")
+        barLifecycle.hide()
+        expect(barLifecycle.surface == .hidden && barLifecycle.index == .none,
+               "closing Emoji discards its narrow index before an ordinary lookup")
+
+        barLifecycle.beginHome(firstBarPresentation)
+        expect(barLifecycle.isLoadingHome && barLifecycle.index == .none,
+               "home presents with no stale runnable rows while its catalog hydrates")
+        barLifecycle.beginEmoji(secondBarPresentation)
+        expect(!barLifecycle.completeHomeHydration(firstBarPresentation, isVisible: true),
+               "Emoji supersedes deferred home hydration from an earlier shortcut")
+        barLifecycle.markEmojiIndex()
+        expect(barLifecycle.index == .emoji,
+               "rejected home work cannot replace the active Emoji index")
+        barLifecycle.hide()
+        expect(!barLifecycle.completeHomeHydration(secondBarPresentation, isVisible: false),
+               "closing the panel cancels deferred hydration")
+
+        barLifecycle.beginHome(firstBarPresentation)
+        barLifecycle.beginHome(secondBarPresentation)
+        expect(!barLifecycle.completeHomeHydration(firstBarPresentation, isVisible: true)
+                && barLifecycle.completeHomeHydration(secondBarPresentation, isVisible: true),
+               "only the latest visible home presentation may receive deferred work")
+        barLifecycle.markFullIndex()
+        expect(barLifecycle.acceptsHomeUpdates(secondBarPresentation, isVisible: true)
+                && !barLifecycle.acceptsHomeUpdates(firstBarPresentation, isVisible: true)
+                && !barLifecycle.acceptsHomeUpdates(secondBarPresentation, isVisible: false),
+               "background rows update only their still-visible home presentation")
+        expect(barLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: firstBarPresentation,
+                    currentID: secondBarPresentation,
+                    isVisible: true),
+               "a shared cache completion refreshes the newer visible Home")
+        barLifecycle.beginEmoji(secondBarPresentation)
+        expect(!barLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: firstBarPresentation,
+                    currentID: secondBarPresentation,
+                    isVisible: true),
+               "a shared cache completion never mutates the visible Emoji surface")
+
+        var deferredShortcut = CommandBarDeferredRowShortcut()
+        deferredShortcut.schedule("action.trash", for: firstBarPresentation)
+        expect(deferredShortcut.take(for: secondBarPresentation) == nil
+                && deferredShortcut.take(for: firstBarPresentation) == "action.trash"
+                && deferredShortcut.take(for: firstBarPresentation) == nil,
+               "a prompt shortcut runs once and only on the presentation that requested it")
+        deferredShortcut.schedule("action.trash", for: firstBarPresentation)
+        deferredShortcut.cancel()
+        expect(deferredShortcut.take(for: firstBarPresentation) == nil,
+               "closing or superseding a presentation cancels its prompt shortcut")
+
         expect(CommandBarSearch.normalized("  Brilho   da\tTela ") == "brilho da tela",
                "command bar folds case and collapses whitespace")
         expect(CommandBarSearch.matches(title: "Reunião com João", query: "reuniao joao"),
