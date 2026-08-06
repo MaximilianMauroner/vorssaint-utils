@@ -10534,9 +10534,15 @@ struct MetricsTests {
         expect(CommandBarEmoji.emoji.contains {
             $0.character == "💀" && $0.name == "skull" && $0.keywords.contains("dead")
         }, "common emoji answer to both Unicode names and human aliases")
+        let emojiCharacters = Set(CommandBarEmoji.emoji.map(\.character))
+        expect(["©️", "™️", "✂️"].allSatisfy(emojiCharacters.contains),
+               "text-default emoji get the selector that displays them as emoji")
+        expect(["#️", "*️", "0️", "9️", "🏻", "🇦"].allSatisfy {
+            !emojiCharacters.contains($0)
+        }, "incomplete emoji sequence components are not offered alone")
         expect(CommandBarEmoji.emoji.first?.character == "😀",
                "popular emoji keep a predictable lead over the Unicode long tail")
-        expect(Set(CommandBarEmoji.emoji.map(\.character)).count == CommandBarEmoji.emoji.count,
+        expect(emojiCharacters.count == CommandBarEmoji.emoji.count,
                "no emoji is offered twice")
 
         // MARK: Command bar highlighting

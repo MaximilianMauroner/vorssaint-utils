@@ -91,12 +91,20 @@ enum CommandBarEmoji {
 
         let popular = popularEmojiCharacters.compactMap(makeEmoji)
         let longTail = (0...0x1FAFF).compactMap(Unicode.Scalar.init)
-            .filter { scalar in
-                scalar.properties.isEmojiPresentation
-                    && !scalar.properties.isEmojiModifier
-                    && !(0x1F1E6...0x1F1FF).contains(scalar.value)
+            .compactMap { scalar -> String? in
+                let isKeycapBase = scalar.value == 0x23
+                    || scalar.value == 0x2A
+                    || (0x30...0x39).contains(scalar.value)
+                guard scalar.properties.isEmoji,
+                      !scalar.properties.isEmojiModifier,
+                      !(0x1F1E6...0x1F1FF).contains(scalar.value),
+                      !isKeycapBase else { return nil }
+                // Text-default emoji need the selector to display as emoji,
+                // while native emoji-presentation scalars stand on their own.
+                return String(scalar)
+                    + (scalar.properties.isEmojiPresentation ? "" : "\u{FE0F}")
             }
-            .compactMap { makeEmoji(String($0)) }
+            .compactMap(makeEmoji)
             .sorted { $0.name < $1.name }
         return popular + longTail
     }()
