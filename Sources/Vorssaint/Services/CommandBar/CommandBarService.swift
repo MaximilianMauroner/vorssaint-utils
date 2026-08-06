@@ -197,7 +197,7 @@ final class CommandBarService: ObservableObject {
         isVisible ? hide() : show()
     }
 
-    func show() {
+    func show(category: CommandBarSource? = nil) {
         guard AppFeature.commandBar.isAvailable else { return }
         let panel = ensurePanel()
         presentationID = UUID()
@@ -208,7 +208,7 @@ final class CommandBarService: ObservableObject {
         lastPointerLocation = NSEvent.mouseLocation
         selectedID = nil
         lastRankedQuery = nil
-        activeCategory = nil
+        activeCategory = category
         reloadPreferenceCaches()
         rebuildCatalog()
         rebuildRunningEntries()
@@ -352,6 +352,10 @@ final class CommandBarService: ObservableObject {
     /// is built on the spot: it is the same work one keystroke of typing does,
     /// and it keeps the feature costing nothing while nothing is pressed.
     private func runRow(withStableKey key: String) {
+        if key == CommandBarPreferences.emojiBrowserRowID {
+            show(category: .emoji)
+            return
+        }
         if entriesByStableKey[key] == nil {
             rebuildCatalog()
             rebuildRunningEntries()
@@ -435,6 +439,18 @@ final class CommandBarService: ObservableObject {
         selectedID = nil
         lastRankedQuery = nil
         refreshResults()
+    }
+
+    func enterCategory(_ source: CommandBarSource) {
+        guard activeCategory != source || !query.isEmpty else { return }
+        activeCategory = source
+        selectedID = nil
+        lastRankedQuery = nil
+        if !query.isEmpty {
+            query = ""
+        } else {
+            refreshResults()
+        }
     }
 
     /// Whether a category is worth a chip.
