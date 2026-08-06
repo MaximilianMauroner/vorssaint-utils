@@ -10537,7 +10537,10 @@ struct MetricsTests {
         let emojiCharacters = Set(CommandBarEmoji.emoji.map(\.character))
         expect(["©️", "™️", "✂️"].allSatisfy(emojiCharacters.contains),
                "text-default emoji get the selector that displays them as emoji")
-        expect(["#️", "*️", "0️", "9️", "🏻", "🇦"].allSatisfy {
+        expect(["🌤️", "🌧️", "⛈️", "🗺️", "🖥️", "🖱️", "🖨️", "🛠️"].allSatisfy {
+            emojiCharacters.contains($0) && $0.unicodeScalars.last?.value == 0xFE0F
+        }, "popular text-default emoji keep their emoji presentation selector")
+        expect(["#️", "*️", "0️", "9️", "🏻", "🇦", "🦰", "🦱", "🦲", "🦳"].allSatisfy {
             !emojiCharacters.contains($0)
         }, "incomplete emoji sequence components are not offered alone")
         expect(CommandBarEmoji.emoji.first?.character == "😀",

@@ -81,15 +81,17 @@ enum CommandBarEmoji {
     /// repeat Unicode-name work on each keystroke.
     static let emoji: [Emoji] = {
         var seen: Set<String> = []
-        func makeEmoji(_ character: String) -> Emoji? {
+        func makeEmoji(_ character: String, aliasCharacter: String? = nil) -> Emoji? {
             guard seen.insert(canonicalCharacter(character)).inserted,
                   let name = unicodeName(of: character) else { return nil }
             return Emoji(character: character,
                          name: name,
-                         keywords: aliases[character] ?? "")
+                         keywords: aliases[aliasCharacter ?? character] ?? "")
         }
 
-        let popular = popularEmojiCharacters.compactMap(makeEmoji)
+        let popular = popularEmojiCharacters.compactMap { character in
+            makeEmoji(emojiPresentation(of: character), aliasCharacter: character)
+        }
         let longTail = (0...0x1FAFF).compactMap(Unicode.Scalar.init)
             .compactMap { scalar -> String? in
                 let isKeycapBase = scalar.value == 0x23
@@ -98,16 +100,28 @@ enum CommandBarEmoji {
                 guard scalar.properties.isEmoji,
                       !scalar.properties.isEmojiModifier,
                       !(0x1F1E6...0x1F1FF).contains(scalar.value),
+                      !(0x1F9B0...0x1F9B3).contains(scalar.value),
                       !isKeycapBase else { return nil }
                 // Text-default emoji need the selector to display as emoji,
                 // while native emoji-presentation scalars stand on their own.
                 return String(scalar)
                     + (scalar.properties.isEmojiPresentation ? "" : "\u{FE0F}")
             }
-            .compactMap(makeEmoji)
+            .compactMap { makeEmoji($0) }
             .sorted { $0.name < $1.name }
         return popular + longTail
     }()
+
+    /// Single text-default scalars need the selector to render as emoji. Keep
+    /// existing sequences intact because their presentation is intentional.
+    private static func emojiPresentation(of character: String) -> String {
+        let scalars = character.unicodeScalars
+        guard scalars.count == 1,
+              let scalar = scalars.first,
+              scalar.properties.isEmoji,
+              !scalar.properties.isEmojiPresentation else { return character }
+        return character + "\u{FE0F}"
+    }
 
     /// Variation selectors change presentation, not identity. Folding them
     /// keeps a popular text-style sequence from returning once more as the
