@@ -101,6 +101,7 @@ enum SettingsBackupSupport {
         DefaultsKey.whatsAppOrganizerLastFailed,
         // What one person runs most is habit, not configuration.
         DefaultsKey.commandBarUsage,
+        DefaultsKey.commandBarQueryHabits,
         DefaultsKey.simulateUpdate,
         DefaultsKey.updateShowcaseIntroVersion,
         DefaultsKey.updateShowcaseMediaOverride,
