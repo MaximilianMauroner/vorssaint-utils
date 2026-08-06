@@ -221,7 +221,7 @@ struct CommandBarSettings: View {
                     }
                 }
                 Button(text.forgetAllButton) {
-                    UserDefaults.standard.removeObject(forKey: DefaultsKey.commandBarUsage)
+                    CommandBarLearning.forgetAll()
                 }
             } header: {
                 Text(text.hiddenTitle)
