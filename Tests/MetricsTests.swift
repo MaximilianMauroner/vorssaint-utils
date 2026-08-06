@@ -11590,6 +11590,44 @@ struct MetricsTests {
 
         // MARK: Command bar search and ranking
 
+        let firstBarPresentation = UUID()
+        let secondBarPresentation = UUID()
+        var barLifecycle = CommandBarPresentationLifecycle()
+        barLifecycle.beginEmoji(firstBarPresentation)
+        barLifecycle.markEmojiIndex()
+        expect(barLifecycle.usesEmojiIndex && !barLifecycle.hasFullIndex,
+               "a direct Emoji presentation owns only the Emoji index")
+        barLifecycle.hide()
+        expect(barLifecycle.surface == .hidden && barLifecycle.index == .none,
+               "closing Emoji discards its narrow index before an ordinary lookup")
+        barLifecycle.markFullIndex()
+        expect(barLifecycle.hasFullIndex,
+               "an ordinary row shortcut or Settings title can rebuild the complete index")
+
+        barLifecycle.beginHome(firstBarPresentation)
+        expect(barLifecycle.isLoadingHome && barLifecycle.index == .none,
+               "home presents with no stale runnable rows while its catalog hydrates")
+        barLifecycle.beginEmoji(secondBarPresentation)
+        expect(!barLifecycle.completeHomeHydration(firstBarPresentation, isVisible: true),
+               "Emoji supersedes deferred home hydration from an earlier shortcut")
+        barLifecycle.markEmojiIndex()
+        expect(barLifecycle.index == .emoji,
+               "rejected home work cannot replace the active Emoji index")
+        barLifecycle.hide()
+        expect(!barLifecycle.completeHomeHydration(secondBarPresentation, isVisible: false),
+               "closing the panel cancels deferred hydration")
+
+        barLifecycle.beginHome(firstBarPresentation)
+        barLifecycle.beginHome(secondBarPresentation)
+        expect(!barLifecycle.completeHomeHydration(firstBarPresentation, isVisible: true)
+                && barLifecycle.completeHomeHydration(secondBarPresentation, isVisible: true),
+               "only the latest visible home presentation may receive deferred work")
+        barLifecycle.markFullIndex()
+        expect(barLifecycle.acceptsHomeUpdates(secondBarPresentation, isVisible: true)
+                && !barLifecycle.acceptsHomeUpdates(firstBarPresentation, isVisible: true)
+                && !barLifecycle.acceptsHomeUpdates(secondBarPresentation, isVisible: false),
+               "background rows update only their still-visible home presentation")
+
         expect(CommandBarSearch.normalized("  Brilho   da\tTela ") == "brilho da tela",
                "command bar folds case and collapses whitespace")
         expect(CommandBarSearch.matches(title: "Reunião com João", query: "reuniao joao"),

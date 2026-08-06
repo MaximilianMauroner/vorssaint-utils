@@ -97,7 +97,7 @@ final class CommandBarService: ObservableObject {
     private var entriesByID: [String: CommandBarEntry] = [:]
     private var normalizedByID: [String: (title: String, keywords: String)] = [:]
     private var entriesByStableKey: [String: CommandBarEntry] = [:]
-    private var hasFullIndex = false
+    private var presentationLifecycle = CommandBarPresentationLifecycle()
     private var appEntries: [CommandBarEntry] = []
     private var windowEntries: [CommandBarEntry] = []
     private var quitEntries: [CommandBarEntry] = []
@@ -112,8 +112,6 @@ final class CommandBarService: ObservableObject {
     private var normalizedEmojiByID: [String: (title: String, keywords: String)] = [:]
     private var emojiLanguage: AppLanguage?
     private var emojiAccessibility: Bool?
-    /// True when the panel opened through Emoji without paying to prepare home.
-    private var needsHomePreparation = false
     /// Rows that act on what was selected when the bar opened. Read once per
     /// opening and thrown away on close: a selection is a moment, not a state.
     private var selectionEntries: [CommandBarEntry] = []
@@ -188,12 +186,11 @@ final class CommandBarService: ObservableObject {
             normalizedEmojiByID = [:]
             emojiLanguage = nil
             emojiAccessibility = nil
-            needsHomePreparation = false
+            presentationLifecycle.hide()
             menuOwnerPID = nil
             menusLoadedAt = nil
             entriesByID = [:]
             normalizedByID = [:]
-            hasFullIndex = false
             cachedApps = []
             windowsLoadedAt = nil
             rows = []
@@ -220,15 +217,20 @@ final class CommandBarService: ObservableObject {
     func show() {
         guard AppFeature.commandBar.isAvailable else { return }
         let panel = ensurePanel()
-        beginPresentation(category: nil)
+        let id = beginPresentation(category: nil)
         reloadPreferenceCaches()
-        needsHomePreparation = false
-        rebuildCatalog(index: false)
-        rebuildRunningEntries()
         query = ""
         refreshResults()
-        startBackgroundLoads()
         present(panel)
+        // Ordering the prepared panel is the keystroke path. Home is filled on
+        // the next main-loop turn, when Emoji or a close can still supersede it.
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.presentationLifecycle.completeHomeHydration(
+                    id, isVisible: self.isVisible) else { return }
+            self.prepareHomeForCurrentPresentation()
+            self.refreshResults()
+        }
     }
 
     /// Emoji owns a small launch path because its rows do not depend on the
@@ -236,18 +238,27 @@ final class CommandBarService: ObservableObject {
     func showEmoji() {
         guard AppFeature.commandBar.isAvailable else { return }
         let panel = ensurePanel()
-        beginPresentation(category: .emoji)
+        _ = beginPresentation(category: .emoji)
         reloadPreferenceCaches()
         prepareEmojiEntriesIfNeeded()
         indexEmojiEntries()
-        needsHomePreparation = true
         query = ""
         refreshResults()
         present(panel)
     }
 
-    private func beginPresentation(category: CommandBarSource?) {
-        presentationID = UUID()
+    @discardableResult
+    private func beginPresentation(category: CommandBarSource?) -> UUID {
+        let id = UUID()
+        presentationID = id
+        if category == .emoji {
+            presentationLifecycle.beginEmoji(id)
+        } else {
+            presentationLifecycle.beginHome(id)
+        }
+        clearIndex()
+        rows = []
+        sectionTitles = [:]
         mode = .search
         savedQuery = ""
         queryWhenRun = ""
@@ -256,24 +267,35 @@ final class CommandBarService: ObservableObject {
         selectedID = nil
         lastRankedQuery = nil
         activeCategory = category
+        return id
     }
 
     private func prepareHomeForCurrentPresentation() {
         reloadPreferenceCaches()
-        needsHomePreparation = false
+        // Windows, menus and selection belong to the presentation that read
+        // them. Home starts without those runnable rows and lets guarded scans
+        // add fresh ones after the panel is already visible.
+        windowEntries = []
+        windowsLoadedAt = nil
+        menuEntries = []
+        menuOwnerPID = nil
+        menusLoadedAt = nil
+        selectionEntries = []
+        selectionPreview = ""
+        selectedText = ""
         rebuildCatalog(index: false)
         rebuildRunningEntries()
-        startBackgroundLoads()
+        startBackgroundLoads(for: presentationID)
     }
 
-    private func startBackgroundLoads() {
-        refreshAutomationStatus()
-        refreshStorageAnswer()
-        refreshWiFiState()
-        loadAppsIfNeeded()
-        loadWindowsIfNeeded()
-        loadMenusIfNeeded()
-        loadSelection()
+    private func startBackgroundLoads(for id: UUID) {
+        refreshAutomationStatus(for: id)
+        refreshStorageAnswer(for: id)
+        refreshWiFiState(for: id)
+        loadAppsIfNeeded(for: id)
+        loadWindowsIfNeeded(for: id)
+        loadMenusIfNeeded(for: id)
+        loadSelection(for: id)
     }
 
     private func present(_ panel: NSPanel) {
@@ -312,6 +334,8 @@ final class CommandBarService: ObservableObject {
         // nothing typed here is saved, and memory is not saving.
         lastQuery = query
         query = ""
+        presentationLifecycle.hide()
+        clearIndex()
     }
 
     /// Re-fits the panel to its content as the result list grows and
@@ -407,7 +431,7 @@ final class CommandBarService: ObservableObject {
             showEmoji()
             return
         }
-        if !hasFullIndex {
+        if !presentationLifecycle.hasFullIndex {
             rebuildCatalog(index: false)
             rebuildRunningEntries()
         }
@@ -494,7 +518,9 @@ final class CommandBarService: ObservableObject {
 
     private func changeCategory(to source: CommandBarSource?, clearingQuery: Bool) {
         guard activeCategory != source || (clearingQuery && !query.isEmpty) else { return }
-        if needsHomePreparation, source != .emoji {
+        if presentationLifecycle.usesEmojiIndex, source != .emoji {
+            guard presentationLifecycle.leaveEmojiForHome(
+                presentationID, isVisible: isVisible) else { return }
             prepareHomeForCurrentPresentation()
         }
         activeCategory = source
@@ -626,7 +652,7 @@ final class CommandBarService: ObservableObject {
     /// lists never show a bare id. Settings needs the complete index even when
     /// Emoji has prepared only its own.
     func entryTitle(forStableKey key: String) -> String? {
-        if entriesByStableKey[key] == nil {
+        if !presentationLifecycle.hasFullIndex {
             rebuildCatalog(index: false)
             rebuildRunningEntries()
         }
@@ -719,20 +745,26 @@ final class CommandBarService: ObservableObject {
 
     private func indexEntries() {
         index(indexableEntries)
-        hasFullIndex = true
+        presentationLifecycle.markFullIndex()
     }
 
     private func indexEmojiEntries() {
         index(emojiEntries)
-        hasFullIndex = false
+        presentationLifecycle.markEmojiIndex()
     }
 
     private func reindexForPresentation() {
-        if needsHomePreparation {
+        if presentationLifecycle.usesEmojiIndex {
             indexEmojiEntries()
         } else {
             indexEntries()
         }
+    }
+
+    private func clearIndex() {
+        entriesByID = [:]
+        normalizedByID = [:]
+        entriesByStableKey = [:]
     }
 
     private func index(_ entries: [CommandBarEntry]) {
@@ -779,7 +811,13 @@ final class CommandBarService: ObservableObject {
 
     private func refreshResults() {
         guard !isTearingDown else { return }
-        if needsHomePreparation {
+        if presentationLifecycle.isLoadingHome {
+            rows = []
+            sectionTitles = [:]
+            categoryChips = []
+            return
+        }
+        if presentationLifecycle.usesEmojiIndex {
             if prepareEmojiEntriesIfNeeded() { indexEmojiEntries() }
         } else if let builtLanguage, builtLanguage != L10n.shared.language {
             rebuildCatalog(index: false)
@@ -789,7 +827,7 @@ final class CommandBarService: ObservableObject {
         case .search:
             let trimmed = query.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty {
-                if needsHomePreparation {
+                if presentationLifecycle.usesEmojiIndex {
                     categoryChips = [.emoji]
                 } else {
                     let disabled = CommandBarPreferences.disabledSources(from: disabledSourcesRaw)
@@ -1702,7 +1740,7 @@ final class CommandBarService: ObservableObject {
     /// The previous list stays visible until the fresh one lands, so a newly
     /// installed app appears promptly without a watcher living in the
     /// background or a loading pause. Icons are resolved lazily by the rows.
-    private func loadAppsIfNeeded() {
+    private func loadAppsIfNeeded(for id: UUID) {
         guard !appsLoading else { return }
         appsLoading = true
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -1711,8 +1749,17 @@ final class CommandBarService: ObservableObject {
                 guard let self else { return }
                 self.cachedApps = apps
                 self.appsLoading = false
+                guard self.presentationLifecycle.acceptsHomeUpdates(
+                    id, isVisible: self.isVisible) else {
+                    let current = self.presentationID
+                    if self.presentationLifecycle.acceptsHomeUpdates(
+                        current, isVisible: self.isVisible) {
+                        self.loadAppsIfNeeded(for: current)
+                    }
+                    return
+                }
                 self.rebuildRunningEntries()
-                if self.isVisible { self.refreshResults() }
+                self.refreshResults()
             }
         }
     }
@@ -1724,7 +1771,7 @@ final class CommandBarService: ObservableObject {
     /// The menu bar of the app that was in front when the bar opened, walked
     /// away from the main thread and kept per app for a few seconds. Nothing
     /// is read while the bar is closed, and nothing is read for our own app.
-    private func loadMenusIfNeeded() {
+    private func loadMenusIfNeeded(for id: UUID) {
         guard Permissions.shared.accessibility,
               let front = NSWorkspace.shared.frontmostApplication,
               front.bundleIdentifier != Bundle.main.bundleIdentifier,
@@ -1755,14 +1802,24 @@ final class CommandBarService: ObservableObject {
                 guard let self else { return }
                 self.menusLoading = false
                 // A walk that finished after the person moved on is worth
-                // nothing; the next opening asks again.
-                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+                // nothing; the current presentation asks again.
+                guard self.presentationLifecycle.acceptsHomeUpdates(
+                    id, isVisible: self.isVisible),
+                      NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+                else {
+                    let current = self.presentationID
+                    if self.presentationLifecycle.acceptsHomeUpdates(
+                        current, isVisible: self.isVisible) {
+                        self.loadMenusIfNeeded(for: current)
+                    }
+                    return
+                }
                 self.menuOwnerPID = pid
                 self.menusLoadedAt = Date()
                 let bar = FeatureStrings.commandBar(L10n.shared.language)
                 self.menuEntries = CommandBarCatalog.menuEntries(items, appName: name, bar: bar)
                 self.reindexForPresentation()
-                if self.isVisible { self.refreshResults() }
+                self.refreshResults()
             }
         }
     }
@@ -1770,7 +1827,7 @@ final class CommandBarService: ObservableObject {
     /// What the person had selected when the bar opened. Read away from the
     /// main thread (it asks Accessibility) and only while the bar is open, so
     /// nothing is ever read from anyone's screen in the background.
-    private func loadSelection() {
+    private func loadSelection(for id: UUID) {
         guard isEnabled(.selection), Permissions.shared.accessibility else { return }
         guard !selectionLoading else { return }
         selectionLoading = true
@@ -1779,7 +1836,15 @@ final class CommandBarService: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.selectionLoading = false
-                guard self.isVisible, !self.needsHomePreparation else { return }
+                guard self.presentationLifecycle.acceptsHomeUpdates(
+                    id, isVisible: self.isVisible) else {
+                    let current = self.presentationID
+                    if self.presentationLifecycle.acceptsHomeUpdates(
+                        current, isVisible: self.isVisible) {
+                        self.loadSelection(for: current)
+                    }
+                    return
+                }
                 let bar = FeatureStrings.commandBar(L10n.shared.language)
                 self.selectedText = text
                 self.selectionEntries = CommandBarCatalog.selectionEntries(text, bar: bar) {
@@ -1795,7 +1860,7 @@ final class CommandBarService: ObservableObject {
         }
     }
 
-    private func loadWindowsIfNeeded() {
+    private func loadWindowsIfNeeded(for id: UUID) {
         // Accessibility is the real requirement: the window walk reads titles
         // through AX when the window server withholds them, so asking for
         // Screen Recording here would demand the heaviest permission on the
@@ -1824,11 +1889,20 @@ final class CommandBarService: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.windowsLoading = false
+                guard self.presentationLifecycle.acceptsHomeUpdates(
+                    id, isVisible: self.isVisible) else {
+                    let current = self.presentationID
+                    if self.presentationLifecycle.acceptsHomeUpdates(
+                        current, isVisible: self.isVisible) {
+                        self.loadWindowsIfNeeded(for: current)
+                    }
+                    return
+                }
                 self.windowsLoadedAt = Date()
                 let bar = FeatureStrings.commandBar(L10n.shared.language)
                 self.windowEntries = CommandBarCatalog.windowEntries(windows, bar: bar)
                 self.reindexForPresentation()
-                if self.isVisible { self.refreshResults() }
+                self.refreshResults()
             }
         }
     }
@@ -1836,14 +1910,15 @@ final class CommandBarService: ObservableObject {
     /// Free space on the boot volume asks the storage daemon what is
     /// purgeable, which can take a moment on a full disk. It is read away
     /// from the main thread and the row picks it up on the next pass.
-    private func refreshStorageAnswer() {
+    private func refreshStorageAnswer(for id: UUID) {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let space = CommandBarCatalog.readBootVolumeSpace()
             DispatchQueue.main.async {
                 guard let self, CommandBarCatalog.cachedBootVolumeSpace?.free != space?.free
                 else { return }
                 CommandBarCatalog.cachedBootVolumeSpace = space
-                if self.isVisible, !self.needsHomePreparation {
+                if self.presentationLifecycle.acceptsHomeUpdates(
+                    id, isVisible: self.isVisible) {
                     self.rebuildCatalog()
                     self.refreshResults()
                 }
@@ -1854,13 +1929,14 @@ final class CommandBarService: ObservableObject {
     /// Asking CoreWLAN crosses to the Wi-Fi daemon, so the row reads a value
     /// gathered in the background instead of paying for it on the keystroke
     /// that opens the bar.
-    private func refreshWiFiState() {
+    private func refreshWiFiState(for id: UUID) {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let state = CommandBarExtras.readWiFiPowerState()
             DispatchQueue.main.async {
                 guard let self, CommandBarExtras.cachedWiFiPower != state else { return }
                 CommandBarExtras.cachedWiFiPower = state
-                if self.isVisible, !self.needsHomePreparation {
+                if self.presentationLifecycle.acceptsHomeUpdates(
+                    id, isVisible: self.isVisible) {
                     self.rebuildCatalog()
                     self.refreshResults()
                 }
@@ -1870,14 +1946,15 @@ final class CommandBarService: ObservableObject {
 
     /// The blocking Apple Event check runs away from the main thread; the
     /// Trash row reads the cached answer.
-    private func refreshAutomationStatus() {
+    private func refreshAutomationStatus(for id: UUID) {
         guard AppFeature.quickToggles.isAvailable else { return }
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let denied = Permissions.automationStatus(for: .finder) == .denied
             DispatchQueue.main.async {
                 guard let self, self.finderAutomationDenied != denied else { return }
                 self.finderAutomationDenied = denied
-                if self.isVisible, !self.needsHomePreparation {
+                if self.presentationLifecycle.acceptsHomeUpdates(
+                    id, isVisible: self.isVisible) {
                     self.rebuildCatalog()
                     self.refreshResults()
                 }

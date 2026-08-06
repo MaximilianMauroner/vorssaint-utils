@@ -9,6 +9,90 @@ enum CommandBarClipboardAccess {
     }
 }
 
+/// The bar can be visible before home has finished preparing, but only the
+/// presentation that asked for that work may receive it. Keeping that rule in
+/// one value also makes the current search index explicit: an Emoji-only index
+/// must never answer an ordinary row shortcut after the panel closes.
+struct CommandBarPresentationLifecycle {
+    enum Surface: Equatable {
+        case hidden
+        case loadingHome(UUID)
+        case home(UUID)
+        case emoji(UUID)
+    }
+
+    enum Index: Equatable {
+        case none
+        case full
+        case emoji
+    }
+
+    private(set) var surface: Surface = .hidden
+    private(set) var index: Index = .none
+
+    var usesEmojiIndex: Bool { surface.isEmoji }
+    var isLoadingHome: Bool { surface.isLoadingHome }
+    var hasFullIndex: Bool { index == .full }
+
+    mutating func beginHome(_ id: UUID) {
+        surface = .loadingHome(id)
+        index = .none
+    }
+
+    mutating func beginEmoji(_ id: UUID) {
+        surface = .emoji(id)
+        index = .none
+    }
+
+    mutating func hide() {
+        surface = .hidden
+        index = .none
+    }
+
+    func acceptsHomeHydration(_ id: UUID, isVisible: Bool) -> Bool {
+        isVisible && surface == .loadingHome(id)
+    }
+
+    func acceptsHomeUpdates(_ id: UUID, isVisible: Bool) -> Bool {
+        isVisible && surface == .home(id)
+    }
+
+    @discardableResult
+    mutating func completeHomeHydration(_ id: UUID, isVisible: Bool) -> Bool {
+        guard acceptsHomeHydration(id, isVisible: isVisible) else { return false }
+        surface = .home(id)
+        return true
+    }
+
+    @discardableResult
+    mutating func leaveEmojiForHome(_ id: UUID, isVisible: Bool) -> Bool {
+        guard isVisible, surface == .emoji(id) else { return false }
+        surface = .home(id)
+        index = .none
+        return true
+    }
+
+    mutating func markFullIndex() {
+        index = .full
+    }
+
+    mutating func markEmojiIndex() {
+        index = .emoji
+    }
+}
+
+private extension CommandBarPresentationLifecycle.Surface {
+    var isEmoji: Bool {
+        if case .emoji = self { return true }
+        return false
+    }
+
+    var isLoadingHome: Bool {
+        if case .loadingHome = self { return true }
+        return false
+    }
+}
+
 /// One searchable row offered to the command bar's ranking pass. `boost`
 /// carries whatever the caller wants to privilege (usage, pinning) so the
 /// ranking itself stays a pure function of text.

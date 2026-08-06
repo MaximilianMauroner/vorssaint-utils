@@ -17,7 +17,6 @@ dist/
 AGENTS.md
 CLAUDE.md
 E2E/
-/.agent/review/
 
 # macOS noise
 .DS_Store
