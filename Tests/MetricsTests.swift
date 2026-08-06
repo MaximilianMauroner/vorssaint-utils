@@ -1905,19 +1905,19 @@ struct MetricsTests {
         // to end of file, and quietly restore the whole-file search this
         // replaced — a failure that makes the slice bigger, so an empty check
         // cannot see it. Hence the count assertion below.
-        let beginSessionParts = (switcherSource.components(separatedBy: "private func beginPendingSession")
+        let finishSessionParts = (switcherSource.components(separatedBy: "private func finishPendingSession")
             .last ?? "").components(separatedBy: "\n    private func ")
-        let beginSessionBody = beginSessionParts.first ?? ""
-        expect(beginSessionParts.count > 1,
-               "the App Switcher ordering guard finds the end of beginPendingSession")
-        let switcherCode = beginSessionBody
+        let finishSessionBody = finishSessionParts.first ?? ""
+        expect(finishSessionParts.count > 1,
+               "the App Switcher ordering guard finds the end of finishPendingSession")
+        let switcherCode = finishSessionBody
             .split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
         let scopeAssign = switcherCode.range(of: "sessionScope = pending.scope")
         let startLayout = switcherCode.range(of: "recomputeLayouts(for: list)")
-        expect(!beginSessionBody.isEmpty,
-               "the App Switcher session-start ordering guard finds beginPendingSession")
+        expect(!finishSessionBody.isEmpty,
+               "the App Switcher session-start ordering guard finds finishPendingSession")
         expect(scopeAssign != nil && startLayout != nil
                && scopeAssign!.lowerBound < startLayout!.lowerBound,
                "the App Switcher session scope is assigned before the session-start layout pass")
@@ -2152,6 +2152,22 @@ struct MetricsTests {
                                                  focusedWindowID: nil,
                                                  items: [embeddedWindow]) == nil,
                "App Switcher reports no foreground window when the app in front owns none")
+        expect(SwitcherSupport.needsFocusedWindowLookup(frontmostPID: 101,
+                                                        items: [offscreenWindow]),
+               "App Switcher resolves the focused window when no foreground window is visible")
+        expect(!SwitcherSupport.needsFocusedWindowLookup(frontmostPID: 101,
+                                                         items: [embeddedWindow, offscreenWindow]),
+               "App Switcher skips focused-window AX lookup for one visible foreground window")
+        let secondVisibleWindow = SwitcherItem.window(id: 79,
+                                                      title: "Second",
+                                                      appName: "Primary",
+                                                      pid: 101,
+                                                      isOnScreen: true,
+                                                      frame: CGRect(x: 40, y: 40,
+                                                                    width: 800, height: 500))
+        expect(SwitcherSupport.needsFocusedWindowLookup(frontmostPID: 101,
+                                                        items: [embeddedWindow, secondVisibleWindow]),
+               "App Switcher resolves the focused window for multiple visible foreground windows")
         expect(SwitcherSupport.initialSelectionPosition(pids: [101, 202, 303],
                                                         hasForegroundEntry: true,
                                                         frontmostPID: 101,

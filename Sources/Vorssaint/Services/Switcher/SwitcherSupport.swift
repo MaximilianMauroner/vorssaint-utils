@@ -423,6 +423,17 @@ enum SwitcherSupport {
             ?? candidates.first(where: { $0.windowID == nil })
     }
 
+    /// A focused-window Accessibility query is useful unless exactly one
+    /// visible window already identifies the session source. With no visible
+    /// windows, AX can still identify a minimized source window.
+    static func needsFocusedWindowLookup(frontmostPID: pid_t,
+                                         items: [SwitcherItem]) -> Bool {
+        let appPID = appPID(forFrontmost: frontmostPID, items: items)
+        return items.lazy.filter {
+            $0.pid == appPID && $0.windowID != nil && $0.isOnScreen && !$0.isMinimized
+        }.prefix(2).count != 1
+    }
+
     /// The regular app behind the process holding the keyboard. Multi-process
     /// apps render their windows in an embedded helper, so the front process
     /// is not always the one the entries are filed under.
