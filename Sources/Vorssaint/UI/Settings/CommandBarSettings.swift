@@ -221,7 +221,7 @@ struct CommandBarSettings: View {
                     }
                 }
                 Button(text.forgetAllButton) {
-                    CommandBarLearning.forgetAll()
+                    CommandBarService.shared.forgetAllLearning()
                 }
             } header: {
                 Text(text.hiddenTitle)

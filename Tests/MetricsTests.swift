@@ -12941,6 +12941,71 @@ struct MetricsTests {
                     resultID: "app./Applications/WhatsApp.app", from: queryHabits).isEmpty,
                "forgetting an app removes its learned query choices")
 
+        var maximumHabitStore: CommandBarQueryHabits.Store = [:]
+        for queryIndex in 0..<CommandBarQueryHabits.storedQueryLimit {
+            let queryKey = String(format: "%024x", queryIndex)
+            var choices: [String: CommandBarUse] = [:]
+            for resultIndex in 0..<4 {
+                choices["app.\(resultIndex)"] = CommandBarUse(
+                    count: resultIndex + 1,
+                    lastUsed: barNow + Double(queryIndex * 4 + resultIndex))
+            }
+            maximumHabitStore[queryKey] = choices
+        }
+        let maximumHabitPayload = CommandBarQueryHabits.encode(maximumHabitStore)
+        var habitDecodeCount = 0
+        var habitStoreCache = CommandBarQueryHabitStoreCache()
+        habitStoreCache.reload(maximumHabitPayload) { raw in
+            habitDecodeCount += 1
+            return CommandBarQueryHabits.decode(raw)
+        }
+        for length in 3...24 {
+            let prepared = CommandBarQueryHabits.prepare(
+                String("abcdefghijklmnopqrstuvwx".prefix(length)), key: habitKey)
+            _ = CommandBarQueryHabits.boost(
+                for: "app.0", preparedQuery: prepared,
+                store: habitStoreCache.store, now: barNow)
+        }
+        expect(habitDecodeCount == 1 && habitStoreCache.store.count == 320,
+               "a maximum learned-query store is decoded once, not once per keystroke")
+
+        var digestCount = 0
+        var preparationCache = CommandBarQueryHabits.PreparationCache()
+        var lastPrepared = CommandBarQueryHabits.prepare("", key: habitKey)
+        for length in 3...24 {
+            lastPrepared = CommandBarQueryHabits.prepare(
+                String("abcdefghijklmnopqrstuvwx".prefix(length)),
+                key: habitKey,
+                cache: &preparationCache) { prefix, _ in
+                    digestCount += 1
+                    return String(repeating: "0", count: 24 - String(prefix.count).count)
+                        + String(prefix.count)
+                }
+        }
+        expect(digestCount == 22 && lastPrepared.keyCount == 22,
+               "extending a query hashes only each newly-added prefix")
+        _ = CommandBarQueryHabits.prepare(
+            "abcdefghijkl", key: habitKey, cache: &preparationCache) { _, _ in
+                digestCount += 1
+                return "unused"
+            }
+        expect(digestCount == 22,
+               "deleting from a prepared query reuses its matching prefix slice")
+
+        habitStoreCache.forgetAll()
+        expect(habitStoreCache.store.isEmpty,
+               "forgetting all learned choices clears the decoded store immediately")
+        habitStoreCache.record(preparedQuery: preparedWhat,
+                               resultID: "app.test", now: barNow)
+        expect(!habitStoreCache.store.isEmpty,
+               "recording an app choice updates the decoded store immediately")
+        habitStoreCache.remove(resultID: "app.test")
+        expect(habitStoreCache.store.isEmpty,
+               "forgetting one app updates the decoded store immediately")
+        habitStoreCache.reload(encodedQueryHabits)
+        expect(habitStoreCache.store == queryHabits,
+               "reloading preferences replaces the decoded store with persisted learning")
+
         let persistedHabitKey = Data(repeating: 0x44, count: 32)
         var keyReads: [(OSStatus, Data?)] = [(errSecSuccess, persistedHabitKey)]
         var generatedKeyCount = 0
