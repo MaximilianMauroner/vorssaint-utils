@@ -462,6 +462,20 @@ enum CommandBarQueryHabits {
         var isEmpty: Bool { keys.isEmpty }
     }
 
+    /// The active field's keyed prefixes. Typing one more character should
+    /// hash that character's prefix, not every prefix the field already had.
+    struct PreparationCache {
+        fileprivate var normalizedQuery = ""
+        fileprivate var key: Data?
+        fileprivate var prepared = PreparedQuery(keys: [])
+
+        mutating func reset() {
+            normalizedQuery = ""
+            key = nil
+            prepared = PreparedQuery(keys: [])
+        }
+    }
+
     static let storedQueryLimit = 320
     private static let resultLimit = 4
 
@@ -525,34 +539,80 @@ enum CommandBarQueryHabits {
     }
 
     static func prepare(_ query: String) -> PreparedQuery {
-        let characters = normalizedCharacters(query)
-        guard characters.count >= 3,
-              let key = installationKeyCache.cachedKey
-        else { return PreparedQuery(keys: []) }
-        return prepare(characters, key: SymmetricKey(data: key))
+        var cache = PreparationCache()
+        return prepare(query, cache: &cache)
+    }
+
+    static func prepare(_ query: String,
+                        cache: inout PreparationCache) -> PreparedQuery {
+        prepare(query, key: installationKeyCache.cachedKey, cache: &cache)
     }
 
     /// Injectable so the storage and ranking rules stay deterministic in
     /// tests without reading or writing the person's Keychain.
     static func prepare(_ query: String, key: Data) -> PreparedQuery {
-        prepare(normalizedCharacters(query), key: SymmetricKey(data: key))
+        var cache = PreparationCache()
+        return prepare(query, key: key, cache: &cache)
     }
 
-    private static func prepare(_ characters: [Character],
-                                key: SymmetricKey) -> PreparedQuery {
-        guard characters.count >= 3 else { return PreparedQuery(keys: []) }
-        let keys = (3...characters.count).map { length in
-            let prefix = String(characters.prefix(length))
-            let digest = HMAC<SHA256>.authenticationCode(for: Data(prefix.utf8), using: key)
-                .prefix(12)
-                .map { String(format: "%02x", $0) }.joined()
-            return (digest, length)
+    /// Injectable digest work gives the tests a stable operation count instead
+    /// of asking shared CI hardware to meet a wall-clock threshold.
+    static func prepare(_ query: String,
+                        key: Data?,
+                        cache: inout PreparationCache,
+                        digest: (String, Data) -> String = digest) -> PreparedQuery {
+        let normalized = String(CommandBarSearch.normalized(query).prefix(24))
+        guard let key, key.count == 32 else {
+            cache.normalizedQuery = normalized
+            cache.key = nil
+            cache.prepared = PreparedQuery(keys: [])
+            return cache.prepared
         }
-        return PreparedQuery(keys: keys)
+
+        let characters = Array(normalized)
+        guard cache.key == key else {
+            cache.normalizedQuery = normalized
+            cache.key = key
+            cache.prepared = PreparedQuery(keys: preparedKeys(characters, key: key, digest: digest))
+            return cache.prepared
+        }
+        if normalized == cache.normalizedQuery { return cache.prepared }
+
+        let old = cache.normalizedQuery
+        if normalized.hasPrefix(old) {
+            var keys = cache.prepared.keys
+            let firstNewLength = max(3, Array(old).count + 1)
+            if firstNewLength <= characters.count {
+                for length in firstNewLength...characters.count {
+                    let prefix = String(characters.prefix(length))
+                    keys.append((digest(prefix, key), length))
+                }
+            }
+            cache.prepared = PreparedQuery(keys: keys)
+        } else if old.hasPrefix(normalized) {
+            cache.prepared = PreparedQuery(
+                keys: cache.prepared.keys.filter { $0.specificity <= characters.count })
+        } else {
+            cache.prepared = PreparedQuery(keys: preparedKeys(characters, key: key, digest: digest))
+        }
+        cache.normalizedQuery = normalized
+        return cache.prepared
     }
 
-    private static func normalizedCharacters(_ query: String) -> [Character] {
-        Array(CommandBarSearch.normalized(query).prefix(24))
+    private static func preparedKeys(_ characters: [Character],
+                                     key: Data,
+                                     digest: (String, Data) -> String) -> [(String, Int)] {
+        guard characters.count >= 3 else { return [] }
+        return (3...characters.count).map { length in
+            (digest(String(characters.prefix(length)), key), length)
+        }
+    }
+
+    private static func digest(_ prefix: String, key: Data) -> String {
+        HMAC<SHA256>.authenticationCode(
+            for: Data(prefix.utf8), using: SymmetricKey(data: key))
+            .prefix(12)
+            .map { String(format: "%02x", $0) }.joined()
     }
 
     private static func latestUse(in choices: [String: CommandBarUse]) -> Double {
@@ -652,6 +712,33 @@ enum CommandBarQueryHabits {
             return SecItemUpdate(identity as CFDictionary,
                                  [kSecValueData: data] as CFDictionary)
         })
+}
+
+/// One decoded copy of learned app choices. The service reloads this when a
+/// presentation starts and ranking only reads the already-decoded dictionary.
+struct CommandBarQueryHabitStoreCache {
+    private(set) var store: CommandBarQueryHabits.Store = [:]
+
+    mutating func reload(_ raw: String?,
+                         decode: (String?) -> CommandBarQueryHabits.Store =
+                            CommandBarQueryHabits.decode) {
+        store = decode(raw)
+    }
+
+    mutating func record(preparedQuery: CommandBarQueryHabits.PreparedQuery,
+                         resultID: String,
+                         now: Double) {
+        store = CommandBarQueryHabits.recording(
+            store, preparedQuery: preparedQuery, resultID: resultID, now: now)
+    }
+
+    mutating func remove(resultID: String) {
+        store = CommandBarQueryHabits.removing(resultID: resultID, from: store)
+    }
+
+    mutating func forgetAll() {
+        store = [:]
+    }
 }
 
 struct CommandBarQueryHabitKeyStore {
