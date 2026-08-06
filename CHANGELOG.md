@@ -22,8 +22,6 @@ update downloads, previews, panels, shortcuts and mouse controls are more reliab
   Thanks to @PathGao.
 
 ### Changed
-- The Command Bar opens faster, and a shortcut assigned to its Emoji row opens
-  directly in Emoji.
 - Mouse feature exceptions can now choose apps from anywhere on the Mac.
   Thanks to @kyteidev.
 - The optional Fan Control beta shows live fan speed in the panel and menu bar.
