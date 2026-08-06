@@ -164,6 +164,7 @@ final class CommandBarService: ObservableObject {
 
     func syncWithPreferences() {
         let available = AppFeature.commandBar.isAvailable
+        if available { CommandBarQueryHabits.warmInstallationKey() }
         let enabled = available
             && UserDefaults.standard.bool(forKey: DefaultsKey.commandBarShortcutEnabled)
         let shortcut = GlobalShortcut.saved(for: DefaultsKey.commandBarShortcut,
@@ -211,6 +212,7 @@ final class CommandBarService: ObservableObject {
 
     func show() {
         guard AppFeature.commandBar.isAvailable else { return }
+        CommandBarQueryHabits.warmInstallationKey()
         let panel = ensurePanel()
         presentationID = UUID()
         mode = .search
@@ -1538,14 +1540,17 @@ final class CommandBarService: ObservableObject {
             beforeCompletion: queryBeforeCompletion)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if CommandBarPreferences.source(ofRowID: entry.id) == .apps, !typedQuery.isEmpty {
-            let stored = UserDefaults.standard.string(forKey: DefaultsKey.commandBarQueryHabits)
-            let next = CommandBarQueryHabits.recording(
-                CommandBarQueryHabits.decode(stored),
-                preparedQuery: CommandBarQueryHabits.prepare(typedQuery),
-                resultID: entry.id,
-                now: now)
-            UserDefaults.standard.set(CommandBarQueryHabits.encode(next),
-                                      forKey: DefaultsKey.commandBarQueryHabits)
+            let prepared = CommandBarQueryHabits.prepare(typedQuery)
+            if !prepared.isEmpty {
+                let stored = UserDefaults.standard.string(forKey: DefaultsKey.commandBarQueryHabits)
+                let next = CommandBarQueryHabits.recording(
+                    CommandBarQueryHabits.decode(stored),
+                    preparedQuery: prepared,
+                    resultID: entry.id,
+                    now: now)
+                UserDefaults.standard.set(CommandBarQueryHabits.encode(next),
+                                          forKey: DefaultsKey.commandBarQueryHabits)
+            }
         }
         // Handed over before hiding, which wipes the field and the selection.
         queryWhenRun = query

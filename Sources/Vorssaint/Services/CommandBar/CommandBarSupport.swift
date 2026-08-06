@@ -459,6 +459,7 @@ enum CommandBarQueryHabits {
     struct PreparedQuery {
         fileprivate let keys: [(digest: String, specificity: Int)]
         var keyCount: Int { keys.count }
+        var isEmpty: Bool { keys.isEmpty }
     }
 
     static let storedQueryLimit = 320
@@ -524,17 +525,21 @@ enum CommandBarQueryHabits {
     }
 
     static func prepare(_ query: String) -> PreparedQuery {
-        prepare(query, key: installationKey)
+        let characters = normalizedCharacters(query)
+        guard characters.count >= 3,
+              let key = installationKeyCache.cachedKey
+        else { return PreparedQuery(keys: []) }
+        return prepare(characters, key: SymmetricKey(data: key))
     }
 
     /// Injectable so the storage and ranking rules stay deterministic in
     /// tests without reading or writing the person's Keychain.
     static func prepare(_ query: String, key: Data) -> PreparedQuery {
-        prepare(query, key: SymmetricKey(data: key))
+        prepare(normalizedCharacters(query), key: SymmetricKey(data: key))
     }
 
-    private static func prepare(_ query: String, key: SymmetricKey) -> PreparedQuery {
-        let characters = Array(CommandBarSearch.normalized(query).prefix(24))
+    private static func prepare(_ characters: [Character],
+                                key: SymmetricKey) -> PreparedQuery {
         guard characters.count >= 3 else { return PreparedQuery(keys: []) }
         let keys = (3...characters.count).map { length in
             let prefix = String(characters.prefix(length))
@@ -546,58 +551,164 @@ enum CommandBarQueryHabits {
         return PreparedQuery(keys: keys)
     }
 
+    private static func normalizedCharacters(_ query: String) -> [Character] {
+        Array(CommandBarSearch.normalized(query).prefix(24))
+    }
+
     private static func latestUse(in choices: [String: CommandBarUse]) -> Double {
         choices.values.map(\.lastUsed).max() ?? 0
     }
 
-    private static let installationKey: SymmetricKey = {
-        let service = "org.vorssaint.command-bar-query-habits"
-        let account = "hmac-key"
-        if let data = storedKey(service: service, account: account) {
-            return SymmetricKey(data: data)
-        }
+    /// Starts the only Keychain work used by query learning. Search and
+    /// selection read the memory cache without waiting for this queue.
+    static func warmInstallationKey() {
+        installationKeyCache.warm()
+    }
 
-        var bytes = [UInt8](repeating: 0, count: 32)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-            return SymmetricKey(size: .bits256)
-        }
-        let data = Data(bytes)
-        let identity: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account,
-        ]
-        var insert = identity
-        insert.merge([
-            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            kSecValueData: data,
-        ]) { _, new in new }
-        let status = SecItemAdd(insert as CFDictionary, nil)
-        if status == errSecDuplicateItem {
-            // Another process may have won the first launch race. Its key is
-            // canonical; only replace an existing malformed value.
-            if let stored = storedKey(service: service, account: account) {
-                return SymmetricKey(data: stored)
-            }
-            SecItemUpdate(identity as CFDictionary,
-                          [kSecValueData: data] as CFDictionary)
-        }
-        return SymmetricKey(data: data)
-    }()
+    private static let installationKeyCache = CommandBarQueryHabitKeyCache {
+        loadInstallationKey(using: liveKeyStore)
+    }
 
-    private static func storedKey(service: String, account: String) -> Data? {
-        let lookup: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account,
-            kSecReturnData: true,
-            kSecMatchLimit: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(lookup as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data, data.count == 32
+    static func loadInstallationKey(using store: CommandBarQueryHabitKeyStore) -> Data? {
+        switch store.read() {
+        case (errSecSuccess, let data) where data?.count == 32:
+            return data
+        case (errSecSuccess, _):
+            return repairInstallationKey(using: store)
+        case (errSecItemNotFound, _):
+            return createInstallationKey(using: store)
+        default:
+            return nil
+        }
+    }
+
+    private static func createInstallationKey(
+        using store: CommandBarQueryHabitKeyStore
+    ) -> Data? {
+        guard let generated = store.randomKey(), generated.count == 32 else { return nil }
+        switch store.add(generated) {
+        case errSecSuccess:
+            return persistedKey(using: store)
+        case errSecDuplicateItem:
+            let raced = store.read()
+            if raced.0 == errSecSuccess, raced.1?.count == 32 { return raced.1 }
+            guard raced.0 == errSecSuccess else { return nil }
+            return repairInstallationKey(using: store, replacement: generated)
+        default:
+            return nil
+        }
+    }
+
+    private static func repairInstallationKey(
+        using store: CommandBarQueryHabitKeyStore,
+        replacement: Data? = nil
+    ) -> Data? {
+        guard let generated = replacement ?? store.randomKey(), generated.count == 32,
+              store.update(generated) == errSecSuccess
         else { return nil }
-        return data
+        return persistedKey(using: store)
+    }
+
+    private static func persistedKey(using store: CommandBarQueryHabitKeyStore) -> Data? {
+        let stored = store.read()
+        guard stored.0 == errSecSuccess, stored.1?.count == 32 else { return nil }
+        return stored.1
+    }
+
+    private static let liveKeyStore = CommandBarQueryHabitKeyStore(
+        read: {
+            let lookup: [CFString: Any] = [
+                kSecClass: kSecClassGenericPassword,
+                kSecAttrService: "org.vorssaint.command-bar-query-habits",
+                kSecAttrAccount: "hmac-key",
+                kSecReturnData: true,
+                kSecMatchLimit: kSecMatchLimitOne,
+            ]
+            var item: CFTypeRef?
+            let status = SecItemCopyMatching(lookup as CFDictionary, &item)
+            return (status, item as? Data)
+        },
+        randomKey: {
+            var bytes = [UInt8](repeating: 0, count: 32)
+            guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess
+            else { return nil }
+            return Data(bytes)
+        },
+        add: { data in
+            SecItemAdd([
+                kSecClass: kSecClassGenericPassword,
+                kSecAttrService: "org.vorssaint.command-bar-query-habits",
+                kSecAttrAccount: "hmac-key",
+                kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                kSecValueData: data,
+            ] as CFDictionary, nil)
+        },
+        update: { data in
+            let identity: [CFString: Any] = [
+                kSecClass: kSecClassGenericPassword,
+                kSecAttrService: "org.vorssaint.command-bar-query-habits",
+                kSecAttrAccount: "hmac-key",
+            ]
+            return SecItemUpdate(identity as CFDictionary,
+                                 [kSecValueData: data] as CFDictionary)
+        })
+}
+
+struct CommandBarQueryHabitKeyStore {
+    let read: () -> (OSStatus, Data?)
+    let randomKey: () -> Data?
+    let add: (Data) -> OSStatus
+    let update: (Data) -> OSStatus
+}
+
+/// A failed load returns to idle so a later panel opening can retry. Loading
+/// never blocks a caller: only a valid persisted key enters the ready state.
+final class CommandBarQueryHabitKeyCache {
+    private enum State {
+        case idle
+        case loading
+        case ready(Data)
+    }
+
+    private let lock = NSLock()
+    private let queue: DispatchQueue
+    private let load: () -> Data?
+    private var state = State.idle
+
+    init(queue: DispatchQueue = DispatchQueue(
+            label: "org.vorssaint.command-bar-query-habit-key",
+            qos: .utility),
+         load: @escaping () -> Data?) {
+        self.queue = queue
+        self.load = load
+    }
+
+    var cachedKey: Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard case .ready(let key) = state else { return nil }
+        return key
+    }
+
+    func warm() {
+        lock.lock()
+        guard case .idle = state else {
+            lock.unlock()
+            return
+        }
+        state = .loading
+        lock.unlock()
+
+        queue.async { [self] in
+            let key = load()
+            lock.lock()
+            if let key, key.count == 32 {
+                state = .ready(key)
+            } else {
+                state = .idle
+            }
+            lock.unlock()
+        }
     }
 }
 
