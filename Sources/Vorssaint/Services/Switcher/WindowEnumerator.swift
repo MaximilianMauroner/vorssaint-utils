@@ -56,7 +56,7 @@ enum WindowEnumerator {
     /// The returned value contains only immutable snapshots; its slow
     /// Accessibility completion is safe to run on the cache worker.
     static func captureSwitcherSnapshot() -> SwitcherSnapshot {
-        dispatchPrecondition(condition: .onQueue(.main))
+        precondition(Thread.isMainThread)
         let defaults = UserDefaults.standard
         return captureSnapshot(
             windowlessApps: SwitcherWindowlessApps.mode(
@@ -71,7 +71,7 @@ enum WindowEnumerator {
     /// Captures the Command Bar's broader window list on main. Its completion
     /// deliberately ignores Switcher app rules so hidden apps remain searchable.
     static func captureCommandBarSnapshot() -> SwitcherSnapshot {
-        dispatchPrecondition(condition: .onQueue(.main))
+        precondition(Thread.isMainThread)
         let defaults = UserDefaults.standard
         return captureSnapshot(
             windowlessApps: SwitcherWindowlessApps.mode(
@@ -86,7 +86,7 @@ enum WindowEnumerator {
                                         appRules: [String: SwitcherAppRule],
                                         groupByApp: Bool,
                                         currentSpaceOnly: Bool) -> SwitcherSnapshot {
-        dispatchPrecondition(condition: .onQueue(.main))
+        precondition(Thread.isMainThread)
         let raw = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
         let runningApps = NSWorkspace.shared.runningApplications
         let ownPID = ProcessInfo.processInfo.processIdentifier
@@ -147,7 +147,7 @@ enum WindowEnumerator {
     /// Cheap proof that a warmed switcher list still describes the current
     /// desktop. Unlike full enumeration this asks no app through Accessibility.
     static func switcherFingerprint() -> SwitcherWindowFingerprint {
-        dispatchPrecondition(condition: .onQueue(.main))
+        precondition(Thread.isMainThread)
         let defaults = UserDefaults.standard
         let currentSpaceOnly = defaults.bool(forKey: DefaultsKey.switcherCurrentSpaceOnly)
         let raw = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
@@ -262,7 +262,7 @@ enum WindowEnumerator {
     /// check catches closed, minimized, restored, fullscreen and AX-only
     /// windows without making the consumed shortcut enumerate every app.
     static func refreshedSwitcherCandidate(_ item: SwitcherItem) -> SwitcherItem? {
-        dispatchPrecondition(condition: .onQueue(.main))
+        precondition(Thread.isMainThread)
         let groupedByApp = UserDefaults.standard.bool(forKey: DefaultsKey.switcherMergeTabs)
         return SwitcherSupport.eligibleCandidate(
             item,

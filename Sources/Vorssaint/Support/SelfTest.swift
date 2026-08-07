@@ -75,6 +75,9 @@ enum SelfTest {
         }
         UserDefaults.standard.removeObject(forKey: "selftest")
 
+        // Normal startup creates the application before window enumeration;
+        // self-test exits before that path, so establish the same AppKit state.
+        _ = NSApplication.shared
         let commandBarSnapshot = WindowEnumerator.captureCommandBarSnapshot()
         if !commandBarSnapshot.appRules.isEmpty {
             failures.append("Command Bar window rules")
