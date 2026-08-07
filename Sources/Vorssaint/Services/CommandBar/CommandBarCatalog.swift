@@ -1013,7 +1013,7 @@ enum CommandBarCatalog {
                 id: "emoji.\(emoji.character)",
                 title: emoji.character + "  " + emoji.name,
                 subtitle: bar.kindEmoji,
-                keywords: emoji.name + " " + bar.kindEmoji,
+                keywords: emoji.name + " " + emoji.keywords + " " + bar.kindEmoji,
                 icon: .symbol("face.smiling"),
                 trouble: Permissions.shared.accessibility ? nil : .needsPermission,
                 matchTitle: emoji.name,
