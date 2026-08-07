@@ -168,6 +168,12 @@ enum CommandBarSearch {
                 break
             }
         }
+        if best == nil, token.count >= 3, !token.allSatisfy(\.isNumber) {
+            for word in words where isAdjacentTransposition(token, word) {
+                best = 16
+                break
+            }
+        }
         if best == nil, token.count >= 4, !token.allSatisfy(\.isNumber) {
             for word in words where withinOneEdit(token, word) {
                 best = 16
@@ -236,6 +242,25 @@ enum CommandBarSearch {
             position = word.index(after: found)
         }
         return true
+    }
+
+    /// True only when one neighboring pair was typed in reverse order.
+    static func isAdjacentTransposition(_ first: String, _ second: String) -> Bool {
+        let a = Array(first), b = Array(second)
+        guard a.count == b.count else { return false }
+        var firstMismatch: Int?
+        var swapped = false
+        for index in a.indices where a[index] != b[index] {
+            guard !swapped else { return false }
+            guard let previous = firstMismatch else {
+                firstMismatch = index
+                continue
+            }
+            guard index == previous + 1,
+                  a[previous] == b[index], a[index] == b[previous] else { return false }
+            swapped = true
+        }
+        return swapped
     }
 
     /// True when the strings are at most one substitution, insertion,
