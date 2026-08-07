@@ -486,6 +486,14 @@ struct EnergySettings: View {
                             SettingsCaptionText(displayControlFailureText(failure, strings: strings))
                                 .foregroundStyle(.red)
                         }
+                        if brightness.keyboardLightEnabled != nil {
+                            Toggle(isOn: Binding(
+                                get: { brightness.keyboardLightEnabled ?? false },
+                                set: { brightness.setKeyboardLightEnabled($0) }
+                            )) {
+                                Label(strings.keyboardLight, systemImage: "keyboard")
+                            }
+                        }
                         SettingsToggleWithCaption(title: strings.keysToggle,
                                                   caption: strings.keysCaption,
                                                   isOn: $brightnessKeysEnabled)

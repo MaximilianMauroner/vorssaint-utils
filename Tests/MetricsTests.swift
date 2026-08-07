@@ -8823,6 +8823,11 @@ struct MetricsTests {
                "other media keys never decode as brightness")
         expect(BrightnessSupport.brightnessKeyEvent(subtype: 1, data1: 0) == nil,
                "other system-defined subtypes never decode as brightness")
+        expect(BrightnessSupport.keyboardLightOnLevel(lastNonzero: nil) == 0.5
+                && BrightnessSupport.keyboardLightOnLevel(lastNonzero: 0) == 0.5
+                && BrightnessSupport.keyboardLightOnLevel(lastNonzero: 0.7) == 0.7
+                && BrightnessSupport.keyboardLightOnLevel(lastNonzero: 2) == 1,
+               "keyboard light restores its last level or starts halfway")
         expect(BrightnessSupport.steppedBrightness(0.97, delta: BrightnessSupport.brightnessKeyStep) == 1.0
                 && BrightnessSupport.steppedBrightness(0.03, delta: -BrightnessSupport.brightnessKeyStep) == 0.0,
                "key steps clamp at both ends of the range")
@@ -12319,8 +12324,12 @@ struct MetricsTests {
                "a dropped letter still finds the command")
         expect(CommandBarSearch.matches(title: "Brilho da tela", query: "birlho"),
                "two swapped letters still find the command")
+        expect(CommandBarSearch.matches(title: "Zen", query: "zne"),
+               "a swapped pair still finds a three-letter name")
         expect(!CommandBarSearch.matches(title: "Brilho da tela", query: "volume"),
                "an unrelated word stays out")
+        expect(!CommandBarSearch.matches(title: "Zen", query: "zip"),
+               "short substitutions do not make unrelated names match")
         expect(CommandBarSearch.matches(title: "Capturar tela", keywords: "screenshot print", query: "print"),
                "keywords match like the title does")
         expect(CommandBarSearch.matches(title: "Silenciar microfone", query: "silenciar micro"),
@@ -12335,6 +12344,10 @@ struct MetricsTests {
                 && CommandBarSearch.withinOneEdit("brilyo", "brilho")
                 && !CommandBarSearch.withinOneEdit("brolyo", "brilho"),
                "one edit means one swap, one gap or one wrong letter")
+        expect(CommandBarSearch.isAdjacentTransposition("zne", "zen")
+                && !CommandBarSearch.isAdjacentTransposition("zne", "zone")
+                && !CommandBarSearch.isAdjacentTransposition("zip", "zen"),
+               "short typo tolerance accepts one neighboring swap only")
 
         let barCandidates = [
             CommandBarCandidate(index: 0, title: "Capturar tela"),
@@ -12358,6 +12371,14 @@ struct MetricsTests {
                "a boost never resurrects a non-match")
         expect(CommandBarSearch.rankedIndexes(candidates: barCandidates, matching: " ").isEmpty,
                "a blank query ranks nothing; suggestions handle it")
+        let typoCandidates = [
+            CommandBarCandidate(index: 0, title: "Zebra"),
+            CommandBarCandidate(index: 1, title: "Zen"),
+            CommandBarCandidate(index: 2, title: "Zne Tools"),
+        ]
+        expect(CommandBarSearch.rankedIndexes(candidates: typoCandidates, matching: "zne")
+                == [2, 1],
+               "literal short matches rank above a transposition and unrelated names stay out")
 
         // One widely installed app carries a left-to-right mark in front of
         // its name, which made it stop being an exact match for the name it
