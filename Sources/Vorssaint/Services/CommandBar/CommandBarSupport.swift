@@ -483,6 +483,31 @@ enum CommandBarUsage {
         }
         return picked
     }
+
+    /// Empty category browsers keep their useful catalog order until the
+    /// person chooses something. Used rows then lead by frequency and recency,
+    /// while unseen rows retain their original relative order.
+    static func categoryIDs(usage: [String: CommandBarUse],
+                            available: [String]) -> [String] {
+        available.enumerated().sorted { left, right in
+            let leftUse = usage[left.element].flatMap { $0.count > 0 ? $0 : nil }
+            let rightUse = usage[right.element].flatMap { $0.count > 0 ? $0 : nil }
+            switch (leftUse, rightUse) {
+            case let (leftUse?, rightUse?):
+                if leftUse.count != rightUse.count { return leftUse.count > rightUse.count }
+                if leftUse.lastUsed != rightUse.lastUsed {
+                    return leftUse.lastUsed > rightUse.lastUsed
+                }
+                return left.offset < right.offset
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                return left.offset < right.offset
+            }
+        }.map(\.element)
+    }
 }
 
 /// Which app won after a typed query. Preferences hold only keyed digests of

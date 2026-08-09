@@ -11636,6 +11636,20 @@ struct MetricsTests {
                "no habit outruns a literal text hit")
         expect(CommandBarUsage.boost(for: nil, now: barNow) == 0,
                "no usage, no boost")
+        let categoryOrder = CommandBarUsage.categoryIDs(
+            usage: [
+                "emoji.fire": CommandBarUse(count: 3, lastUsed: barNow),
+                "emoji.heart": CommandBarUse(count: 3, lastUsed: barNow + 10),
+                "emoji.wave": CommandBarUse(count: 1, lastUsed: barNow + 20),
+            ],
+            available: ["emoji.grin", "emoji.fire", "emoji.wave", "emoji.heart", "emoji.star"])
+        expect(categoryOrder == [
+            "emoji.heart", "emoji.fire", "emoji.wave", "emoji.grin", "emoji.star",
+        ], "empty categories lead with frequent and recent choices, then keep catalog order")
+        expect(CommandBarUsage.categoryIDs(usage: [:],
+                                           available: ["emoji.grin", "emoji.fire", "emoji.wave"])
+                == ["emoji.grin", "emoji.fire", "emoji.wave"],
+               "an unlearned category preserves its useful catalog order")
 
         let habitKey = Data(repeating: 0x31, count: 32)
         let otherHabitKey = Data(repeating: 0x72, count: 32)

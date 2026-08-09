@@ -719,7 +719,14 @@ final class CommandBarService: ObservableObject {
                 }
                 if let category = activeCategory {
                     let bar = FeatureStrings.commandBar(L10n.shared.language)
-                    rows = CommandBarService.uniqued(categoryContent(category, bar: bar))
+                    let content = CommandBarService.uniqued(categoryContent(category, bar: bar))
+                    let byID = Dictionary(content.map { ($0.id, $0) },
+                                          uniquingKeysWith: { first, _ in first })
+                    let usage = CommandBarUsage.decode(
+                        UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage))
+                    rows = CommandBarUsage.categoryIDs(usage: usage,
+                                                       available: content.map(\.id))
+                        .compactMap { byID[$0] }
                     sectionTitles = rows.isEmpty
                         ? [:]
                         : [0: categoryHeading(category, count: rows.count)]
