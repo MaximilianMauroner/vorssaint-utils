@@ -11547,7 +11547,9 @@ struct MetricsTests {
         expect(CommandBarPreferences.source(ofRowID: "app.x") == .apps
                 && CommandBarPreferences.source(ofRowID: "menu.1.Bold") == .menus
                 && CommandBarPreferences.source(ofRowID: "folder./tmp") == .folders
-                && CommandBarPreferences.source(ofRowID: "action.screenshot") == .actions,
+                && CommandBarPreferences.source(ofRowID: "action.screenshot") == .actions
+                && CommandBarPreferences.source(ofRowID: CommandBarPreferences.emojiBrowserRowID)
+                    == .emoji,
                "every row knows which source it came from")
         expect(CommandBarPreferences.isEnabled(.folders, disabledRaw: "folders,emoji") == false
                 && CommandBarPreferences.isEnabled(.apps, disabledRaw: "folders,emoji") == true
@@ -12663,6 +12665,7 @@ struct MetricsTests {
         // A combination tied to one row of the bar.
         let optionB = GlobalShortcut(keyCode: 11, modifiers: [.option, .command])
         let optionN = GlobalShortcut(keyCode: 45, modifiers: [.option, .command])
+        let commandPeriod = GlobalShortcut(keyCode: 47, modifiers: [.command])
         var bound = CommandBarRowShortcuts.setting(optionB, for: "app.bundle.a", in: [:])
         expect(bound["app.bundle.a"] == optionB, "a row answers to the keys it was given")
         bound = CommandBarRowShortcuts.setting(optionB, for: "app.bundle.b", in: bound)
@@ -12678,6 +12681,11 @@ struct MetricsTests {
                "a bare letter is never taken from every app on the Mac")
         expect(CommandBarRowShortcuts.decode(CommandBarRowShortcuts.encode(bound)) == bound,
                "the bindings survive a round trip through storage")
+        let emojiBinding = CommandBarRowShortcuts.setting(
+            commandPeriod, for: CommandBarPreferences.emojiBrowserRowID, in: [:])
+        expect(CommandBarRowShortcuts.key(for: commandPeriod, in: emojiBinding)
+                == CommandBarPreferences.emojiBrowserRowID,
+               "the Emoji browser row can own Command-Period like any other global shortcut")
         var full: [String: GlobalShortcut] = [:]
         for index in 0..<CommandBarRowShortcuts.limit {
             full["row.\(index)"] = GlobalShortcut(keyCode: Int64(index), modifiers: [.control])
