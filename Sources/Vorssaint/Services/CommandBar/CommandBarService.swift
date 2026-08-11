@@ -518,12 +518,25 @@ final class CommandBarService: ObservableObject {
     }
 
     func setCategory(_ source: CommandBarSource?) {
-        guard activeCategory != source else { return }
+        changeCategory(to: source, clearingQuery: false)
+    }
+
+    func enterCategory(_ source: CommandBarSource) {
+        changeCategory(to: source, clearingQuery: true)
+    }
+
+    private func changeCategory(to source: CommandBarSource?, clearingQuery: Bool) {
+        guard activeCategory != source || (clearingQuery && !query.isEmpty) else { return }
         activeCategory = source
         selectedID = nil
         lastRankedQuery = nil
-        refreshResults()
+        if clearingQuery, !query.isEmpty {
+            query = ""
+        } else {
+            refreshResults()
+        }
     }
+
     /// Whether a category is worth a chip.
     ///
     /// The three that come from background loads are decided by whether they
