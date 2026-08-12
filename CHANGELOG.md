@@ -7,9 +7,9 @@ All notable changes to this project are documented here. The format follows
 ## [3.3.2]
 
 ### Summary
-Vorssaint 3.3.2 prevents a Switcher shortcut crash and keeps its labels in sync.
-It also removes false App Updates listings, improves feature setup, clarifies Full Disk Access
-and shows which options a main switch turns off.
+Vorssaint 3.3.2 prevents a Switcher shortcut crash, keeps its labels in sync and
+opens the Command Bar immediately. It also removes false App Updates listings,
+improves feature setup and clarifies Full Disk Access.
 
 ### Changed
 - Installed Features rows open their Settings page and highlight the relevant
@@ -22,6 +22,8 @@ and shows which options a main switch turns off.
   working while history capture is off. Thanks to @PathGao.
 
 ### Fixed
+- The Command Bar now appears immediately while its results finish loading.
+  Thanks to @MaximilianMauroner.
 - App Updates no longer offers store updates that belong to a different app.
   Thanks to @PathGao.
 - The App Switcher now shows its configured shortcut in the large icon mode label.
