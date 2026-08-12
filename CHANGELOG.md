@@ -7,9 +7,13 @@ All notable changes to this project are documented here. The format follows
 ## [3.3.2]
 
 ### Summary
-Vorssaint 3.3.2 prevents a Switcher shortcut crash, keeps its labels in sync and
-opens the Command Bar immediately. It also removes false App Updates listings,
-improves feature setup and clarifies Full Disk Access.
+Vorssaint 3.3.2 opens the Command Bar immediately, adds a direct Emoji shortcut
+and prevents a Switcher shortcut crash. It also removes false App Updates listings
+and improves feature setup.
+
+### Added
+- Emoji can open directly from a shortcut assigned to its Command Bar row.
+  Thanks to @MaximilianMauroner.
 
 ### Changed
 - Installed Features rows open their Settings page and highlight the relevant
