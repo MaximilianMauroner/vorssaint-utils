@@ -10197,6 +10197,8 @@ struct MetricsTests {
 
         let capsMapping = SuperKeyMapping(source: SuperKeySupport.capsLockUsage,
                                           destination: SuperKeySupport.triggerUsage)
+        let noActionMapping = SuperKeyMapping(source: SuperKeySupport.noActionUsage,
+                                              destination: SuperKeySupport.triggerUsage)
         let foreignMapping = SuperKeyMapping(source: 0x700000064, destination: 0x700000035)
         expect(SuperKeySupport.mappings(enablingSuperKey: true, existing: []) == [capsMapping],
                "turning the key on maps caps lock to the key it arrives as")
@@ -10211,6 +10213,14 @@ struct MetricsTests {
                                                                    destination: 0x700000029)])
                 == [capsMapping],
                "caps lock never carries two mappings at once")
+        expect(SuperKeySupport.mappings(enablingSuperKey: true,
+                                        existing: [foreignMapping],
+                                        includeNoAction: true)
+                == [capsMapping, noActionMapping, foreignMapping]
+                && SuperKeySupport.mappings(enablingSuperKey: false,
+                                            existing: [capsMapping, noActionMapping, foreignMapping])
+                == [foreignMapping],
+               "the no-action mapping belongs to the feature and leaves with it")
         expect(SuperKeySupport.mappingArgument([capsMapping])
                 == "{\"UserKeyMapping\":[{\"HIDKeyboardModifierMappingSrc\":30064771129,\"HIDKeyboardModifierMappingDst\":30064771181}]}",
                "the mapping table goes out in the form the system takes")
@@ -10237,6 +10247,24 @@ struct MetricsTests {
         expect(SuperKeySupport.parseMappings("RegistryID  Key  Value\n100000a84 UserKeyMapping (null)").isEmpty
                 && SuperKeySupport.parseMappings("").isEmpty,
                "a keyboard with no mapping reads as none")
+
+        let disabledCaps = SuperKeyMapping(source: SuperKeySupport.capsLockUsage,
+                                           destination: SuperKeySupport.noActionUsage)
+        let disabledControl = SuperKeyMapping(source: 0x7000000E0,
+                                              destination: SuperKeySupport.noActionUsage)
+        expect(SuperKeySupport.canMapNoAction(from: [disabledCaps])
+                && !SuperKeySupport.canMapNoAction(from: [disabledControl])
+                && !SuperKeySupport.canMapNoAction(from: [disabledCaps, disabledControl])
+                && !SuperKeySupport.canMapNoAction(from: []),
+               "the shared no-action sentinel is recovered only when Caps Lock owns it")
+        let noActionReport = """
+        HIDKeyboardModifierMappingPairs = {
+          HIDKeyboardModifierMappingSrc = 30064771129;
+          HIDKeyboardModifierMappingDst = "-1";
+        }
+        """
+        expect(SuperKeySupport.parseMappings(noActionReport) == [disabledCaps],
+               "hidutil's signed no-action value keeps its unsigned HID meaning")
 
         var superKeyState = SuperKeySupport.State()
         expect(superKeyState.decide(.otherKey) == .pass,
