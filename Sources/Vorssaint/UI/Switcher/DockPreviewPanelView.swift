@@ -154,6 +154,7 @@ private struct DockPreviewPanelContent: View {
             .help(l10n.s.dockPreviewClosePanel)
             .accessibilityLabel(l10n.s.dockPreviewClosePanel)
         }
+        .focusEffectDisabled()
         .padding(.horizontal, DockPreviewSupport.panelPadding)
         .frame(height: DockPreviewSupport.panelHeaderHeight)
     }
