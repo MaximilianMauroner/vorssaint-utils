@@ -160,7 +160,7 @@ To remove Vorssaint completely, including its settings and permissions:
 
 ## Private by default
 
-Vorssaint is local-first, with no account, analytics or tracking. The network is touched only by things you can see: update checks, the speed test, Homebrew actions, temporary screenshot links and feedback you explicitly send. The full story is in the [privacy notes](docs/PRIVACY.md).
+Vorssaint is local-first, with no account, analytics or tracking. The network is touched only by things you can see: update checks, the speed test, Homebrew actions, temporary screenshot or recording links and feedback you explicitly send. The full story is in the [privacy notes](docs/PRIVACY.md).
 
 Permissions get the same treatment. Every one is optional, the app explains each in plain words, shows which features actually use it, and even tells you when a permission you granted is no longer needed by anything, with a shortcut to revoke it.
 
@@ -171,8 +171,9 @@ Permissions get the same treatment. Every one is optional, the app explains each
 | Permission | Used by | Without it |
 |---|---|---|
 | Accessibility | Switcher, Dock features, window controls, mouse and keyboard features, snippets, cut and paste | Those features stay off |
-| Screen Recording | Switcher and Dock Preview thumbnails, copy text from screen | Previews fall back or stay off |
+| Screen Recording | Window previews, screenshots, copy text and screen recordings | Those captures stay unavailable |
 | System Audio Recording | Per app volume and output routing | Apps stay on normal system audio |
+| Microphone | Optional voice track in screen recordings | Recordings continue without your voice |
 | Notifications | Keep awake, battery, monitor and update alerts | The app stays silent |
 | Full Disk Access, optional | Deeper cleaner and uninstaller scans | Only reachable places are scanned |
 | Administrator, once, optional | Password free closed lid toggling | A password prompt per toggle |

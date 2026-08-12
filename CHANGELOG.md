@@ -4,12 +4,37 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [3.3.1]
+## [3.3.2]
+
+### Summary
+Vorssaint 3.3.2 prevents a Switcher shortcut crash and keeps its labels in sync.
+It also removes false App Updates listings, improves feature setup, clarifies Full Disk Access
+and shows which options a main switch turns off.
+
+### Changed
+- Installed Features rows open their Settings page and highlight the relevant
+  controls. Thanks to @dorlugasigal.
+- Cleaning and the Uninstaller now explain how to grant Full Disk Access and
+  that the app must reopen. Thanks to @PathGao.
+- Quit on close exceptions are no longer editable while the feature is off, since
+  nothing reads them there. Thanks to @PathGao.
+- Showing Clipboard in the panel now sits on its own in Settings, since it keeps
+  working while history capture is off. Thanks to @PathGao.
+
+### Fixed
+- App Updates no longer offers store updates that belong to a different app.
+  Thanks to @PathGao.
+- The App Switcher now shows its configured shortcut in the large icon mode label.
+  Thanks to @liuxxxu.
+- The app no longer quits while typing when the Switcher's Windows shortcut uses a
+  key whose label comes from the keyboard layout. Thanks to @eioz.
+
+## [3.3.1] - 2026-08-09
 
 ### Summary
 Vorssaint 3.3.1 adds editable recording audio, temporary recording links, one-click app installs,
-Fan Control and more configurable window tools. It also expands Keep Awake, makes mouse controls
-more flexible and improves keyboard, menu bar, Switcher, display, update, capture, cleaning and app removal workflows.
+Fan Control and more configurable window tools. It also improves Settings backups, Keep Awake,
+input controls, the menu bar, Switcher, displays, app management, capture, the file shelf and cleaning.
 
 ### Added
 - Screen recordings can capture Mac sound and microphone separately. Choose them while
@@ -84,6 +109,7 @@ more flexible and improves keyboard, menu bar, Switcher, display, update, captur
   searchable, reusable and clearable when new capture is off. Thanks to @PathGao.
 
 ### Fixed
+- The Shelf drop zone now disappears after a drag finishes in another app.
 - The menu bar panel now closes when you press Escape.
 - The App Switcher can change windows while the screenshot or screen recording editor is open.
 - Keyboard input stays responsive in demanding apps when file shortcuts, text
@@ -93,7 +119,7 @@ more flexible and improves keyboard, menu bar, Switcher, display, update, captur
   controls finish getting ready.
 - Quit on close now keeps browser-hosted apps open while their window remains.
   Thanks to @ChaotikTiger.
-- App updates no longer lists command-line packages or records left behind after
+- App update checks no longer list command-line packages or records left behind after
   their apps have been removed.
 - The App Switcher opens quickly when apps run many helper processes. Clicking another
   app now cancels the switch cleanly.
@@ -119,6 +145,10 @@ more flexible and improves keyboard, menu bar, Switcher, display, update, captur
 - The System panel no longer shows battery readings on Macs without a battery.
 - The package manager page and Settings sidebar now keep their tops visible and
   scroll normally.
+- Package manager actions now stop cleanly if an underlying command becomes
+  unresponsive. Thanks to @PathGao.
+- Settings backup imports now reject values of the wrong type instead of applying
+  them to unrelated options. Thanks to @PathGao.
 - Apps listed under Apps to leave alone now also keep scrolling they generate
   themselves.
 - Dock Preview cards now leave your current app in front while you browse.

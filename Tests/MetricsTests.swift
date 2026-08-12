@@ -4,6 +4,7 @@
 import CoreAudio
 import CoreGraphics
 import Carbon.HIToolbox
+import Combine
 import Darwin
 import Foundation
 
@@ -1821,7 +1822,7 @@ struct MetricsTests {
         // per-release decision: this check fails on every version bump so the
         // decision above is made consciously, never by omission.
         let plistVersion = (NSDictionary(contentsOfFile: "Resources/Info.plist")?["CFBundleShortVersionString"] as? String) ?? ""
-        expect(plistVersion == "3.3.1",
+        expect(plistVersion == "3.3.2",
                "bumping the app version requires re-deciding the support prompt pin above")
         expect(SupportUpdateIntroInfo.releaseVersion == "3.3.0",
                "3.3.0 shows the deliberately curated community and support intro")
@@ -1834,7 +1835,8 @@ struct MetricsTests {
                "highlights tour shows once after updating to its pinned release")
         expect(!UpdateHighlightsInfo.shouldShow(appVersion: "3.3.1", lastSeenVersion: "3.3.1"),
                "highlights tour stays hidden after it is seen")
-        expect(!UpdateHighlightsInfo.shouldShow(appVersion: "3.3.0", lastSeenVersion: nil),
+        expect(!UpdateHighlightsInfo.shouldShow(appVersion: "3.3.0", lastSeenVersion: nil)
+               && !UpdateHighlightsInfo.shouldShow(appVersion: "3.3.2", lastSeenVersion: nil),
                "highlights tour never leaks into another release")
         expect(registeredDefaults[DefaultsKey.mixerLowerVolumeOnHeadphonesDisconnect] as? Bool == false,
                "headphone disconnect volume lowering is opt-in")
@@ -2310,6 +2312,13 @@ struct MetricsTests {
         expect(GlobalShortcut(keyCode: Int64(kVK_ISO_Section),
                               modifiers: [.control, .option, .command]).isValid,
                "the extra ISO key (paragraph/caret above Tab) is recordable as a shortcut")
+        GlobalShortcut.refreshLayoutLabels()
+        let backgroundISOKeyIsValid = DispatchQueue.global().sync {
+            GlobalShortcut(keyCode: Int64(kVK_ISO_Section),
+                           modifiers: [.control, .option, .command]).isValid
+        }
+        expect(backgroundISOKeyIsValid,
+               "layout-dependent shortcut labels are safe to read off the main thread")
 
         // The native full screen action, wired like the sixths: real strings,
         // a stable id, and no system-wide key claimed until someone asks.
@@ -5128,6 +5137,11 @@ struct MetricsTests {
                "installer script relaunches as the user when running as root")
         expect(installerScript.contains("$RESULT.progress") && installerScript.contains("finalize"),
                "installer markers stay in a progress file until the run finishes")
+        expect(installerScript.contains("/usr/bin/sudo -n -u \"#$ASUSER\" /bin/sh -c")
+                && installerScript.contains("'/bin/echo \"$1\" > \"$2.progress\"' marker \"$1\" \"$RESULT\"")
+                && installerScript.contains("/usr/bin/sudo -n -u \"#$ASUSER\" /bin/mv -f")
+                && !installerScript.contains("note() { /bin/echo \"$1\" > \"$RESULT.progress\""),
+               "elevated marker writes drop to the original user's credentials")
         let elevated = UpdateInstallerSupport.elevatedInstallCommand(
             appPath: "/Applications/Vorssaint.app",
             dmgPath: "/tmp/Vorssaint-update.dmg",
@@ -7021,7 +7035,7 @@ struct MetricsTests {
             expectFormat(strings.homebrewConfirmUpgradeBodyFormat, ["@"], "\(prefix) Homebrew upgrade format")
             expect(!strings.homebrewUpgradeAll.isEmpty, "\(prefix) Homebrew update all title is present")
             expect(!strings.homebrewUpdateHomebrew.isEmpty, "\(prefix) Homebrew update Homebrew title is present")
-            expect(!strings.switcherIconRowMode.isEmpty, "\(prefix) App Switcher icon-row title is present")
+            expectFormat(strings.switcherIconRowMode, ["@"], "\(prefix) App Switcher icon-row title format")
             expect(!strings.switcherIconRowModeCaption.isEmpty, "\(prefix) App Switcher icon-row caption is present")
             expect(!strings.switcherSimpleMode.isEmpty, "\(prefix) App Switcher simple-mode title is present")
             expect(!strings.switcherSimpleModeCaption.isEmpty, "\(prefix) App Switcher simple-mode caption is present")
@@ -7589,6 +7603,12 @@ struct MetricsTests {
         expect(FanControlPolicy.coolingDuration == 15 * 60
                 && FanControlPolicy.heartbeatLimit < 10,
                "maximum cooling is time-bounded and loses control quickly with its client")
+        expect(FanControlPolicy.isAutomaticMode(0)
+                && FanControlPolicy.isAutomaticMode(3)
+                && !FanControlPolicy.isAutomaticMode(1)
+                && !FanControlPolicy.isAutomaticMode(2)
+                && !FanControlPolicy.isAutomaticMode(.max),
+               "fan ownership accepts firmware automatic modes and rejects manual or unknown modes")
         expect(FanControlPolicy.fanCount(from: 1) == 1
                 && FanControlPolicy.fanCount(from: 8) == 8
                 && FanControlPolicy.fanCount(from: 0) == nil
@@ -7898,6 +7918,9 @@ struct MetricsTests {
                    "every backup string is set for \(language.rawValue)")
             expect(backupValues.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible backup strings (\(language.rawValue))")
+            expect(FeatureStrings.backup(language).description.contains(
+                FeatureStrings.scratchpad(language).pageTitle),
+                   "every backup description discloses its Scratchpad note content (\(language.rawValue))")
             let guideValues = Mirror(reflecting: FeatureStrings.permissionGuide(language)).children
                 .compactMap { $0.value as? String }
             expect(!guideValues.isEmpty && guideValues.allSatisfy { !$0.isEmpty },
@@ -8209,6 +8232,75 @@ struct MetricsTests {
                "the quick toggles alone keep the quick tools page")
         expect(pageVisible(.clipboard, available: [.finderCutPaste]),
                "the image paste option keeps the Clipboard page available")
+        expect(AppFeature.allCases.allSatisfy { feature in
+            let destination = feature.settingsDestination
+            let gate = FeatureVisibilitySupport.features(for: destination.page)
+            return gate.isEmpty || gate.contains(feature)
+        }, "every feature destination is either always visible or gated by that feature")
+        expect(AppFeature.allCases.allSatisfy { $0.settingsDestination.hasValidSectionAnchor },
+               "every feature anchor belongs to its destination page")
+        expect(Set(AppFeature.allCases.compactMap(\.settingsDestination.sectionAnchor))
+                == Set(SettingsSectionAnchor.allCases),
+               "every declared Settings section anchor is used by a feature destination")
+        expect(AppFeature.windowMaximizer.settingsDestination
+                == FeatureSettingsDestination(.general, sectionAnchor: .panelConfiguration)
+                && AppFeature.mixer.settingsDestination
+                == FeatureSettingsDestination(.general, sectionAnchor: .panelConfiguration)
+                && AppFeature.cleaningMode.settingsDestination
+                == FeatureSettingsDestination(.general, sectionAnchor: .panelConfiguration),
+               "panel-oriented features land on General panel configuration")
+        expect(AppFeature.musicBlock.settingsDestination
+                == FeatureSettingsDestination(.general, sectionAnchor: .musicBlocking)
+                && AppFeature.soundOutputSwitcher.settingsDestination
+                == FeatureSettingsDestination(.shortcuts, sectionAnchor: .soundOutputSwitcher)
+                && AppFeature.diskImageInstaller.settingsDestination
+                == FeatureSettingsDestination(.features),
+               "features without dedicated pages use explicit nearest Settings destinations")
+        expect(!AppFeature.diskImageInstaller.hasNavigableSettingsDestination
+                && AppFeature.allCases.filter { $0 != .diskImageInstaller }
+                    .allSatisfy(\.hasNavigableSettingsDestination),
+               "a feature without a separate configuration surface does not show a dead-end link")
+        expect(AppFeature.monitorCPU.settingsDestination == FeatureSettingsDestination(.monitor)
+                && AppFeature.fanControl.settingsDestination
+                == FeatureSettingsDestination(.monitor, sectionAnchor: .fanControl),
+               "shared monitor destinations distinguish the dedicated fan controls")
+        let settingsRouter = SettingsRouter.shared
+        var settingsRequestCount = 0
+        var settingsRequestsPublishedReady = true
+        let settingsRequestObservation = settingsRouter.$requestID
+            .dropFirst()
+            .sink { requestID in
+                settingsRequestCount += 1
+                settingsRequestsPublishedReady =
+                    settingsRequestsPublishedReady
+                    && settingsRouter.pendingDestinationRequest?.id == requestID
+            }
+        let repeatedDestination = FeatureSettingsDestination(.mouse, sectionAnchor: .middleClick)
+        settingsRouter.request(repeatedDestination)
+        let firstSettingsRequestID = settingsRouter.requestID
+        settingsRouter.request(repeatedDestination)
+        expect(settingsRouter.destination == repeatedDestination
+                && settingsRouter.page == repeatedDestination.page,
+               "a Settings destination request selects its page and preserves its anchor")
+        expect(settingsRequestCount == 2 && settingsRouter.requestID != firstSettingsRequestID,
+               "repeated requests for the same Settings destination remain observable")
+        expect(settingsRequestsPublishedReady,
+               "a Settings request is ready to consume when its request identity is published")
+        let repeatedSettingsRequestID = settingsRouter.requestID
+        settingsRouter.consumeDestinationRequest(id: firstSettingsRequestID)
+        expect(settingsRouter.pendingDestinationRequest?.id == repeatedSettingsRequestID,
+               "consuming an older Settings request cannot clear a newer request")
+        settingsRouter.consumeDestinationRequest(id: repeatedSettingsRequestID)
+        expect(settingsRouter.pendingDestinationRequest == nil,
+               "a handled Settings destination request is cleared")
+        settingsRouter.cleanerTool = "tool-id"
+        settingsRouter.request(FeatureSettingsDestination(.cleaner))
+        expect(settingsRouter.page == .cleaner && settingsRouter.cleanerTool == "tool-id",
+               "requesting Cleaner Settings preserves its one-shot tool hint")
+        settingsRouter.consumeDestinationRequest(id: settingsRouter.requestID)
+        settingsRouter.cleanerTool = nil
+        settingsRouter.page = .general
+        withExtendedLifetime(settingsRequestObservation) {}
 
         // MARK: Display brightness (DDC/CI helpers)
 
@@ -9262,7 +9354,6 @@ struct MetricsTests {
                "numbering keeps walking until a free name")
         let dragRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("ScreenshotDragTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: dragRoot) }
         let dragData = Data([0x89, 0x50, 0x4E, 0x47])
         let firstDrag = try? ScreenshotSupport.temporaryDragFile(
             data: dragData, name: "Capture.png", directory: dragRoot)
@@ -9273,6 +9364,16 @@ struct MetricsTests {
                "a screenshot drag writes the complete payload with its file name")
         expect(firstDrag != nil && secondDrag != nil && firstDrag != secondDrag,
                "simultaneous screenshot drags receive separate temporary files")
+        let unrelatedDrag = dragRoot.appendingPathComponent("ScreenshotDrag-not-owned",
+                                                            isDirectory: true)
+        try? FileManager.default.createDirectory(at: unrelatedDrag,
+                                                 withIntermediateDirectories: true)
+        ScreenshotSupport.removeTemporaryDragDirectories(directory: dragRoot)
+        expect(firstDrag.map { !FileManager.default.fileExists(atPath: $0.path) } == true
+                && secondDrag.map { !FileManager.default.fileExists(atPath: $0.path) } == true
+                && FileManager.default.fileExists(atPath: unrelatedDrag.path),
+               "temporary screenshot cleanup removes only app-owned drag directories")
+        try? FileManager.default.removeItem(at: dragRoot)
 
         var counterList = [
             ScreenshotSupport.Annotation(tool: .counter, number: 1),
@@ -10514,6 +10615,44 @@ struct MetricsTests {
                "text where a per-app rule dictionary belongs is dropped on import")
         expect(shapeChecked?[DefaultsKey.smoothScrollStep] as? Int == 60,
                "a value of the right shape still restores")
+        let bridgedInput: [String: Any] = [
+            SettingsBackupSupport.formatVersionKey: 1,
+            SettingsBackupSupport.settingsKey: [
+                DefaultsKey.switcherEnabled: 1,
+                DefaultsKey.monitorInterval: true,
+                DefaultsKey.dockPreviewBackgroundOpacity: true,
+                DefaultsKey.smoothScrollStep: 60,
+                DefaultsKey.scratchpadBackgroundOpacity: 0.5,
+                DefaultsKey.smoothScrollExceptions: [1],
+                DefaultsKey.autoQuitExceptions: ["com.example.editor"],
+                DefaultsKey.switcherAppRules: ["com.example.editor": 1],
+                DefaultsKey.mouseButtonShortcuts: ["4": "command:0"],
+            ] as [String: Any],
+        ]
+        var bridgedSettings: [String: Any]?
+        if let data = try? PropertyListSerialization.data(fromPropertyList: bridgedInput,
+                                                          format: .binary,
+                                                          options: 0),
+           let parsed = try? PropertyListSerialization.propertyList(from: data,
+                                                                     options: [],
+                                                                     format: nil),
+           let payload = parsed as? [String: Any] {
+            bridgedSettings = SettingsBackupSupport.sanitizedSettings(from: payload)
+        }
+        expect(bridgedSettings?[DefaultsKey.switcherEnabled] == nil
+                && bridgedSettings?[DefaultsKey.monitorInterval] == nil
+                && bridgedSettings?[DefaultsKey.dockPreviewBackgroundOpacity] == nil,
+               "property-list numbers and booleans do not cross scalar setting types")
+        expect(bridgedSettings?[DefaultsKey.smoothScrollExceptions] == nil
+                && bridgedSettings?[DefaultsKey.switcherAppRules] == nil,
+               "wrong collection element types are dropped on import")
+        expect(bridgedSettings?[DefaultsKey.smoothScrollStep] as? Int == 60
+                && bridgedSettings?[DefaultsKey.scratchpadBackgroundOpacity] as? Double == 0.5
+                && bridgedSettings?[DefaultsKey.autoQuitExceptions] as? [String]
+                    == ["com.example.editor"]
+                && bridgedSettings?[DefaultsKey.mouseButtonShortcuts] as? [String: String]
+                    == ["4": "command:0"],
+               "property-list values of the declared scalar and collection types still restore")
         let switcherRulesBackup: [String: Any] = [
             SettingsBackupSupport.formatVersionKey: 1,
             SettingsBackupSupport.settingsKey: [
@@ -10689,10 +10828,13 @@ struct MetricsTests {
         let noCountry = AppUpdatesSupport.storeLookupURL(bundleIDs: ["a.b"], country: nil)?
             .absoluteString ?? ""
         expect(!noCountry.contains("country="), "without a region the request carries none")
-        let lookupBody = Data(#"{"resultCount":1,"results":[{"bundleId":"a.b","version":"2.0","minimumOsVersion":"15.0","trackViewUrl":"https://x"}]}"#.utf8)
-        let lookupEntry = AppUpdatesSupport.parseStoreLookup(lookupBody)["a.b"]
+        let lookupBody = Data(#"{"resultCount":2,"results":[{"kind":"mac-software","bundleId":"a.b","version":"2.0","minimumOsVersion":"15.0","trackViewUrl":"https://x"},{"kind":"software","bundleId":"c.d","version":"9.0","minimumOsVersion":"12.0"}]}"#.utf8)
+        let lookupEntries = AppUpdatesSupport.parseStoreLookup(lookupBody)
+        let lookupEntry = lookupEntries["a.b"]
         expect(lookupEntry?.version == "2.0" && lookupEntry?.minimumOSVersion == "15.0",
                "the store answer is read back")
+        expect(lookupEntries["c.d"] == nil,
+               "another platform's listing is not the installed Mac app's version")
         expect(AppUpdatesSupport.parseStoreLookup(Data("not json".utf8)).isEmpty,
                "a broken store answer yields nothing instead of throwing")
 
@@ -11126,6 +11268,9 @@ struct MetricsTests {
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderSharingEnabled)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderSaveFolder),
                "the screen recorder settings travel in backups")
+        expect(RecorderSupport.exceptedOwnWindowIDs(
+            ownWindowIDs: [1, 2, 3], protectedWindowIDs: [2, 4]) == [1, 3],
+               "recording keeps existing ordinary app windows but never its protected chrome")
 
         expect(RecordingShareDuration.allCases.map(\.rawValue) == [3_600, 21_600],
                "recording links allow only one or six hours")
