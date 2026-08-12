@@ -9,7 +9,7 @@ All notable changes to this project are documented here. The format follows
 ### Summary
 Vorssaint 3.3.2 opens the Command Bar immediately, adds a direct Emoji shortcut
 and prevents a Switcher shortcut crash. It also removes false App Updates listings
-and improves feature setup.
+and improves feature setup and keyboard navigation.
 
 ### Added
 - Emoji can open directly from a shortcut assigned to its Command Bar row.
@@ -24,6 +24,8 @@ and improves feature setup.
   nothing reads them there. Thanks to @PathGao.
 - Showing Clipboard in the panel now sits on its own in Settings, since it keeps
   working while history capture is off. Thanks to @PathGao.
+- The Command Bar now accepts Control-P and Control-N to move through results.
+  Thanks to @theafox.
 
 ### Fixed
 - The Command Bar now appears immediately while its results finish loading.

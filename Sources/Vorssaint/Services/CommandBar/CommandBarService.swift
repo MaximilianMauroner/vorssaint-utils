@@ -2051,6 +2051,23 @@ final class CommandBarService: ObservableObject {
                     self.run(at: index)
                     return nil
                 }
+                let navigationModifiers = event.modifierFlags
+                    .intersection([.command, .option, .shift, .control])
+                if navigationModifiers == [.control],
+                   let key = event.charactersIgnoringModifiers?.lowercased() {
+                    // Match the typed letter so alternate keyboard layouts
+                    // follow the keys the person sees.
+                    switch key {
+                    case "n":
+                        if case .actions = self.mode { self.moveActionSelection(1) } else { self.moveSelection(1) }
+                        return nil
+                    case "p":
+                        if case .actions = self.mode { self.moveActionSelection(-1) } else { self.moveSelection(-1) }
+                        return nil
+                    default:
+                        break
+                    }
+                }
                 // Typing while a confirmation is up takes the confirmation
                 // down. Otherwise a destructive Return stays armed behind
                 // what looks like an ordinary search.
