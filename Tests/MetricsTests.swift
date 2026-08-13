@@ -6861,6 +6861,11 @@ struct MetricsTests {
                "Homebrew package update status uses an update icon")
         expect(HomebrewOperation.Action.updateHomebrew.runningSystemImage == "arrow.triangle.2.circlepath",
                "Homebrew metadata refresh status uses a refresh icon")
+        expect(HomebrewOperation.Action.uninstall.clearsSelectionOnSuccess,
+               "Homebrew uninstall clears details for the package that left the installed list")
+        expect(!HomebrewOperation.Action.install.clearsSelectionOnSuccess
+                && !HomebrewOperation.Action.upgrade.clearsSelectionOnSuccess,
+               "Homebrew install and upgrade preserve package details after success")
         expect(HomebrewCommandBuilder.needsTerminalFallback(output: "sudo: a terminal is required to read the password"),
                "sudo terminal error triggers Homebrew terminal fallback")
         expect(HomebrewCommandBuilder.installerCommand == #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#,

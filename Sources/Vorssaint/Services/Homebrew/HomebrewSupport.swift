@@ -147,6 +147,15 @@ struct HomebrewOperation {
         case upgradeAll
         case updateHomebrew
 
+        var clearsSelectionOnSuccess: Bool {
+            switch self {
+            case .uninstall:
+                return true
+            case .install, .upgrade, .upgradeAll, .updateHomebrew:
+                return false
+            }
+        }
+
         var runningSystemImage: String {
             switch self {
             case .install:

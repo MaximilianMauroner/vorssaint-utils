@@ -49,6 +49,8 @@ setup, Fan Control, Dock Preview and keyboard controls.
   unavailable.
 - The Uninstaller now offers to remove the Homebrew package with an app it manages.
   Thanks to @MineraleYT.
+- Homebrew now clears removed package details and returns its package list to the
+  start after an uninstall. Thanks to @MineraleYT.
 - Fan Control can now request its required approval instead of appearing
   unavailable before its first setup.
 
