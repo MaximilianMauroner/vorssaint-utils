@@ -8,9 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Summary
 Vorssaint 3.3.2 improves the Command Bar, Switcher, screenshots, Cleaning Mode,
-Scratchpad and audio reliability. It also refines app management, feature setup,
-Fan Control, Quit on close, network monitoring, power and peripheral battery
-readings, panel behavior and keyboard controls.
+Scratchpad, audio and external display reliability. It also refines app
+management, feature setup, Fan Control, Quit on close, network monitoring, power
+and peripheral battery readings, panel behavior and keyboard controls.
 
 ### Added
 - Emoji can open directly from a shortcut assigned to its Command Bar row.
@@ -31,6 +31,9 @@ readings, panel behavior and keyboard controls.
   Thanks to @theafox.
 
 ### Fixed
+- External displays no longer receive repeated brightness checks after wake on
+  connections that cannot answer them, preventing sensitive hubs from dropping the picture.
+  Thanks to @danilo-alm.
 - Network download speed no longer stays at zero when the usual system counter
   misses received traffic.
 - Quit on close now extends an app exception to separate guest-app windows.

@@ -73,6 +73,8 @@ final class BrightnessService: ObservableObject {
         var method: BrightnessDisplay.Method
         var service: CFTypeRef?
         var maximum: UInt16
+        var ddcReadable = false
+        var ddcPathKey: String?
     }
 
     private var screenObserver: NSObjectProtocol?
@@ -823,7 +825,8 @@ final class BrightnessService: ObservableObject {
                                                             window: Self.levelTrustWindow)
         // Gamma dimming is this app's own doing, so the remembered value is
         // the truth by construction and there is nothing to ask.
-        guard method == .ddc, !fresh, let service = route?.service else {
+        guard method == .ddc, route?.ddcReadable == true, !fresh,
+              let route, let service = route.service else {
             guard let current = cached else { return }
             commitStep(from: current, delta: delta, to: displayID, method: method, showOSD: showOSD)
             return
@@ -842,6 +845,19 @@ final class BrightnessService: ObservableObject {
         workQueue.async { [weak self] in
             guard let self else { return }
             let probe = self.ddcProbeLuminance(for: displayID, service: service)
+            if case .replied = probe {
+                self.forgetWriteOnlyDDCPath(route.ddcPathKey)
+            } else {
+                if case .writeOnly = probe {
+                    self.rememberWriteOnlyDDCPath(route.ddcPathKey)
+                }
+                self.stateLock.lock()
+                if self.routes[displayID]?.ddcPathKey == route.ddcPathKey {
+                    self.routes[displayID]?.ddcReadable = false
+                }
+                self.stateLock.unlock()
+                Self.log.log("ddc reads stopped answering for display \(displayID); future steps will write only")
+            }
             DispatchQueue.main.async {
                 let queued = self.ddcPendingSteps.removeValue(forKey: displayID) ?? 0
                 var current = cached
@@ -1186,10 +1202,26 @@ final class BrightnessService: ObservableObject {
                     continue
                 }
                 let id = built[candidate.index].id
-                let probe = ddcProbeLuminance(for: id, service: matched.service)
-                Self.log.log("ddc probe display \(id): \(String(describing: probe), privacy: .public)")
+                let ioDisplayLocation = candidate.identity.ioDisplayLocation.flatMap {
+                    $0.isEmpty ? nil : $0
+                } ?? matched.identity.ioDisplayLocation
+                let pathKey = BrightnessSupport.ddcPathKey(
+                    displayFingerprint: Self.displayFingerprint(id),
+                    ioDisplayLocation: ioDisplayLocation)
+                let rememberedWriteOnly = !BrightnessSupport.shouldProbeDDC(
+                    pathKey: pathKey, writeOnlyPaths: writeOnlyDDCPaths())
+                let probe: DDCProbe
+                if rememberedWriteOnly {
+                    probe = .writeOnly
+                    Self.log.log("ddc cached display \(id): writeOnly")
+                } else {
+                    probe = ddcProbeLuminance(for: id, service: matched.service,
+                                              classifyingChannel: true)
+                    Self.log.log("ddc probe display \(id): \(String(describing: probe), privacy: .public)")
+                }
                 switch probe {
                 case .replied(let current, let maximum):
+                    forgetWriteOnlyDDCPath(pathKey)
                     let ceiling = BrightnessSupport.sanitizedMaximum(maximum)
                     built[candidate.index] = BrightnessDisplay(
                         id: id, name: built[candidate.index].name, isBuiltIn: false,
@@ -1198,12 +1230,14 @@ final class BrightnessService: ObservableObject {
                                                                  maximum: ceiling),
                         readable: true)
                     newRoutes[id] = Route(method: .ddc, service: matched.service,
-                                          maximum: ceiling)
+                                          maximum: ceiling, ddcReadable: true,
+                                          ddcPathKey: pathKey)
                     stateLock.lock()
                     levelKnownAt[id] = Date()
                     stateLock.unlock()
                     softwareIndices.remove(candidate.index)
                 case .writeOnly:
+                    rememberWriteOnlyDDCPath(pathKey)
                     // Reads fail on some monitors whose writes still work:
                     // keep the slider, seeded from this session's last value.
                     stateLock.lock()
@@ -1212,9 +1246,11 @@ final class BrightnessService: ObservableObject {
                     built[candidate.index] = BrightnessDisplay(
                         id: id, name: built[candidate.index].name, isBuiltIn: false,
                         method: .ddc, isActive: true, brightness: seed, readable: false)
-                    newRoutes[id] = Route(method: .ddc, service: matched.service, maximum: 100)
+                    newRoutes[id] = Route(method: .ddc, service: matched.service,
+                                          maximum: 100, ddcPathKey: pathKey)
                     softwareIndices.remove(candidate.index)
                 case .dead:
+                    forgetWriteOnlyDDCPath(pathKey)
                     // The channel rejects every write (typically an HDMI
                     // conversion in the path): dim in the video pipeline
                     // instead, which works on any connection.
@@ -1356,6 +1392,13 @@ final class BrightnessService: ObservableObject {
                 writeSucceeded = applySoftwareDim(id, value: value)
             }
             Self.log.log("wrote display \(id) route \(String(describing: route.method), privacy: .public) level \(value) ok \(writeSucceeded)")
+            if route.method == .ddc, !writeSucceeded, route.ddcReadable == false,
+               let pathKey = route.ddcPathKey {
+                forgetWriteOnlyDDCPath(pathKey)
+                DispatchQueue.main.async { [weak self] in
+                    self?.refresh(force: true)
+                }
+            }
             if route.method == .system {
                 stateLock.lock()
                 if pendingLevels[id] == nil { systemWritesInFlight.remove(id) }
@@ -1477,19 +1520,52 @@ final class BrightnessService: ObservableObject {
         case dead
     }
 
+    private func writeOnlyDDCPaths() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(
+            forKey: DefaultsKey.brightnessDDCWriteOnlyPaths
+        ) ?? [])
+    }
+
+    private func rememberWriteOnlyDDCPath(_ path: String?) {
+        guard let path else { return }
+        let defaults = UserDefaults.standard
+        let stored = defaults.stringArray(forKey: DefaultsKey.brightnessDDCWriteOnlyPaths) ?? []
+        let updated = BrightnessSupport.updatedWriteOnlyDDCPaths(
+            stored, path: path, isWriteOnly: true)
+        if updated != stored {
+            defaults.set(updated, forKey: DefaultsKey.brightnessDDCWriteOnlyPaths)
+        }
+    }
+
+    private func forgetWriteOnlyDDCPath(_ path: String?) {
+        guard let path else { return }
+        let defaults = UserDefaults.standard
+        let stored = defaults.stringArray(forKey: DefaultsKey.brightnessDDCWriteOnlyPaths) ?? []
+        let updated = BrightnessSupport.updatedWriteOnlyDDCPaths(
+            stored, path: path, isWriteOnly: false)
+        if updated != stored {
+            defaults.set(updated, forKey: DefaultsKey.brightnessDDCWriteOnlyPaths)
+        }
+    }
+
     /// Reads the monitor's luminance while also judging the channel itself:
     /// the request write's own return value is the only reliable signal of a
     /// path that cannot carry DDC at all (HDMI conversions reject every
     /// write, while their reads "succeed" with cached EDID bytes).
-    private func ddcProbeLuminance(for id: CGDirectDisplayID, service: CFTypeRef) -> DDCProbe {
+    private func ddcProbeLuminance(for id: CGDirectDisplayID,
+                                   service: CFTypeRef,
+                                   classifyingChannel: Bool = false) -> DDCProbe {
         guard let write = BrightnessBridge.writeI2C,
               let read = BrightnessBridge.readI2C else { return .dead }
         paceDDCCommand(for: id)
         defer { recordDDCCommandEnd(for: id) }
         var request = BrightnessSupport.readRequestPacket(code: BrightnessSupport.luminanceCode)
         var writeAccepted = false
-        for attempt in 0...BrightnessSupport.retryAttempts {
-            for _ in 0..<BrightnessSupport.writeCycles {
+        let attempts = BrightnessSupport.ddcProbeAttempts()
+        let writeCycles = BrightnessSupport.ddcProbeWriteCycles(
+            classifyingChannel: classifyingChannel)
+        for attempt in 0..<attempts {
+            for _ in 0..<writeCycles {
                 usleep(BrightnessSupport.writePauseMicroseconds)
                 if write(service, BrightnessSupport.chipAddress,
                          BrightnessSupport.dataAddress,
@@ -1504,7 +1580,7 @@ final class BrightnessService: ObservableObject {
                let parsed = BrightnessSupport.parseReply(reply) {
                 return .replied(current: parsed.current, maximum: parsed.maximum)
             }
-            if attempt < BrightnessSupport.retryAttempts {
+            if attempt + 1 < attempts {
                 usleep(BrightnessSupport.retryPauseMicroseconds)
             }
         }

@@ -8565,6 +8565,44 @@ struct MetricsTests {
                "accepted writes without replies keep a blind slider")
         expect(BrightnessSupport.channelOutcome(writeAccepted: false, replyParsed: false) == .dead,
                "rejected writes mean no DDC reaches the display (HDMI conversion)")
+        expect(BrightnessSupport.ddcProbeAttempts()
+                == BrightnessSupport.retryAttempts + 1
+                && BrightnessSupport.ddcProbeWriteCycles(classifyingChannel: true) == 1,
+               "channel discovery keeps its reply chances but sends one spaced write each")
+        expect(BrightnessSupport.ddcProbeAttempts()
+                == BrightnessSupport.retryAttempts + 1
+                && BrightnessSupport.ddcProbeWriteCycles(classifyingChannel: false)
+                == BrightnessSupport.writeCycles,
+               "answering channels retain their field-proven read and write retries")
+        let ddcPath = BrightnessSupport.ddcPathKey(
+            displayFingerprint: "1507:9218:245",
+            ioDisplayLocation: "IOService:/port/1")
+        expect(ddcPath == "1507:9218:245|IOService:/port/1",
+               "a DDC capability cache key binds the physical display to its connection path")
+        expect(BrightnessSupport.ddcPathKey(displayFingerprint: "1507:9218:245",
+                                            ioDisplayLocation: "") == nil,
+               "a display without a stable connection path is never cached")
+        let rememberedPaths = BrightnessSupport.updatedWriteOnlyDDCPaths(
+            ["old", "same", "other", "same"], path: "same", isWriteOnly: true, limit: 3)
+        expect(rememberedPaths == ["old", "other", "same"],
+               "remembering a write-only path deduplicates it and makes it newest")
+        expect(BrightnessSupport.updatedWriteOnlyDDCPaths(
+            rememberedPaths, path: "other", isWriteOnly: false, limit: 3) == ["old", "same"],
+               "a changed DDC result invalidates the remembered path")
+        expect(BrightnessSupport.updatedWriteOnlyDDCPaths(
+            ["one", "two", "three"], path: "four", isWriteOnly: true, limit: 3)
+            == ["two", "three", "four"],
+               "the write-only path cache remains bounded")
+        expect(!BrightnessSupport.shouldProbeDDC(
+            pathKey: ddcPath, writeOnlyPaths: [ddcPath!])
+                && BrightnessSupport.shouldProbeDDC(
+                    pathKey: "another", writeOnlyPaths: [ddcPath!])
+                && BrightnessSupport.shouldProbeDDC(
+                    pathKey: nil, writeOnlyPaths: [ddcPath!]),
+               "only the same physical display path skips future DDC probes")
+        expect(!SettingsBackupSupport.exportKeys().contains(
+            DefaultsKey.brightnessDDCWriteOnlyPaths),
+               "per-monitor DDC capability never travels in a settings backup")
         let oneDisplay = BrightnessSupport.DisplayTopology(online: [1], active: [1])
         let twoDisplays = BrightnessSupport.DisplayTopology(online: [1, 2], active: [1, 2])
         expect(!BrightnessSupport.shouldQueueRebuild(topology: oneDisplay, pending: oneDisplay),
