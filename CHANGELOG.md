@@ -9,7 +9,7 @@ All notable changes to this project are documented here. The format follows
 ### Summary
 Vorssaint 3.3.2 improves the Command Bar, Switcher, screenshots, Cleaning Mode,
 Scratchpad and audio reliability. It also refines app management, feature setup,
-Fan Control, Dock Preview, power and peripheral battery readings, panel behavior
+Fan Control, Quit on close, power and peripheral battery readings, panel behavior
 and keyboard controls.
 
 ### Added
@@ -31,6 +31,8 @@ and keyboard controls.
   Thanks to @theafox.
 
 ### Fixed
+- Quit on close now extends an app exception to separate guest-app windows.
+  Thanks to @danno71.
 - Peripheral battery can now read connected accessories that report charge only
   through the standard Bluetooth battery service. Thanks to @subhamayd2.
 - Window screenshots now keep translucent content visible over the selected

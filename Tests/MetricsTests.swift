@@ -3013,6 +3013,16 @@ struct MetricsTests {
                                           bundleURL: nil,
                                           exceptions: ["com.example.direct"]),
                "AutoQuit recognizes a direct bundle identifier exception")
+        expect(AutoQuitSupport.isExcepted(
+            bundleIdentifier: "com.parallels.winapp.0123456789abcdef.guest",
+            bundleURL: nil,
+            exceptions: ["com.parallels.desktop.console"]
+        ), "AutoQuit extends a guest-window host exception to its generated app helpers")
+        expect(!AutoQuitSupport.isExcepted(
+            bundleIdentifier: "com.parallels.winapp.0123456789abcdef.guest",
+            bundleURL: nil,
+            exceptions: ["com.example.unrelated"]
+        ), "AutoQuit does not protect a generated guest app without its host exception")
         let outerApp = FileManager.default.temporaryDirectory
             .appendingPathComponent("VorssaintAutoQuitTests-\(UUID().uuidString)")
             .appendingPathComponent("Container.app")
