@@ -10388,10 +10388,6 @@ struct MetricsTests {
         expect(CommandBarSource.actions.isAlwaysOn
                 && CommandBarSource.allCases.filter(\.isAlwaysOn).count == 1,
                "only the app's own actions cannot be switched off")
-        expect(CommandBarSource.apps.learnsQueryChoices
-                && CommandBarSource.emoji.learnsQueryChoices
-                && CommandBarSource.allCases.filter(\.learnsQueryChoices).count == 2,
-               "only app and emoji choices teach query-specific ranking")
         expect(CommandBarClipboardAccess.canUseHistory(captureEnabled: true,
                                                        hasSavedItems: false),
                "clipboard capture makes the command bar history available")
@@ -11678,7 +11674,7 @@ struct MetricsTests {
                     for: "app./Applications/WhatsApp Beta.app", preparedQuery: preparedWhat,
                     store: queryHabits,
                     now: barNow + 20) == 0,
-               "a learned query lifts only the selected installation")
+               "a learned query lifts only the selected result")
         let encodedQueryHabits = CommandBarQueryHabits.encode(queryHabits)
         let hexadecimal = CharacterSet(charactersIn: "0123456789abcdef")
         let otherPreparedWhat = CommandBarQueryHabits.prepare("what", key: otherHabitKey)
@@ -11695,7 +11691,7 @@ struct MetricsTests {
                "query habits round-trip as per-install keyed digests, prepared once per query")
         expect(CommandBarQueryHabits.removing(
                     resultID: "app./Applications/WhatsApp.app", from: queryHabits).isEmpty,
-               "forgetting an app removes its learned query choices")
+               "forgetting a result removes its learned query choices")
 
         var maximumHabitStore: CommandBarQueryHabits.Store = [:]
         for queryIndex in 0..<CommandBarQueryHabits.storedQueryLimit {
@@ -11752,12 +11748,12 @@ struct MetricsTests {
         expect(habitStoreCache.store.isEmpty,
                "forgetting all learned choices clears the decoded store immediately")
         habitStoreCache.record(preparedQuery: preparedWhat,
-                               resultID: "app.test", now: barNow)
+                               resultID: "action.screenshot", now: barNow)
         expect(!habitStoreCache.store.isEmpty,
-               "recording an app choice updates the decoded store immediately")
-        habitStoreCache.remove(resultID: "app.test")
+               "recording any durable result updates the decoded store immediately")
+        habitStoreCache.remove(resultID: "action.screenshot")
         expect(habitStoreCache.store.isEmpty,
-               "forgetting one app updates the decoded store immediately")
+               "forgetting one result updates the decoded store immediately")
         habitStoreCache.reload(encodedQueryHabits)
         expect(habitStoreCache.store == queryHabits,
                "reloading preferences replaces the decoded store with persisted learning")

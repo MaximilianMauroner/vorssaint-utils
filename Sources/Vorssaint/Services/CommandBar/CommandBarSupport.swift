@@ -510,8 +510,9 @@ enum CommandBarUsage {
     }
 }
 
-/// Which app won after a typed query. Preferences hold only keyed digests of
-/// query prefixes; the per-install key lives separately in the Keychain.
+/// Which durable result won after a typed query. Preferences hold only keyed
+/// digests of query prefixes; the per-install key lives separately in the
+/// Keychain.
 enum CommandBarQueryHabits {
     typealias Store = [String: [String: CommandBarUse]]
 
@@ -773,7 +774,7 @@ enum CommandBarQueryHabits {
         })
 }
 
-/// One decoded copy of learned app choices. The service reloads this when a
+/// One decoded copy of learned result choices. The service reloads this when a
 /// presentation starts and ranking only reads the already-decoded dictionary.
 struct CommandBarQueryHabitStoreCache {
     private(set) var store: CommandBarQueryHabits.Store = [:]

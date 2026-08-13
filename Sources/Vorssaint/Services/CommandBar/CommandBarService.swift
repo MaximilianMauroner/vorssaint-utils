@@ -962,23 +962,23 @@ final class CommandBarService: ObservableObject {
                 .filter { !hidden.contains($0.stableKey) }
                 : categoryContent(category, bar: bar)
             let now = Date().timeIntervalSince1970
-            let habitQuery = category.learnsQueryChoices
+            let habitQuery = pool.contains(where: \.countsUsage)
                 ? CommandBarQueryHabits.prepare(trimmed, cache: &preparedHabitQuery)
                 : nil
             let candidates = pool.enumerated().map { index, entry in
                 let folded = normalizedByID[entry.id]
+                let habitBoost = entry.countsUsage ? habitQuery.map {
+                    CommandBarQueryHabits.boost(for: entry.id,
+                                                preparedQuery: $0,
+                                                store: queryHabitStore.store,
+                                                now: now)
+                } ?? 0 : 0
                 return CommandBarCandidate(index: index,
                                            normalizedTitle: rankingTitle(for: entry, folded: folded,
                                                                          query: trimmed),
                                            normalizedKeywords: folded?.keywords
                                                ?? CommandBarSearch.normalized(entry.keywords),
-                                           boost: habitQuery.map {
-                                               CommandBarQueryHabits.boost(
-                                                   for: entry.id,
-                                                   preparedQuery: $0,
-                                                   store: queryHabitStore.store,
-                                                   now: now)
-                                           } ?? 0)
+                                           boost: habitBoost)
             }
             let ranked = CommandBarSearch.rankedIndexes(candidates: candidates, matching: trimmed)
             return ranked.prefix(40).map { pool[$0] }
@@ -1100,7 +1100,7 @@ final class CommandBarService: ObservableObject {
                                         ? CommandBarUsage.boost(for: usage[entry.id], now: now)
                                         : 0)
                                     + (entry.isActive ? 20 : 0)
-                                    + (sources[index].learnsQueryChoices
+                                    + (entry.countsUsage
                                         ? CommandBarQueryHabits.boost(
                                             for: entry.id,
                                             preparedQuery: habitQuery,
@@ -1613,11 +1613,8 @@ final class CommandBarService: ObservableObject {
             current: query,
             beforeCompletion: queryBeforeCompletion)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let source = CommandBarPreferences.source(ofRowID: entry.id)
-        let learningQuery = source == .emoji
-            ? CommandBarSearch.emojiQuery(from: typedQuery) ?? typedQuery
-            : typedQuery
-        if source.learnsQueryChoices, !learningQuery.isEmpty {
+        let learningQuery = CommandBarSearch.emojiQuery(from: typedQuery) ?? typedQuery
+        if entry.countsUsage, !learningQuery.isEmpty {
             let prepared = CommandBarQueryHabits.prepare(
                 learningQuery, cache: &preparedHabitQuery)
             if !prepared.isEmpty {
