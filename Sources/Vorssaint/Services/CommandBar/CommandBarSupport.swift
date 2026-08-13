@@ -168,6 +168,15 @@ struct CommandBarCandidate {
 /// also matches as an in-order subsequence of a word ("brlho" finds "brilho")
 /// and, as a last resort, within one edit of a word ("birlho" too).
 enum CommandBarSearch {
+    /// A leading colon scopes the global search to emoji. The marker is not
+    /// part of the text being matched, so `:fire` finds the same emoji as
+    /// `fire` inside the Emoji category.
+    static func emojiQuery(from query: String) -> String? {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix(":") else { return nil }
+        return String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
+    }
+
     /// Case, accent and width differences never matter. Folded without a
     /// locale on purpose: Turkish lowercases a capital I to a dotless one, so
     /// a locale-aware fold would stop "insta" from finding a title that begins
@@ -615,8 +624,9 @@ enum CommandBarUsage {
     }
 }
 
-/// Which app won after a typed query. Preferences hold only keyed digests of
-/// query prefixes; the per-install key lives separately in the Keychain.
+/// Which durable result won after a typed query. Preferences hold only keyed
+/// digests of query prefixes; the per-install key lives separately in the
+/// Keychain.
 enum CommandBarQueryHabits {
     typealias Store = [String: [String: CommandBarUse]]
 
@@ -878,7 +888,7 @@ enum CommandBarQueryHabits {
         })
 }
 
-/// One decoded copy of learned app choices. The service reloads this when a
+/// One decoded copy of learned result choices. The service reloads this when a
 /// presentation starts and ranking only reads the already-decoded dictionary.
 struct CommandBarQueryHabitStoreCache {
     private(set) var store: CommandBarQueryHabits.Store = [:]

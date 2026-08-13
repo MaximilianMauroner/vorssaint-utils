@@ -209,6 +209,7 @@ final class CommandBarService: ObservableObject {
             menusLoadedAt = nil
             entriesByID = [:]
             normalizedByID = [:]
+            entriesByStableKey = [:]
             queryHabitStore.forgetAll()
             preparedHabitQuery.reset()
             cachedApps = []
@@ -267,6 +268,7 @@ final class CommandBarService: ObservableObject {
     /// apps, windows or menus that make home expensive to prepare.
     func showEmoji() {
         guard AppFeature.commandBar.isAvailable else { return }
+        CommandBarQueryHabits.warmInstallationKey()
         let panel = ensurePanel()
         _ = beginPresentation(category: .emoji)
         reloadPreferenceCaches()
@@ -1114,18 +1116,57 @@ final class CommandBarService: ObservableObject {
                 // filters it and searching inside the category must agree.
                 .filter { !hidden.contains($0.stableKey) }
                 : categoryContent(category, bar: bar)
+            let now = Date().timeIntervalSince1970
+            let habitQuery = pool.contains(where: \.countsUsage)
+                ? CommandBarQueryHabits.prepare(trimmed, cache: &preparedHabitQuery)
+                : nil
             let candidates = pool.enumerated().map { index, entry in
                 let folded = normalizedByID[entry.id]
+                let habitBoost = entry.countsUsage ? habitQuery.map {
+                    CommandBarQueryHabits.boost(for: entry.id,
+                                                preparedQuery: $0,
+                                                store: queryHabitStore.store,
+                                                now: now)
+                } ?? 0 : 0
                 return CommandBarCandidate(index: index,
                                            normalizedTitle: rankingTitle(for: entry, folded: folded,
                                                                          query: trimmed),
                                            normalizedKeywords: folded?.keywords
                                                ?? CommandBarSearch.normalized(entry.keywords),
-                                           boost: 0)
+                                           boost: habitBoost)
             }
             let ranked = CommandBarSearch.rankedIndexes(candidates: candidates, matching: trimmed)
             return ranked.prefix(40).map { pool[$0] }
         }
+
+        // Emoji are a catalog of more than a thousand rows, so they only join
+        // a search when the leading colon explicitly asks for them. Selecting
+        // the Emoji category takes the path above and remains colon-free.
+        if let emojiQuery = CommandBarSearch.emojiQuery(from: trimmed) {
+            guard isEnabled(.emoji) else { return [] }
+            let pool = categoryContent(.emoji, bar: bar)
+            guard !emojiQuery.isEmpty else { return Array(pool.prefix(40)) }
+            let habitQuery = CommandBarQueryHabits.prepare(
+                emojiQuery, cache: &preparedHabitQuery)
+            let now = Date().timeIntervalSince1970
+            let candidates = pool.enumerated().map { index, entry in
+                let folded = normalizedByID[entry.id]
+                return CommandBarCandidate(index: index,
+                                           normalizedTitle: folded?.title
+                                               ?? CommandBarSearch.normalized(entry.title),
+                                           normalizedKeywords: folded?.keywords
+                                               ?? CommandBarSearch.normalized(entry.keywords),
+                                           boost: CommandBarQueryHabits.boost(
+                                               for: entry.id,
+                                               preparedQuery: habitQuery,
+                                               store: queryHabitStore.store,
+                                               now: now))
+            }
+            let ranked = CommandBarSearch.rankedIndexes(candidates: candidates,
+                                                         matching: emojiQuery)
+            return ranked.prefix(40).map { pool[$0] }
+        }
+
         // A sum is answered, not searched: the result leads and the rest of
         // the list carries on underneath. Its row carries no id prefix of its
         // own, so the switch has to be read here or it would do nothing.
@@ -1176,7 +1217,6 @@ final class CommandBarService: ObservableObject {
         // everything the bar itself can do.
         if effectiveQuery.count >= 2 {
             pool.append(contentsOf: menuEntries)
-            pool.append(contentsOf: emojiEntries)
         }
         pool.append(contentsOf: clipboard)
 
@@ -1215,7 +1255,7 @@ final class CommandBarService: ObservableObject {
                                         ? CommandBarUsage.boost(for: usage[entry.id], now: now)
                                         : 0)
                                     + (entry.isActive ? 20 : 0)
-                                    + (sources[index] == .apps
+                                    + (entry.countsUsage
                                         ? CommandBarQueryHabits.boost(
                                             for: entry.id,
                                             preparedQuery: habitQuery,
@@ -1311,6 +1351,9 @@ final class CommandBarService: ObservableObject {
     func highlightOffsets(for entry: CommandBarEntry) -> Set<Int> {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard case .search = mode, !trimmed.isEmpty, !entry.isAnswer else { return [] }
+        if let emojiQuery = CommandBarSearch.emojiQuery(from: trimmed) {
+            return CommandBarSearch.highlightOffsets(title: entry.title, query: emojiQuery)
+        }
         let split = CommandBarSearch.splitTrailingNumber(trimmed)
         return CommandBarSearch.highlightOffsets(title: entry.title,
                                                  query: split.number != nil ? split.text : trimmed)
@@ -1725,9 +1768,10 @@ final class CommandBarService: ObservableObject {
             current: query,
             beforeCompletion: queryBeforeCompletion)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if CommandBarPreferences.source(ofRowID: entry.id) == .apps, !typedQuery.isEmpty {
+        let learningQuery = CommandBarSearch.emojiQuery(from: typedQuery) ?? typedQuery
+        if entry.countsUsage, !learningQuery.isEmpty {
             let prepared = CommandBarQueryHabits.prepare(
-                typedQuery, cache: &preparedHabitQuery)
+                learningQuery, cache: &preparedHabitQuery)
             if !prepared.isEmpty {
                 queryHabitStore.record(preparedQuery: prepared,
                                        resultID: entry.id,
