@@ -8,8 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Summary
 Vorssaint 3.3.2 opens the Command Bar immediately, adds a direct Emoji shortcut
-and prevents a Switcher shortcut crash. It also fixes Fan Control setup and false
-App Updates listings, while adding update sources and improving feature setup,
+and prevents Switcher crashes and lost audio. It also fixes Fan Control setup and
+false App Updates listings, while adding update sources and improving feature setup,
 Dock Preview and keyboard controls.
 
 ### Added
@@ -42,6 +42,8 @@ Dock Preview and keyboard controls.
 - The Super key now works when Caps Lock is set to do nothing.
 - Dock Preview controls no longer show an oversized blue effect when focused or
   hovered.
+- The Volume Mixer now restores sound if an app's volume adjustment stops
+  working, instead of leaving it silent until Vorssaint quits.
 - Fan Control can now request its required approval instead of appearing
   unavailable before its first setup.
 

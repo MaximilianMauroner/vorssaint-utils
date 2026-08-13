@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import CoreAudio
 import Foundation
 
 struct MixerInputRouteResolution: Equatable {
@@ -64,6 +65,45 @@ struct MixerEngineBuilds {
     /// same row can start right away.
     mutating func invalidateAll() { tokens.removeAll() }
 
+}
+
+/// Gives one dead audio path a replacement, then keeps that exact path
+/// untapped so a persistent HAL failure cannot keep muting it.
+struct MixerEngineRecovery {
+    struct Configuration: Equatable {
+        let objects: [AudioObjectID]
+        let outputDeviceUID: String
+    }
+
+    private struct Failure {
+        let configuration: Configuration
+        var count: Int
+    }
+
+    private var failures: [String: Failure] = [:]
+
+    func allowsBuild(_ id: String, configuration: Configuration) -> Bool {
+        guard let failure = failures[id], failure.configuration == configuration else {
+            return true
+        }
+        return failure.count < 2
+    }
+
+    mutating func recordFailure(_ id: String, configuration: Configuration) -> Bool {
+        let count = failures[id]?.configuration == configuration
+            ? (failures[id]?.count ?? 0) + 1
+            : 1
+        failures[id] = Failure(configuration: configuration, count: count)
+        return count < 2
+    }
+
+    mutating func clear(_ id: String) {
+        failures.removeValue(forKey: id)
+    }
+
+    mutating func clearAll() {
+        failures.removeAll()
+    }
 }
 
 /// Arbitrates the refresh passes that read the audio HAL.

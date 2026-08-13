@@ -4081,6 +4081,26 @@ struct MetricsTests {
                && !manyBuilds.isCurrent("com.example.Radio", token: secondRow),
                "one invalidation makes every row's build in flight stale")
 
+        var mixerRecovery = MixerEngineRecovery()
+        let firstAudioPath = MixerEngineRecovery.Configuration(objects: [41],
+                                                                outputDeviceUID: "speaker-a")
+        expect(mixerRecovery.allowsBuild("player", configuration: firstAudioPath),
+               "a new mixer audio path may build")
+        expect(mixerRecovery.recordFailure("player", configuration: firstAudioPath),
+               "a dead mixer engine gets one replacement")
+        expect(mixerRecovery.allowsBuild("player", configuration: firstAudioPath),
+               "the one replacement may build")
+        expect(!mixerRecovery.recordFailure("player", configuration: firstAudioPath)
+               && !mixerRecovery.allowsBuild("player", configuration: firstAudioPath),
+               "the same dead replacement stays untapped instead of muting forever")
+        let changedAudioPath = MixerEngineRecovery.Configuration(objects: [42],
+                                                                  outputDeviceUID: "speaker-a")
+        expect(mixerRecovery.allowsBuild("player", configuration: changedAudioPath),
+               "a new audio object gets its own recovery attempt")
+        mixerRecovery.clear("player")
+        expect(mixerRecovery.allowsBuild("player", configuration: firstAudioPath),
+               "an explicit mixer change re-enables the audio path")
+
         var refreshes = MixerRefreshCoordinator()
         expect(!refreshes.isReading, "a mixer that is not reading the audio devices holds no slot")
         // No real generation is ever negative, so the sentinel cannot pass.
