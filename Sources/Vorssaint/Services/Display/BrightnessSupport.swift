@@ -176,6 +176,17 @@ enum BrightnessSupport {
         activeDisplayIDs.contains(target) && activeDisplayIDs.count > 1
     }
 
+    /// If a cable removal leaves the Mac with no drawable display, bring back
+    /// one display this app switched off. Prefer the built-in panel so the
+    /// portable Mac recovers without changing any other disabled display.
+    static func headlessRecoveryCandidates(activeDisplayIDs: Set<UInt32>,
+                                           managedDisabledIDs: Set<UInt32>,
+                                           builtInDisabledIDs: Set<UInt32>) -> [UInt32] {
+        guard activeDisplayIDs.isEmpty else { return [] }
+        let builtIn = managedDisabledIDs.intersection(builtInDisabledIDs)
+        return builtIn.sorted() + managedDisabledIDs.subtracting(builtIn).sorted()
+    }
+
     // MARK: - Software dimming (gamma curve)
 
     /// Displays with no DDC channel are dimmed in the video pipeline instead:

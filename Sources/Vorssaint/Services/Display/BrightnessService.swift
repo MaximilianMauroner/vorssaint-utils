@@ -1009,11 +1009,55 @@ final class BrightnessService: ObservableObject {
             self.stateLock.unlock()
             if changed {
                 Self.log.log("topology changed to \(topology.online.sorted().map(String.init).joined(separator: ","), privacy: .public); rebuilding")
-                self.refresh()
+                if !self.restoreManagedDisplayIfHeadless(activeDisplayIDs: topology.active) {
+                    self.refresh()
+                }
             }
         }
         rebuildDebounce = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    /// A user can intentionally turn off the built-in panel while an external
+    /// display remains. If that last active display is then unplugged, there
+    /// is no UI left to reverse the choice, so restore one display that this
+    /// process disabled and leave every unrelated display configuration alone.
+    private func restoreManagedDisplayIfHeadless(activeDisplayIDs: Set<CGDirectDisplayID>) -> Bool {
+        stateLock.lock()
+        let candidates = BrightnessSupport.headlessRecoveryCandidates(
+            activeDisplayIDs: activeDisplayIDs,
+            managedDisabledIDs: managedDisabledIDs,
+            builtInDisabledIDs: Set(managedDisabledDisplays.values
+                .filter(\.isBuiltIn).map(\.id)))
+        stateLock.unlock()
+        guard !candidates.isEmpty else { return false }
+
+        pendingDisplayIDs.formUnion(candidates)
+        workQueue.async { [weak self] in
+            guard let self else { return }
+            var restored: CGDirectDisplayID?
+            for id in candidates where Self.configureDisplay(id, enabled: true) {
+                restored = id
+                break
+            }
+            if let restored {
+                self.stateLock.lock()
+                self.managedDisabledIDs.remove(restored)
+                self.managedDisabledDisplays.removeValue(forKey: restored)
+                self.stateLock.unlock()
+                Self.forgetDisplaySwitchedOff(restored)
+                Self.log.log("restored display \(restored) after the active display set became empty")
+            } else {
+                Self.log.error("could not restore a display after the active display set became empty")
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pendingDisplayIDs.subtract(candidates)
+                self.displayControlFailure = restored == nil ? .failed : nil
+                self.refresh(force: true)
+            }
+        }
+        return true
     }
 
     // MARK: - Waking up
