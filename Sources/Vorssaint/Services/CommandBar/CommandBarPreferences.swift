@@ -30,6 +30,11 @@ enum CommandBarSource: String, CaseIterable, Identifiable {
     /// would leave an empty bar and no way back.
     var isAlwaysOn: Bool { self == .actions }
 
+    /// Sources whose repeated query-to-result choices are specific enough to
+    /// learn. Apps and emoji have many plausible matches for short queries;
+    /// choosing one teaches the next search without affecting other sources.
+    var learnsQueryChoices: Bool { self == .apps || self == .emoji }
+
     var symbolName: String {
         switch self {
         case .actions: return "wand.and.rays"

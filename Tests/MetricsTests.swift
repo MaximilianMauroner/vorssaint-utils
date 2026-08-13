@@ -10388,6 +10388,10 @@ struct MetricsTests {
         expect(CommandBarSource.actions.isAlwaysOn
                 && CommandBarSource.allCases.filter(\.isAlwaysOn).count == 1,
                "only the app's own actions cannot be switched off")
+        expect(CommandBarSource.apps.learnsQueryChoices
+                && CommandBarSource.emoji.learnsQueryChoices
+                && CommandBarSource.allCases.filter(\.learnsQueryChoices).count == 2,
+               "only app and emoji choices teach query-specific ranking")
         expect(CommandBarClipboardAccess.canUseHistory(captureEnabled: true,
                                                        hasSavedItems: false),
                "clipboard capture makes the command bar history available")
