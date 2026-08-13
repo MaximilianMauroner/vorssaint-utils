@@ -12431,13 +12431,13 @@ struct MetricsTests {
         expect(CommandBarSearch.rankedIndexes(candidates: appBeforeDiscovery, matching: "what")
                 .first == 1,
                "an equally good app match leads a low-priority discovery page")
-        let exactBeforeHabit = [
-            CommandBarCandidate(index: 0, title: "What", boost: -500),
-            CommandBarCandidate(index: 1, title: "WhatsApp", boost: 2_000),
+        let learnedBeforeExact = [
+            CommandBarCandidate(index: 0, title: "Passwords"),
+            CommandBarCandidate(index: 1, title: "Proton Pass", priority: 1),
         ]
-        expect(CommandBarSearch.rankedIndexes(candidates: exactBeforeHabit, matching: "what")
-                .first == 0,
-               "usage and learned choices never cross a better textual match tier")
+        expect(CommandBarSearch.rankedIndexes(candidates: learnedBeforeExact, matching: "pass")
+                .first == 1,
+               "a learned query choice outranks an unselected stronger text match")
         let namedApp = [
             CommandBarCandidate(index: 0, title: "Codex"),
             CommandBarCandidate(index: 1, title: "Visual Studio Code",
@@ -12446,6 +12446,13 @@ struct MetricsTests {
         expect(CommandBarSearch.rankedIndexes(candidates: namedApp, matching: "codex")
                 .first == 1,
                "a name deliberately given to an app still leads its ordinary title match")
+        let aliasBeforeLearning = [
+            CommandBarCandidate(index: 0, title: "Passwords", priority: 1_100),
+            CommandBarCandidate(index: 1, title: "Proton Pass", priority: 720),
+        ]
+        expect(CommandBarSearch.rankedIndexes(candidates: aliasBeforeLearning, matching: "pass")
+                .first == 0,
+               "an explicit alias remains stronger than learned query behavior")
 
         // Two rows with one id is undefined behaviour in a SwiftUI list, and
         // the list is stitched from six providers plus whatever was saved.

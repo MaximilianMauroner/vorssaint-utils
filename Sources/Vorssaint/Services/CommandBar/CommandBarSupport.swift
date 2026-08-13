@@ -133,7 +133,8 @@ struct CommandBarCandidate {
     /// Already folded, so a long list is not re-folded on every keystroke.
     let normalizedTitle: String
     let normalizedKeywords: String
-    /// An explicit name given by the person leads ordinary textual matches.
+    /// A deliberate preference, such as an alias or learned query choice,
+    /// leads ordinary textual matches.
     let priority: Int
     let boost: Int
 
@@ -273,8 +274,9 @@ enum CommandBarSearch {
         return score
     }
 
-    /// Indexes of the matching candidates, best first; ties keep the caller's
-    /// order so equally good rows stay where the catalog put them.
+    /// Indexes of the matching candidates, best first. Deliberate preferences
+    /// lead match quality; ties keep the caller's order so equally good rows
+    /// stay where the catalog put them.
     static func rankedIndexes(candidates: [CommandBarCandidate], matching query: String) -> [Int] {
         let normalizedQuery = normalized(query)
         let scored: [(index: Int, priority: Int, tier: Int, score: Int, position: Int)] = candidates.enumerated()
@@ -298,9 +300,9 @@ enum CommandBarSearch {
             .map(\.index)
     }
 
-    /// Broad text quality is compared before usage and source preferences.
-    /// Those signals can reorder two prefix matches, but cannot bury the app
-    /// whose title is exactly what was typed.
+    /// Broad text quality is compared before passive signals such as usage and
+    /// source preference. Explicit aliases and learned query choices arrive as
+    /// priority instead, because they record what the person actually meant.
     private static func matchTier(title: String, keywords: String, query: String) -> Int {
         if title == query { return 5 }
         if title.hasPrefix(query) { return 4 }

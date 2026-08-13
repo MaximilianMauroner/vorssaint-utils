@@ -1133,7 +1133,7 @@ final class CommandBarService: ObservableObject {
                                                                          query: trimmed),
                                            normalizedKeywords: folded?.keywords
                                                ?? CommandBarSearch.normalized(entry.keywords),
-                                           boost: habitBoost)
+                                           priority: habitBoost)
             }
             let ranked = CommandBarSearch.rankedIndexes(candidates: candidates, matching: trimmed)
             return ranked.prefix(40).map { pool[$0] }
@@ -1151,16 +1151,17 @@ final class CommandBarService: ObservableObject {
             let now = Date().timeIntervalSince1970
             let candidates = pool.enumerated().map { index, entry in
                 let folded = normalizedByID[entry.id]
+                let habitPriority = CommandBarQueryHabits.boost(
+                    for: entry.id,
+                    preparedQuery: habitQuery,
+                    store: queryHabitStore.store,
+                    now: now)
                 return CommandBarCandidate(index: index,
                                            normalizedTitle: folded?.title
                                                ?? CommandBarSearch.normalized(entry.title),
                                            normalizedKeywords: folded?.keywords
                                                ?? CommandBarSearch.normalized(entry.keywords),
-                                           boost: CommandBarQueryHabits.boost(
-                                               for: entry.id,
-                                               preparedQuery: habitQuery,
-                                               store: queryHabitStore.store,
-                                               now: now))
+                                           priority: habitPriority)
             }
             let ranked = CommandBarSearch.rankedIndexes(candidates: candidates,
                                                          matching: emojiQuery)
@@ -1242,12 +1243,18 @@ final class CommandBarService: ObservableObject {
             // that is the whole point of giving it.
             let aliasBoost = names[entry.stableKey]
                 .flatMap { CommandBarPreferences.aliasHit($0, query: effectiveQuery)?.rawValue } ?? 0
+            let habitPriority = entry.countsUsage
+                ? CommandBarQueryHabits.boost(for: entry.id,
+                                              preparedQuery: habitQuery,
+                                              store: queryHabitStore.store,
+                                              now: now)
+                : 0
             return CommandBarCandidate(index: index,
                                 normalizedTitle: rankingTitle(for: entry, folded: folded,
                                                               query: effectiveQuery),
                                 normalizedKeywords: folded?.keywords
                                     ?? CommandBarSearch.normalized(entry.keywords),
-                                priority: aliasBoost,
+                                priority: max(aliasBoost, habitPriority),
                                 // A running app is likelier to be the one
                                 // wanted, but never enough to beat a better
                                 // name match.
@@ -1255,13 +1262,6 @@ final class CommandBarService: ObservableObject {
                                         ? CommandBarUsage.boost(for: usage[entry.id], now: now)
                                         : 0)
                                     + (entry.isActive ? 20 : 0)
-                                    + (entry.countsUsage
-                                        ? CommandBarQueryHabits.boost(
-                                            for: entry.id,
-                                            preparedQuery: habitQuery,
-                                            store: queryHabitStore.store,
-                                            now: now)
-                                        : 0)
                                     // What the Mac itself holds leads what is
                                     // borrowed from the app in front.
                                     + CommandBarPreferences.rankBias(for: sources[index])
