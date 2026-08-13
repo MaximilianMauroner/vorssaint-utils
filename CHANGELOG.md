@@ -9,9 +9,9 @@ All notable changes to this project are documented here. The format follows
 ### Summary
 Vorssaint 3.3.2 opens the Command Bar immediately, adds a direct Emoji shortcut
 and prevents Switcher crashes, restores minimized windows and avoids lost audio.
-It also corrects Cleaning Mode, power readings, app removal, updates and panel
-behavior, while improving feature setup, Fan Control, Dock Preview and keyboard
-controls, including mouse navigation.
+It also corrects Cleaning Mode, Scratchpad resizing, power readings, app removal,
+updates and panel behavior, while improving feature setup, Fan Control, Dock Preview
+and keyboard controls, including mouse navigation.
 
 ### Added
 - Emoji can open directly from a shortcut assigned to its Command Bar row.
@@ -32,6 +32,8 @@ controls, including mouse navigation.
   Thanks to @theafox.
 
 ### Fixed
+- Scratchpad tab controls now follow the window width instead of leaving unused
+  space after resizing. Thanks to @AB-boi.
 - Cleaning Mode no longer flashes or loses input during bursts of display changes.
   Thanks to @Polovinkin.
 - Back and Forward mouse buttons now stay responsive in browsers that handle
