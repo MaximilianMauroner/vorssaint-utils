@@ -512,6 +512,23 @@ struct MetricsTests {
         expect(BatteryTimeSupport.formatted(seconds: 30) == "0h 1m",
                "battery time keeps a positive final minute visible")
 
+        expect(MetricFormat.systemPowerWatts(measured: 3,
+                                             batteryWatts: 10,
+                                             externalConnected: true) == 3,
+               "system power keeps its independent sensor while connected to power")
+        expect(MetricFormat.systemPowerWatts(measured: nil,
+                                             batteryWatts: 10,
+                                             externalConnected: true) == nil,
+               "system power does not mirror adapter input while connected to power")
+        expect(MetricFormat.systemPowerWatts(measured: nil,
+                                             batteryWatts: -4,
+                                             externalConnected: false) == 4,
+               "battery discharge remains a valid system-power fallback")
+        expect(MetricFormat.systemPowerWatts(measured: nil,
+                                             batteryWatts: -4,
+                                             externalConnected: true) == nil,
+               "battery flow alone does not claim total system power while plugged in")
+
         // MARK: Peripheral battery helpers
 
         expect(PeripheralBatterySupport.percent(from: "87%") == 87,
