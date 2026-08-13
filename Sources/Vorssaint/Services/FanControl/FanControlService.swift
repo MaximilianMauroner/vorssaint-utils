@@ -361,7 +361,9 @@ final class FanControlService: ObservableObject {
         case .notRegistered: accessState = .notRegistered
         case .enabled: accessState = .enabled
         case .requiresApproval: accessState = .requiresApproval
-        case .notFound: accessState = .unavailable
+        // A bundled daemon can report notFound before its first registration.
+        // register() then moves it to the user-approval state.
+        case .notFound: accessState = .notRegistered
         @unknown default: accessState = .unavailable
         }
     }

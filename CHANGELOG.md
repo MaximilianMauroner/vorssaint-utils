@@ -8,9 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Summary
 Vorssaint 3.3.2 opens the Command Bar immediately, adds a direct Emoji shortcut
-and prevents a Switcher shortcut crash. It also removes false App Updates listings
-and adds source controls, while improving feature setup, Dock Preview controls,
-keyboard navigation and custom Caps Lock settings.
+and prevents a Switcher shortcut crash. It also fixes Fan Control setup and false
+App Updates listings, while adding update sources and improving feature setup,
+Dock Preview and keyboard controls.
 
 ### Added
 - Emoji can open directly from a shortcut assigned to its Command Bar row.
@@ -42,6 +42,8 @@ keyboard navigation and custom Caps Lock settings.
 - The Super key now works when Caps Lock is set to do nothing.
 - Dock Preview controls no longer show an oversized blue effect when focused or
   hovered.
+- Fan Control can now request its required approval instead of appearing
+  unavailable before its first setup.
 
 ## [3.3.1] - 2026-08-09
 
