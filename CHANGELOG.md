@@ -9,8 +9,9 @@ All notable changes to this project are documented here. The format follows
 ### Summary
 Vorssaint 3.3.2 opens the Command Bar immediately, adds a direct Emoji shortcut
 and prevents Switcher crashes, restores minimized windows and avoids lost audio.
-It also corrects power readings, app removal, updates and panel behavior, while
-improving feature setup, Fan Control, Dock Preview and keyboard controls.
+It also corrects Cleaning Mode, power readings, app removal, updates and panel
+behavior, while improving feature setup, Fan Control, Dock Preview and keyboard
+controls.
 
 ### Added
 - Emoji can open directly from a shortcut assigned to its Command Bar row.
@@ -31,6 +32,8 @@ improving feature setup, Fan Control, Dock Preview and keyboard controls.
   Thanks to @theafox.
 
 ### Fixed
+- Cleaning Mode no longer flashes or loses input during bursts of display changes.
+  Thanks to @Polovinkin.
 - The Command Bar now appears immediately while its results finish loading.
   Thanks to @MaximilianMauroner.
 - App Updates no longer offers store updates that belong to a different app.
