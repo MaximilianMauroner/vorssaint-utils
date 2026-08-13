@@ -1678,7 +1678,9 @@ final class CommandBarService: ObservableObject {
         guard !appsLoading else { return }
         appsLoading = true
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let apps = InstalledApps.installedApplications(includeSystemApplications: true)
+            let apps = InstalledApps.installedApplications(
+                includeSystemApplications: true,
+                spotlightPaths: Self.spotlightApplicationPaths())
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.cachedApps = apps
@@ -1690,6 +1692,15 @@ final class CommandBarService: ObservableObject {
                 self.refreshResults()
             }
         }
+    }
+
+    private static func spotlightApplicationPaths() -> [String] {
+        let result = Shell.run(
+            "/usr/bin/mdfind",
+            ["-onlyin", NSHomeDirectory(),
+             "kMDItemContentType == 'com.apple.application-bundle'"])
+        guard result.status == 0 else { return [] }
+        return result.output.split(separator: "\n").map(String.init)
     }
 
     /// Open windows, listed away from the main thread because the walk asks

@@ -420,7 +420,7 @@ final class AppUpdatesService: ObservableObject {
     /// Reads the normal Applications folders plus shallow app results from
     /// Spotlight in the user's home, all off the main thread.
     private static func scanInstalledApps() -> [ScannedApp] {
-        AppUpdatesSupport.applicationScanPaths(
+        InstalledApps.applicationScanPaths(
             folderPaths: folderApplicationPaths(),
             spotlightPaths: spotlightApplicationPaths(),
             homeDirectory: NSHomeDirectory()

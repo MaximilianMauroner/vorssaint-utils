@@ -50,7 +50,8 @@ enum InstalledApps {
         return systemPathPrefixes.contains { path.hasPrefix($0) }
     }
 
-    static func installedApplications(includeSystemApplications: Bool = false) -> [InstalledApp] {
+    static func installedApplications(includeSystemApplications: Bool = false,
+                                      spotlightPaths: [String] = []) -> [InstalledApp] {
         let fm = FileManager.default
         var roots = [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
@@ -95,9 +96,60 @@ enum InstalledApps {
             }
         }
 
+        for path in applicationScanPaths(folderPaths: [],
+                                         spotlightPaths: spotlightPaths,
+                                         homeDirectory: NSHomeDirectory()) {
+            let url = URL(fileURLWithPath: path)
+            guard fm.fileExists(atPath: path),
+                  seen.insert(url.standardizedFileURL.path).inserted else { continue }
+            apps.append(app(at: url, fileManager: fm))
+        }
+
         return apps.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
+    }
+
+    /// Merges the normal Applications folders with shallow Spotlight results
+    /// from the user's home. Deep build products, hidden folders, nested apps
+    /// and system-owned bundles are not installed apps a person should see.
+    static func applicationScanPaths(folderPaths: [String],
+                                     spotlightPaths: [String],
+                                     homeDirectory: String) -> [String] {
+        let home = URL(fileURLWithPath: homeDirectory)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL.path
+        let homePrefix = home.hasSuffix("/") ? home : home + "/"
+        var seen = Set<String>()
+        var result: [String] = []
+
+        func append(_ path: String, fromSpotlight: Bool) {
+            let url = URL(fileURLWithPath: path)
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+            let normalized = url.path
+            guard url.pathExtension.lowercased() == "app",
+                  !isSystemApplication(at: url),
+                  !normalized.split(separator: "/").dropLast().contains(where: {
+                      $0.lowercased().hasSuffix(".app")
+                  }) else { return }
+
+            if fromSpotlight {
+                guard normalized.hasPrefix(homePrefix) else { return }
+                let components = normalized.dropFirst(homePrefix.count).split(separator: "/")
+                let folders = components.dropLast()
+                guard (1...3).contains(components.count),
+                      components.first?.lowercased() != "library",
+                      !folders.contains(where: { $0.hasPrefix(".") }) else { return }
+            }
+
+            guard seen.insert(normalized).inserted else { return }
+            result.append(normalized)
+        }
+
+        folderPaths.forEach { append($0, fromSpotlight: false) }
+        spotlightPaths.forEach { append($0, fromSpotlight: true) }
+        return result
     }
 
     private static func app(at url: URL, fileManager fm: FileManager) -> InstalledApp {

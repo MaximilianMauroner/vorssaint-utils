@@ -11206,7 +11206,7 @@ struct MetricsTests {
                "another platform's listing is not the installed Mac app's version")
         expect(AppUpdatesSupport.parseStoreLookup(Data("not json".utf8)).isEmpty,
                "a broken store answer yields nothing instead of throwing")
-        let discoveredPaths = AppUpdatesSupport.applicationScanPaths(
+        let discoveredPaths = InstalledApps.applicationScanPaths(
             folderPaths: ["/Applications/Editor.app",
                           "/System/Applications/System Utility.app",
                           "/Applications/Editor.app"],
@@ -11218,7 +11218,7 @@ struct MetricsTests {
                              "/Volumes/Installer/Sample.app"],
             homeDirectory: "/Users/test")
         expect(discoveredPaths == ["/Applications/Editor.app", "/Users/test/Tools/Side App.app"],
-               "app discovery keeps installed apps and rejects system, transient, nested and duplicate copies")
+               "shared app discovery keeps installed apps and rejects system, transient, nested and duplicate copies")
 
         let noon = Date(timeIntervalSince1970: 1_800_000_000)
         expect(AppUpdatesSupport.nextCheckDate(lastCheck: noon, frequency: .off, now: noon) == nil,
