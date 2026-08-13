@@ -258,6 +258,9 @@ struct ScreenshotEditorView: View {
             cg.saveGState()
             cg.setShadow(offset: CGSize(width: 0, height: -5), blur: 18,
                          color: CGColor(gray: 0, alpha: 0.38))
+            cg.addRect(CGRect(origin: .zero, size: size))
+            cg.addPath(path)
+            cg.clip(using: .evenOdd)
             cg.addPath(path)
             cg.setFillColor(CGColor(gray: 1, alpha: 1))
             cg.fillPath()
