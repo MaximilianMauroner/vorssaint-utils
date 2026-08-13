@@ -10547,6 +10547,13 @@ struct MetricsTests {
                "popular emoji keep a predictable lead over the Unicode long tail")
         expect(emojiCharacters.count == CommandBarEmoji.emoji.count,
                "no emoji is offered twice")
+        expect(CommandBarSearch.emojiQuery(from: "fire") == nil,
+               "an ordinary search never opens the emoji index")
+        expect(CommandBarSearch.emojiQuery(from: ":fire") == "fire"
+                && CommandBarSearch.emojiQuery(from: "  : heart  ") == "heart",
+               "a leading colon scopes the search and stays out of the emoji query")
+        expect(CommandBarSearch.emojiQuery(from: ":") == "",
+               "a colon by itself opens the emoji index for browsing")
 
         // MARK: Command bar highlighting
 

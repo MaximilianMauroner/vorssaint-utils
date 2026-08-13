@@ -917,6 +917,28 @@ final class CommandBarService: ObservableObject {
             let ranked = CommandBarSearch.rankedIndexes(candidates: candidates, matching: trimmed)
             return ranked.prefix(40).map { pool[$0] }
         }
+
+        // Emoji are a catalog of more than a thousand rows, so they only join
+        // a search when the leading colon explicitly asks for them. Selecting
+        // the Emoji category takes the path above and remains colon-free.
+        if let emojiQuery = CommandBarSearch.emojiQuery(from: trimmed) {
+            guard isEnabled(.emoji) else { return [] }
+            let pool = categoryContent(.emoji, bar: bar)
+            guard !emojiQuery.isEmpty else { return Array(pool.prefix(40)) }
+            let candidates = pool.enumerated().map { index, entry in
+                let folded = normalizedByID[entry.id]
+                return CommandBarCandidate(index: index,
+                                           normalizedTitle: folded?.title
+                                               ?? CommandBarSearch.normalized(entry.title),
+                                           normalizedKeywords: folded?.keywords
+                                               ?? CommandBarSearch.normalized(entry.keywords),
+                                           boost: 0)
+            }
+            let ranked = CommandBarSearch.rankedIndexes(candidates: candidates,
+                                                         matching: emojiQuery)
+            return ranked.prefix(40).map { pool[$0] }
+        }
+
         // A sum is answered, not searched: the result leads and the rest of
         // the list carries on underneath. Its row carries no id prefix of its
         // own, so the switch has to be read here or it would do nothing.
@@ -963,7 +985,6 @@ final class CommandBarService: ObservableObject {
         // everything the bar itself can do.
         if effectiveQuery.count >= 2 {
             pool.append(contentsOf: menuEntries)
-            pool.append(contentsOf: emojiEntries)
         }
         pool.append(contentsOf: clipboard)
 
