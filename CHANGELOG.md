@@ -31,6 +31,8 @@ and peripheral battery readings, panel behavior and keyboard controls.
   Thanks to @theafox.
 
 ### Fixed
+- Volume boost now smooths loud peaks before they play, preventing crackling at
+  high output levels. Thanks to @AB-boi.
 - External displays no longer receive repeated brightness checks after wake on
   connections that cannot answer them, preventing sensitive hubs from dropping the picture.
   Thanks to @danilo-alm.

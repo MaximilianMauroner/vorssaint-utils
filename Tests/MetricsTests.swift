@@ -4522,6 +4522,104 @@ struct MetricsTests {
         expect(stereoLinked,
                "both channels of a frame share one gain so the stereo image stays put")
 
+        var lookaheadInput = sine(amplitude: 1.5, frames: 9600)
+        let lookahead = BoostLookaheadLimiter(channels: 1)
+        _ = lookaheadInput.withUnsafeMutableBufferPointer { buffer in
+            lookahead.process(buffer.baseAddress!, frames: buffer.count, channels: 1,
+                              release: BoostLimiter.release(sampleRate: 48000))
+        }
+        let delayedSine = Array(repeating: Float(0), count: BoostLookaheadLimiter.lookaheadFrames)
+            + Array(sine(amplitude: BoostLimiter.ceiling,
+                         frames: 9600 - BoostLookaheadLimiter.lookaheadFrames))
+        expect(lookaheadInput.allSatisfy { abs($0) <= BoostLimiter.ceiling + 0.0001 },
+               "lookahead keeps every boosted sample inside the output range")
+        expect(zip(lookaheadInput.dropFirst(960), delayedSine.dropFirst(960)).allSatisfy {
+            abs($0 - $1) < 0.0001
+        }, "lookahead preserves a steady loud waveform instead of reshaping its peaks")
+
+        var quietLookahead = sine(amplitude: 0.6, frames: 2048)
+        let quietLookaheadSource = quietLookahead
+        let quietLookaheadLimiter = BoostLookaheadLimiter(channels: 1)
+        _ = quietLookahead.withUnsafeMutableBufferPointer { buffer in
+            quietLookaheadLimiter.process(buffer.baseAddress!, frames: buffer.count, channels: 1,
+                                          release: BoostLimiter.release(sampleRate: 48000))
+        }
+        expect(Array(quietLookahead.prefix(BoostLookaheadLimiter.lookaheadFrames))
+                == Array(repeating: 0, count: BoostLookaheadLimiter.lookaheadFrames)
+            && Array(quietLookahead.dropFirst(BoostLookaheadLimiter.lookaheadFrames))
+                == Array(quietLookaheadSource.dropLast(BoostLookaheadLimiter.lookaheadFrames)),
+               "quiet routed audio stays bit-identical after the fixed lookahead delay")
+
+        let lookaheadSource = sine(amplitude: 1.5, frames: 4096)
+        var wholeLookahead = lookaheadSource
+        let wholeLookaheadLimiter = BoostLookaheadLimiter(channels: 1)
+        _ = wholeLookahead.withUnsafeMutableBufferPointer { buffer in
+            wholeLookaheadLimiter.process(buffer.baseAddress!, frames: buffer.count, channels: 1,
+                                          release: BoostLimiter.release(sampleRate: 48000))
+        }
+        let chunkedLookaheadLimiter = BoostLookaheadLimiter(channels: 1)
+        var chunkedLookahead = [Float]()
+        for sourceChunk in [Array(lookaheadSource[0..<511]),
+                            Array(lookaheadSource[511..<1537]),
+                            Array(lookaheadSource[1537...])] {
+            var chunk = sourceChunk
+            _ = chunk.withUnsafeMutableBufferPointer { buffer in
+                chunkedLookaheadLimiter.process(buffer.baseAddress!, frames: buffer.count,
+                                                channels: 1,
+                                                release: BoostLimiter.release(sampleRate: 48000))
+            }
+            chunkedLookahead += chunk
+        }
+        expect(wholeLookahead == chunkedLookahead,
+               "lookahead produces the same signal across realtime buffer boundaries")
+
+        var impulseTrain = [Float](repeating: 0.2, count: 4096)
+        for frame in stride(from: 256, to: impulseTrain.count, by: 173) {
+            impulseTrain[frame] = frame.isMultiple(of: 2) ? 2 : -2
+        }
+        let impulseLimiter = BoostLookaheadLimiter(channels: 1)
+        _ = impulseTrain.withUnsafeMutableBufferPointer { buffer in
+            impulseLimiter.process(buffer.baseAddress!, frames: buffer.count, channels: 1,
+                                   release: BoostLimiter.release(sampleRate: 48000))
+        }
+        expect(impulseTrain.allSatisfy { abs($0) <= BoostLimiter.ceiling + 0.0001 },
+               "overlapping future peaks are attenuated before they reach the output")
+
+        var lookaheadStereo = [Float](repeating: 0, count: 4096 * 2)
+        for frame in 0..<4096 {
+            let value = Float(sin(2 * Double.pi * 440 * Double(frame) / 48000))
+            lookaheadStereo[frame * 2] = 1.5 * value
+            lookaheadStereo[frame * 2 + 1] = 0.75 * value
+        }
+        let stereoLookaheadLimiter = BoostLookaheadLimiter(channels: 2)
+        _ = lookaheadStereo.withUnsafeMutableBufferPointer { buffer in
+            stereoLookaheadLimiter.process(buffer.baseAddress!, frames: buffer.count / 2,
+                                           channels: 2,
+                                           release: BoostLimiter.release(sampleRate: 48000))
+        }
+        expect((BoostLookaheadLimiter.lookaheadFrames..<4096).allSatisfy { frame in
+            abs(lookaheadStereo[frame * 2 + 1] - lookaheadStereo[frame * 2] / 2) < 0.0001
+        }, "lookahead applies one gain to every channel in a frame")
+
+        var changedChannels = [Float](repeating: 0.4, count: 16)
+        let adaptableLimiter = BoostLookaheadLimiter(channels: 2)
+        let changedChannelsWereHandled = changedChannels.withUnsafeMutableBufferPointer { buffer in
+            adaptableLimiter.process(
+                buffer.baseAddress!, frames: 8, channels: 2,
+                release: BoostLimiter.release(sampleRate: 48000))
+        }
+        expect(changedChannelsWereHandled,
+               "a stream shape change reuses the preallocated lookahead storage")
+
+        var tooManyChannels = [Float](repeating: 1.2, count: 24)
+        let overflowWasHandled = tooManyChannels.withUnsafeMutableBufferPointer { buffer in
+            BoostLookaheadLimiter(channels: 2).process(
+                buffer.baseAddress!, frames: 8, channels: 3,
+                release: BoostLimiter.release(sampleRate: 48000))
+        }
+        expect(!overflowWasHandled && tooManyChannels.allSatisfy { $0 == 1.2 },
+               "a stream larger than the preallocated capacity falls through safely")
+
         var fallbackLimiter = BoostLimiter()
         let fallbackLimited = limited(sine(amplitude: 1.5, frames: 480),
                                       release: BoostLimiter.release(sampleRate: 0),
