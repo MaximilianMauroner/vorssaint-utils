@@ -66,6 +66,8 @@ enum WindowActivator {
                                   app: app) {
             return
         }
+        let targetStartedMinimized = item.isMinimized
+            || windowIsMinimized(windowID: windowID, pid: windowOwnerPID)
         watchTargetMinimizeIfNeeded(windowID: windowID,
                                     targetPID: item.pid,
                                     targetWindowOwnerPID: windowOwnerPID,
@@ -78,7 +80,8 @@ enum WindowActivator {
             activateApp(app, allWindows: activationPlan.activateAllWindows)
             guard retry else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.fullscreenFocusRetryDelays[0]) {
-                    guard !windowIsMinimized(windowID: windowID, pid: windowOwnerPID),
+                    guard (targetStartedMinimized
+                           || !windowIsMinimized(windowID: windowID, pid: windowOwnerPID)),
                           let app = NSRunningApplication(processIdentifier: item.pid),
                           !app.isTerminated else { return }
                     prepareWindowForActivation(windowID: windowID, pid: windowOwnerPID)
@@ -102,6 +105,7 @@ enum WindowActivator {
                                   sourcePID: sourcePID,
                                   sourceWindowID: sourceWindowID,
                                   sourceWindowOwnerPID: sourceWindowOwnerPID,
+                                  targetStartedMinimized: targetStartedMinimized,
                                   activationPlan: activationPlan,
                                   delays: Self.fullscreenFocusRetryDelays)
             return
@@ -126,6 +130,7 @@ enum WindowActivator {
                               sourcePID: sourcePID,
                               sourceWindowID: sourceWindowID,
                               sourceWindowOwnerPID: sourceWindowOwnerPID,
+                              targetStartedMinimized: targetStartedMinimized,
                               activationPlan: activationPlan,
                               delays: [focusRetryDelay])
     }
@@ -255,6 +260,7 @@ enum WindowActivator {
                                              sourcePID: pid_t?,
                                              sourceWindowID: CGWindowID?,
                                              sourceWindowOwnerPID: pid_t?,
+                                             targetStartedMinimized: Bool,
                                              activationPlan: SwitcherActivationPlan,
                                              delays: [TimeInterval]) {
         for delay in delays {
@@ -262,7 +268,8 @@ enum WindowActivator {
                 guard shouldContinueFocusRetry(windowID: windowID,
                                                targetPID: targetPID,
                                                targetWindowOwnerPID: targetWindowOwnerPID,
-                                               sourcePID: sourcePID),
+                                               sourcePID: sourcePID,
+                                               targetStartedMinimized: targetStartedMinimized),
                       let app = NSRunningApplication(processIdentifier: targetPID),
                       !app.isTerminated else { return }
                 prepareWindowForActivation(windowID: windowID, pid: targetWindowOwnerPID)
@@ -320,7 +327,8 @@ enum WindowActivator {
     private static func shouldContinueFocusRetry(windowID: CGWindowID,
                                                  targetPID: pid_t,
                                                  targetWindowOwnerPID: pid_t,
-                                                 sourcePID: pid_t?) -> Bool {
+                                                 sourcePID: pid_t?,
+                                                 targetStartedMinimized: Bool) -> Bool {
         let reportedFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let frontmostPID = reportedFrontmostPID == targetWindowOwnerPID
             ? targetPID
@@ -329,7 +337,8 @@ enum WindowActivator {
             targetPID: targetPID,
             sourcePID: sourcePID,
             frontmostPID: frontmostPID,
-            targetIsMinimized: windowIsMinimized(windowID: windowID, pid: targetWindowOwnerPID)
+            targetIsMinimized: windowIsMinimized(windowID: windowID, pid: targetWindowOwnerPID),
+            targetStartedMinimized: targetStartedMinimized
         )
     }
 

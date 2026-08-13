@@ -8,9 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Summary
 Vorssaint 3.3.2 opens the Command Bar immediately, adds a direct Emoji shortcut
-and prevents Switcher crashes and lost audio. It also fixes Fan Control setup and
-false App Updates listings, while adding update sources and improving feature setup,
-Dock Preview and keyboard controls.
+and prevents Switcher crashes, restores minimized windows and avoids lost audio.
+It also fixes Fan Control setup and false App Updates listings, while adding update
+sources and improving feature setup, Dock Preview and keyboard controls.
 
 ### Added
 - Emoji can open directly from a shortcut assigned to its Command Bar row.
@@ -37,6 +37,7 @@ Dock Preview and keyboard controls.
   Thanks to @PathGao.
 - The App Switcher now shows its configured shortcut in the large icon mode label.
   Thanks to @liuxxxu.
+- The App Switcher now restores minimized windows when selected.
 - The app no longer quits while typing when the Switcher's Windows shortcut uses a
   key whose label comes from the keyboard layout. Thanks to @eioz.
 - The Super key now works when Caps Lock is set to do nothing.
