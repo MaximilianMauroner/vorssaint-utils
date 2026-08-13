@@ -899,6 +899,7 @@ extension Strings {
         invertVerticalScroll: "Inverti lo scorrimento verticale",
         invertHorizontalScroll: "Inverti lo scorrimento orizzontale",
         switcherShowShortcutHints: "Mostra suggerimenti scorciatoie",
-        switcherShowShortcutHintsCaption: "Mostra le scorciatoie per app e finestre sotto le icone."
+        switcherShowShortcutHintsCaption: "Mostra le scorciatoie per app e finestre sotto le icone.",
+        uninstallerHomebrewPackageFormat: "%@ verrà rimosso anche da Homebrew."
     )
 }

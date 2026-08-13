@@ -900,6 +900,7 @@ extension Strings {
         invertVerticalScroll: "Инвертировать вертикальную прокрутку",
         invertHorizontalScroll: "Инвертировать горизонтальную прокрутку",
         switcherShowShortcutHints: "Показывать подсказки сочетаний клавиш",
-        switcherShowShortcutHintsCaption: "Показывает сочетания клавиш для приложений и окон под значками."
+        switcherShowShortcutHintsCaption: "Показывает сочетания клавиш для приложений и окон под значками.",
+        uninstallerHomebrewPackageFormat: "%@ также будет удалён из Homebrew."
     )
 }

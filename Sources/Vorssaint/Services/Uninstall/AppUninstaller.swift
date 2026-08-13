@@ -6,9 +6,9 @@ import Combine
 import Darwin
 
 /// Finds the files an app leaves around — caches, preferences, logs, support
-/// folders, containers — and moves the ones you pick to the Trash, then reports
-/// the space recovered. Everything goes to the Trash (reversible), never an
-/// unrecoverable delete, so the flow stays safe.
+/// folders, containers — and removes only what you pick. Ordinary files go to
+/// the Trash; after an extra confirmation, a package-managed app is delegated
+/// to its package manager before the remaining choices go to the Trash.
 final class AppUninstaller: ObservableObject {
     static let shared = AppUninstaller()
 
@@ -51,13 +51,27 @@ final class AppUninstaller: ObservableObject {
 
     @Published private(set) var phase: Phase = .empty
     @Published private(set) var target: Target?
+    @Published private(set) var homebrewPackage: HomebrewPackage?
     @Published var items: [Leftover] = []
     private var allowedRemovalPaths = Set<String>()
+    private var homebrewRemovalSize: Int64 = 0
+    private var homebrewRemovalObservation: AnyCancellable?
 
     private init() {}
 
     var selectedSize: Int64 { items.filter(\.include).reduce(0) { $0 + $1.size } }
     var totalSize: Int64 { items.reduce(0) { $0 + $1.size } }
+    var selectedHomebrewPackage: HomebrewPackage? {
+        guard items.contains(where: { $0.category == .app && $0.include }) else { return nil }
+        return homebrewPackage
+    }
+    var isRemovingWithHomebrew: Bool {
+        guard let package = selectedHomebrewPackage,
+              let status = HomebrewManager.shared.operationStatus else { return false }
+        return status.action == .uninstall
+            && status.package?.id == package.id
+            && status.isActive
+    }
 
     // MARK: - Selection & scan
 
@@ -79,6 +93,10 @@ final class AppUninstaller: ObservableObject {
         let icon = NSWorkspace.shared.icon(forFile: appURL.path)
 
         target = Target(name: name, bundleID: bundleID, url: selectedURL, icon: icon)
+        homebrewPackage = nil
+        homebrewRemovalSize = 0
+        homebrewRemovalObservation?.cancel()
+        homebrewRemovalObservation = nil
         items = []
         allowedRemovalPaths = []
         phase = .scanning
@@ -86,23 +104,32 @@ final class AppUninstaller: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let found = Self.collect(bundleID: bundleID, appURL: selectedURL)
             DispatchQueue.main.async {
-                // Drop the result if the user picked a different app (or reset)
-                // while this scan was running — never show A's files under B.
-                guard let self, self.phase == .scanning, self.target?.url == selectedURL else { return }
-                self.items = found
-                self.allowedRemovalPaths = Set(found.map { $0.url.standardizedFileURL.path })
-                self.phase = .results
+                HomebrewManager.shared.packageManagingApplication(at: selectedURL) { package in
+                    // Drop the result if the user picked a different app (or reset)
+                    // while this scan was running — never show A's files under B.
+                    guard let self, self.phase == .scanning, self.target?.url == selectedURL else { return }
+                    self.items = found
+                    self.homebrewPackage = package
+                    self.allowedRemovalPaths = Set(found.map { $0.url.standardizedFileURL.path })
+                    self.phase = .results
+                }
             }
         }
     }
 
     func setInclude(_ include: Bool, for id: UUID) {
+        guard !isRemovingWithHomebrew else { return }
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].include = include
     }
 
     func reset() {
+        guard !isRemovingWithHomebrew else { return }
         target = nil
+        homebrewPackage = nil
+        homebrewRemovalSize = 0
+        homebrewRemovalObservation?.cancel()
+        homebrewRemovalObservation = nil
         items = []
         allowedRemovalPaths = []
         phase = .empty
@@ -127,10 +154,11 @@ final class AppUninstaller: ObservableObject {
 
         let allowedPaths = allowedRemovalPaths
         let targetURL = target?.url
+        let alreadyFreed = homebrewRemovalSize
 
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.3) { [weak self] in
             let fm = FileManager.default
-            var freed: Int64 = 0
+            var freed = alreadyFreed
             var stubborn: [Leftover] = []
             var failed = 0
             for item in chosen {
@@ -169,6 +197,48 @@ final class AppUninstaller: ObservableObject {
                 self.items = []
                 self.phase = .done(freed: freed, failed: failed)
             }
+        }
+    }
+
+    /// After Homebrew has removed its package receipt and app artifact, clean
+    /// only the other items the person selected. The app itself is excluded so
+    /// this flow never tries to remove the same bundle twice.
+    func removeSelectedWithHomebrew() {
+        guard let package = selectedHomebrewPackage else { return }
+        let manager = HomebrewManager.shared
+        guard manager.operation == nil else { return }
+        manager.clearLog()
+        homebrewRemovalObservation?.cancel()
+        homebrewRemovalObservation = manager.$operationStatus
+            .compactMap { $0 }
+            .filter { $0.action == .uninstall && $0.package?.id == package.id }
+            .sink { [weak self] status in
+                guard status.result != .running else { return }
+                self?.homebrewRemovalObservation?.cancel()
+                self?.homebrewRemovalObservation = nil
+                if status.result == .succeeded {
+                    self?.finishRemovalAfterHomebrew(package: package)
+                }
+            }
+        manager.uninstall(package)
+    }
+
+    private func finishRemovalAfterHomebrew(package: HomebrewPackage) {
+        guard phase == .results,
+              homebrewPackage?.id == package.id,
+              let app = items.first(where: { $0.category == .app && $0.include }),
+              let targetURL = target?.url else { return }
+        if FileManager.default.fileExists(atPath: targetURL.path) {
+            homebrewPackage = nil
+            removeSelected()
+            return
+        }
+        homebrewRemovalSize = app.size
+        setInclude(false, for: app.id)
+        if items.contains(where: \.include) {
+            removeSelected()
+        } else {
+            phase = .done(freed: homebrewRemovalSize, failed: 0)
         }
     }
 

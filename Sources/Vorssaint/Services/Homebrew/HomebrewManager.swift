@@ -42,6 +42,9 @@ final class HomebrewManager: ObservableObject {
     private var popularityLoads: Set<HomebrewPackageKind> = []
     private var activeProcess: Process?
     private var cancelRequested = false
+    private var installedCaskRecords: [HomebrewCaskRecord] = []
+    private var installedCaskRecordsFetchedAt: Date?
+    private var ownershipLoads: [String: [(HomebrewPackage?) -> Void]] = [:]
     private var completedOperationCleanup: DispatchWorkItem?
     private lazy var analyticsSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
@@ -66,6 +69,8 @@ final class HomebrewManager: ObservableObject {
         guard let brewPath = detectBrewPath() else {
             self.brewPath = nil
             installed = []
+            installedCaskRecords = []
+            installedCaskRecordsFetchedAt = nil
             searchResults = []
             selectedPackage = nil
             outdatedGeneration += 1
@@ -100,6 +105,8 @@ final class HomebrewManager: ObservableObject {
                 }
                 do {
                     self.installed = try HomebrewParser.parseInfoCommandOutput(output).map(self.packageEnriched)
+                    self.installedCaskRecords = HomebrewParser.parseInstalledCaskRecords(output)
+                    self.installedCaskRecordsFetchedAt = Date()
                     self.didOpenInstaller = false
                     if let selected = self.selectedPackage {
                         self.selectedPackage = self.packageEnriched(self.installed.first { $0.id == selected.id } ?? selected)
@@ -198,6 +205,47 @@ final class HomebrewManager: ObservableObject {
 
     func uninstall(_ package: HomebrewPackage) {
         perform(.uninstall, package: package)
+    }
+
+    /// Looks up whether Homebrew owns this exact app bundle. The cached
+    /// installed catalog is reused when fresh; otherwise one read-only command
+    /// answers every concurrent request for the same path.
+    func packageManagingApplication(at url: URL,
+                                    completion: @escaping (HomebrewPackage?) -> Void) {
+        let path = url.standardizedFileURL.path
+        if let fetchedAt = installedCaskRecordsFetchedAt,
+           Date().timeIntervalSince(fetchedAt) < 60 {
+            completion(HomebrewOwnershipSupport.packageManagingApplication(
+                atPath: path,
+                installed: installedCaskRecords
+            ))
+            return
+        }
+        if ownershipLoads[path] != nil {
+            ownershipLoads[path]?.append(completion)
+            return
+        }
+        ownershipLoads[path] = [completion]
+        guard let brewPath = brewPath ?? detectBrewPath() else {
+            finishOwnershipLoad(path: path, package: nil)
+            return
+        }
+        self.brewPath = brewPath
+        run(HomebrewCommandBuilder.installed(brewPath: brewPath)) { [weak self] status, output in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let records = status == 0 ? HomebrewParser.parseInstalledCaskRecords(output) : []
+                if status == 0 {
+                    self.installedCaskRecords = records
+                    self.installedCaskRecordsFetchedAt = Date()
+                }
+                let package = HomebrewOwnershipSupport.packageManagingApplication(
+                    atPath: path,
+                    installed: records
+                )
+                self.finishOwnershipLoad(path: path, package: package)
+            }
+        }
     }
 
     func upgrade(_ package: HomebrewPackage) {
@@ -359,6 +407,11 @@ final class HomebrewManager: ObservableObject {
                 self.cancelRequested = false
             }
         }
+    }
+
+    private func finishOwnershipLoad(path: String, package: HomebrewPackage?) {
+        let completions = ownershipLoads.removeValue(forKey: path) ?? []
+        completions.forEach { $0(package) }
     }
 
     private func standardCommand(for action: HomebrewOperation.Action,

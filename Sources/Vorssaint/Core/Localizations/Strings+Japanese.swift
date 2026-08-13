@@ -899,6 +899,7 @@ extension Strings {
         invertVerticalScroll: "縦スクロールを反転",
         invertHorizontalScroll: "横スクロールを反転",
         switcherShowShortcutHints: "ショートカットのヒントを表示",
-        switcherShowShortcutHintsCaption: "アイコンの下にアプリとウインドウのショートカットを表示します。"
+        switcherShowShortcutHintsCaption: "アイコンの下にアプリとウインドウのショートカットを表示します。",
+        uninstallerHomebrewPackageFormat: "%@ も Homebrew から削除されます。"
     )
 }

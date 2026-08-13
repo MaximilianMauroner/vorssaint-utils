@@ -900,6 +900,7 @@ extension Strings {
         invertVerticalScroll: "세로 스크롤 반전",
         invertHorizontalScroll: "가로 스크롤 반전",
         switcherShowShortcutHints: "단축키 힌트 보기",
-        switcherShowShortcutHintsCaption: "아이콘 아래에 앱 및 윈도우 단축키를 표시합니다."
+        switcherShowShortcutHintsCaption: "아이콘 아래에 앱 및 윈도우 단축키를 표시합니다.",
+        uninstallerHomebrewPackageFormat: "%@도 Homebrew에서 제거됩니다."
     )
 }

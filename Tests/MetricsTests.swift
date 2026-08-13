@@ -10979,11 +10979,40 @@ struct MetricsTests {
         let caskJSON = #"{"formulae":[],"casks":[{"token":"editor","name":["Editor"],"installed":"1.129.0","artifacts":[{"app":["Source.app",{"target":"Editor.app"}],"target":"/Applications/Editor.app"},{"zap":[]}]}]}"#
         let parsedRecords = HomebrewParser.parseInstalledCaskRecords(caskJSON)
         expect(parsedRecords.count == 1 && parsedRecords[0].appFileNames == ["Editor.app"]
+                && parsedRecords[0].appPaths == ["/Applications/Editor.app"]
                 && parsedRecords[0].displayName == "Editor"
                 && parsedRecords[0].installedVersion == "1.129.0",
                "an installed package is traced to the final app name after a rename")
         expect(HomebrewParser.parseInstalledCaskRecords("garbage").isEmpty,
                "unreadable package output yields no records")
+        let managedPackage = HomebrewOwnershipSupport.packageManagingApplication(
+            atPath: "/Applications/Editor.app",
+            installed: parsedRecords
+        )
+        expect(managedPackage?.name == "editor" && managedPackage?.kind == .cask,
+               "the exact installed app path resolves to its package")
+        expect(HomebrewOwnershipSupport.packageManagingApplication(
+            atPath: "/Users/test/Desktop/Editor.app",
+            installed: parsedRecords,
+            homeDirectory: "/Users/test"
+        ) == nil,
+        "a same-named app outside the managed path never resolves to a package")
+        let legacyRecord = HomebrewCaskRecord(token: "legacy-tool",
+                                              displayName: "Legacy Tool",
+                                              installedVersion: "2.0",
+                                              appFileNames: ["Legacy Tool.app"])
+        expect(HomebrewOwnershipSupport.packageManagingApplication(
+            atPath: "/Users/test/Applications/Legacy Tool.app",
+            installed: [legacyRecord],
+            homeDirectory: "/Users/test"
+        )?.name == "legacy-tool",
+        "older catalog output falls back only inside a standard app folder")
+        expect(HomebrewOwnershipSupport.packageManagingApplication(
+            atPath: "/Applications/Legacy Tool.app",
+            installed: [legacyRecord, legacyRecord],
+            homeDirectory: "/Users/test"
+        ) == nil,
+        "ambiguous package ownership is never used for uninstall")
 
         expect(Defaults.utilityOrderWithAppUpdates("screenshot,quickLauncher,cleaner,homebrew")
                 == ["screenshot", "quickLauncher", "appUpdates", "cleaner", "homebrew"],

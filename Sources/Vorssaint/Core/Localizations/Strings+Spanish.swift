@@ -899,6 +899,7 @@ extension Strings {
         invertVerticalScroll: "Invertir el desplazamiento vertical",
         invertHorizontalScroll: "Invertir el desplazamiento horizontal",
         switcherShowShortcutHints: "Mostrar indicaciones de atajos",
-        switcherShowShortcutHintsCaption: "Muestra los atajos de apps y ventanas debajo de los iconos."
+        switcherShowShortcutHintsCaption: "Muestra los atajos de apps y ventanas debajo de los iconos.",
+        uninstallerHomebrewPackageFormat: "%@ también se eliminará de Homebrew."
     )
 }

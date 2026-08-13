@@ -899,6 +899,7 @@ extension Strings {
         invertVerticalScroll: "Inverser le défilement vertical",
         invertHorizontalScroll: "Inverser le défilement horizontal",
         switcherShowShortcutHints: "Afficher les raccourcis",
-        switcherShowShortcutHintsCaption: "Affiche les raccourcis des apps et des fenêtres sous les icônes."
+        switcherShowShortcutHintsCaption: "Affiche les raccourcis des apps et des fenêtres sous les icônes.",
+        uninstallerHomebrewPackageFormat: "%@ sera aussi retiré de Homebrew."
     )
 }

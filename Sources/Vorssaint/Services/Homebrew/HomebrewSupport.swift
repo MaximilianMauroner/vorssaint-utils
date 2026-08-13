@@ -54,6 +54,64 @@ struct HomebrewCaskRecord: Hashable {
     let displayName: String
     let installedVersion: String?
     let appFileNames: [String]
+    let appPaths: [String]
+
+    init(token: String,
+         displayName: String,
+         installedVersion: String?,
+         appFileNames: [String],
+         appPaths: [String] = []) {
+        self.token = token
+        self.displayName = displayName
+        self.installedVersion = installedVersion
+        self.appFileNames = appFileNames
+        self.appPaths = appPaths
+    }
+}
+
+enum HomebrewOwnershipSupport {
+    /// Resolves a package only when its catalog points at this exact app. A
+    /// same-named copy elsewhere must never make an unrelated package eligible
+    /// for a destructive command.
+    static func packageManagingApplication(atPath rawPath: String,
+                                           installed: [HomebrewCaskRecord],
+                                           homeDirectory: String = NSHomeDirectory()) -> HomebrewPackage? {
+        let path = URL(fileURLWithPath: rawPath).standardizedFileURL.path
+        let exact = installed.filter { record in
+            record.appPaths.contains {
+                URL(fileURLWithPath: $0).standardizedFileURL.path == path
+            }
+        }
+        if exact.count == 1 {
+            return package(from: exact[0])
+        }
+        guard exact.isEmpty else { return nil }
+
+        // Older catalog output can omit the final target path. Limit that
+        // fallback to the two ordinary app folders and require one owner.
+        let parent = URL(fileURLWithPath: path).deletingLastPathComponent().standardizedFileURL.path
+        let appFolders = [
+            URL(fileURLWithPath: "/Applications").standardizedFileURL.path,
+            URL(fileURLWithPath: homeDirectory).appendingPathComponent("Applications").standardizedFileURL.path,
+        ]
+        guard appFolders.contains(parent) else { return nil }
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        let fallback = installed.filter {
+            $0.appPaths.isEmpty && $0.appFileNames.contains(name)
+        }
+        guard fallback.count == 1 else { return nil }
+        return package(from: fallback[0])
+    }
+
+    private static func package(from record: HomebrewCaskRecord) -> HomebrewPackage {
+        HomebrewPackage(kind: .cask,
+                        name: record.token,
+                        displayName: record.displayName,
+                        desc: nil,
+                        installedVersion: record.installedVersion,
+                        stableVersion: nil,
+                        homepage: nil)
+    }
 }
 
 enum HomebrewPackageOrdering {
@@ -618,6 +676,7 @@ enum HomebrewParser {
         let displayName = (item["name"] as? [String])?.first(where: { !$0.isEmpty }) ?? token
         let installed = item["installed"] as? String
         var appFileNames: [String] = []
+        var appPaths: [String] = []
         for artifact in (item["artifacts"] as? [Any] ?? []) {
             guard let entry = artifact as? [String: Any],
                   let apps = entry["app"] as? [Any] else { continue }
@@ -640,11 +699,18 @@ enum HomebrewParser {
                     appFileNames.append(fileName)
                 }
             }
+            for candidate in targets + sources where candidate.hasPrefix("/") {
+                let path = URL(fileURLWithPath: candidate).standardizedFileURL.path
+                if path.hasSuffix(".app"), !appPaths.contains(path) {
+                    appPaths.append(path)
+                }
+            }
         }
         return HomebrewCaskRecord(token: token,
                                   displayName: displayName,
                                   installedVersion: installed?.isEmpty == false ? installed : nil,
-                                  appFileNames: appFileNames)
+                                  appFileNames: appFileNames,
+                                  appPaths: appPaths)
     }
 
     static func parseOutdatedJSON(_ data: Data) throws -> [String: HomebrewPackageUpdate] {

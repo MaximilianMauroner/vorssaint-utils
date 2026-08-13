@@ -899,6 +899,7 @@ extension Strings {
         invertVerticalScroll: "反转垂直滚动",
         invertHorizontalScroll: "反转水平滚动",
         switcherShowShortcutHints: "显示快捷键提示",
-        switcherShowShortcutHintsCaption: "在图标下方显示 App 和窗口快捷键。"
+        switcherShowShortcutHintsCaption: "在图标下方显示 App 和窗口快捷键。",
+        uninstallerHomebrewPackageFormat: "%@ 也会从 Homebrew 中移除。"
     )
 }

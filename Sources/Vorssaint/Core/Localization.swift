@@ -1044,6 +1044,7 @@ struct Strings {
     let invertHorizontalScroll: String
     let switcherShowShortcutHints: String
     let switcherShowShortcutHintsCaption: String
+    let uninstallerHomebrewPackageFormat: String
 }
 
 // MARK: - Português (Brasil)
@@ -1944,7 +1945,8 @@ extension Strings {
         invertVerticalScroll: "Inverter rolagem vertical",
         invertHorizontalScroll: "Inverter rolagem horizontal",
         switcherShowShortcutHints: "Mostrar dicas de atalhos",
-        switcherShowShortcutHintsCaption: "Exibe os atalhos de apps e janelas abaixo dos ícones."
+        switcherShowShortcutHintsCaption: "Exibe os atalhos de apps e janelas abaixo dos ícones.",
+        uninstallerHomebrewPackageFormat: "%@ também será removido do Homebrew."
     )
 }
 
@@ -2846,6 +2848,7 @@ extension Strings {
         invertVerticalScroll: "Invert vertical scrolling",
         invertHorizontalScroll: "Invert horizontal scrolling",
         switcherShowShortcutHints: "Show shortcut hints",
-        switcherShowShortcutHintsCaption: "Shows the app and window shortcuts below the icons."
+        switcherShowShortcutHintsCaption: "Shows the app and window shortcuts below the icons.",
+        uninstallerHomebrewPackageFormat: "%@ will also be removed from Homebrew."
     )
 }

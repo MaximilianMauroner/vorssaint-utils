@@ -899,6 +899,7 @@ extension Strings {
         invertVerticalScroll: "Dikey kaydırmayı ters çevir",
         invertHorizontalScroll: "Yatay kaydırmayı ters çevir",
         switcherShowShortcutHints: "Kısayol ipuçlarını göster",
-        switcherShowShortcutHintsCaption: "Simge sırasının altında uygulama ve pencere kısayollarını gösterir."
+        switcherShowShortcutHintsCaption: "Simge sırasının altında uygulama ve pencere kısayollarını gösterir.",
+        uninstallerHomebrewPackageFormat: "%@, Homebrew'den de kaldırılacak."
     )
 }

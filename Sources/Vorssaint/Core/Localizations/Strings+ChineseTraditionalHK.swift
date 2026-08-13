@@ -900,6 +900,7 @@ extension Strings {
         invertVerticalScroll: "反轉垂直捲動",
         invertHorizontalScroll: "反轉水平捲動",
         switcherShowShortcutHints: "顯示快速鍵提示",
-        switcherShowShortcutHintsCaption: "在圖示下方顯示 App 和視窗快速鍵。"
+        switcherShowShortcutHintsCaption: "在圖示下方顯示 App 和視窗快速鍵。",
+        uninstallerHomebrewPackageFormat: "%@ 亦會從 Homebrew 移除。"
     )
 }

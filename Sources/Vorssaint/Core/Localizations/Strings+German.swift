@@ -899,6 +899,7 @@ extension Strings {
         invertVerticalScroll: "Vertikales Scrollen umkehren",
         invertHorizontalScroll: "Horizontales Scrollen umkehren",
         switcherShowShortcutHints: "Kurzbefehlhinweise anzeigen",
-        switcherShowShortcutHintsCaption: "Zeigt die Kurzbefehle für Apps und Fenster unter den Symbolen."
+        switcherShowShortcutHintsCaption: "Zeigt die Kurzbefehle für Apps und Fenster unter den Symbolen.",
+        uninstallerHomebrewPackageFormat: "%@ wird auch aus Homebrew entfernt."
     )
 }
