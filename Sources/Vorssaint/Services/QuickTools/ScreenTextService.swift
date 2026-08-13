@@ -132,7 +132,10 @@ final class ScreenTextService: ObservableObject {
             return .qr(reading)
         }
 
-        var lines = recognizedLines(in: image, level: .accurate, automaticallyDetectLanguage: true)
+        var lines = recognizedLines(in: image,
+                                    level: .accurate,
+                                    automaticallyDetectLanguage: true,
+                                    preferredLanguages: fallbackLanguages)
         if lines.isEmpty {
             // The fast path uses a different recognition model. It is a
             // separate second chance when the accurate model returns no text.

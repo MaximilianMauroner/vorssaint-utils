@@ -7,8 +7,8 @@ All notable changes to this project are documented here. The format follows
 ## [3.3.2]
 
 ### Summary
-Vorssaint 3.3.2 improves the Command Bar, Switcher, screenshots, Cleaning Mode,
-Scratchpad, audio and display safety. It also refines app
+Vorssaint 3.3.2 improves the Command Bar, Switcher, screenshots, screen text recognition,
+Cleaning Mode, Scratchpad, audio and display safety. It also refines app
 management, feature setup, Fan Control, Quit on close, network monitoring, power
 and peripheral battery readings, panel behavior and keyboard controls.
 
@@ -31,6 +31,8 @@ and peripheral battery readings, panel behavior and keyboard controls.
   Thanks to @theafox.
 
 ### Fixed
+- Copy text from screen now prioritizes the interface language, preventing Chinese
+  text from being returned as unreadable characters.
 - A disabled built-in display now turns back on when the last external screen
   disconnects. Thanks to @mayaanhafeez.
 - Volume boost now smooths loud peaks before they play, preventing crackling at
