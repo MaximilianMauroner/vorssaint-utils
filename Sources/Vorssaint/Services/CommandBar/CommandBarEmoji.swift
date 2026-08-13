@@ -15,6 +15,36 @@ enum CommandBarEmoji {
         let keywords: String
     }
 
+    private struct AnnotationResource: Decodable {
+        let cldrVersion: String
+        let locale: String
+        let annotations: [String: Annotation]
+    }
+
+    private struct Annotation: Decodable {
+        let name: String
+        let keywords: String
+    }
+
+    /// CLDR is the common search vocabulary behind Unicode-aware pickers. The
+    /// pinned English annotations include the conversational terms people use
+    /// in chat apps (`lol`, `idk`, `facepalm`, `thx`) instead of only formal
+    /// Unicode character names.
+    private static let annotationResource: AnnotationResource? = {
+        let bundled = Bundle.main.url(forResource: "EmojiAnnotations", withExtension: "json")
+        // The standalone helper tests run from the repository without an app
+        // bundle. Production always takes the bundled path above.
+        let repository = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Resources/EmojiAnnotations.json")
+        for url in [bundled, repository].compactMap({ $0 }) {
+            guard let data = try? Data(contentsOf: url),
+                  let resource = try? JSONDecoder().decode(AnnotationResource.self, from: data),
+                  resource.cldrVersion == "48", resource.locale == "en" else { continue }
+            return resource
+        }
+        return nil
+    }()
+
     /// The emoji people reach for most, in the order they are usually wanted.
     /// They lead browsing and break equally good search ties; the Unicode set
     /// below supplies the long tail without displacing these familiar rows.
@@ -82,11 +112,15 @@ enum CommandBarEmoji {
     static let emoji: [Emoji] = {
         var seen: Set<String> = []
         func makeEmoji(_ character: String, aliasCharacter: String? = nil) -> Emoji? {
-            guard seen.insert(canonicalCharacter(character)).inserted,
-                  let name = unicodeName(of: character) else { return nil }
+            let canonical = canonicalCharacter(character)
+            guard seen.insert(canonical).inserted else { return nil }
+            let annotation = annotationResource?.annotations[canonical]
+            guard let name = annotation?.name ?? unicodeName(of: character) else { return nil }
             return Emoji(character: character,
                          name: name,
-                         keywords: aliases[aliasCharacter ?? character] ?? "")
+                         keywords: combinedKeywords(
+                            annotation?.keywords,
+                            aliases[aliasCharacter ?? character]))
         }
 
         let popular = popularEmojiCharacters.compactMap { character in
@@ -111,6 +145,14 @@ enum CommandBarEmoji {
             .sorted { $0.name < $1.name }
         return popular + longTail
     }()
+
+    private static func combinedKeywords(_ values: String?...) -> String {
+        var seen = Set<String>()
+        return values.compactMap { $0 }
+            .flatMap { $0.split(whereSeparator: \.isWhitespace).map(String.init) }
+            .filter { seen.insert($0).inserted }
+            .joined(separator: " ")
+    }
 
     /// Single text-default scalars need the selector to render as emoji. Keep
     /// existing sequences intact because their presentation is intentional.
