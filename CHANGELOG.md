@@ -9,14 +9,16 @@ All notable changes to this project are documented here. The format follows
 ### Summary
 Vorssaint 3.3.2 opens the Command Bar immediately, adds a direct Emoji shortcut
 and prevents a Switcher shortcut crash. It also removes false App Updates listings
-and improves feature setup, Dock Preview controls, keyboard navigation and custom
-Caps Lock settings.
+and adds source controls, while improving feature setup, Dock Preview controls,
+keyboard navigation and custom Caps Lock settings.
 
 ### Added
 - Emoji can open directly from a shortcut assigned to its Command Bar row.
   Thanks to @MaximilianMauroner.
 
 ### Changed
+- App Updates now searches more places on your Mac and lets each source be turned
+  on or off. Thanks to @ruvelro.
 - Installed Features rows open their Settings page and highlight the relevant
   controls. Thanks to @dorlugasigal.
 - Cleaning and the Uninstaller now explain how to grant Full Disk Access and
