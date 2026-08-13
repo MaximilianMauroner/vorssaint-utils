@@ -552,7 +552,8 @@ struct MetricsTests {
         let bluetoothJSON = Data("""
         {"SPBluetoothDataType":[{"device_connected":[
           {"soundcore Space Q45":{"device_address":"F4:9D:8A:A2:4C:12","device_batteryLevelMain":"100%","device_minorType":"Headset"}},
-          {"AirPods Pro":{"device_address":"E5:04:BE:68:C2:93","device_batteryLevelCase":"88%","device_batteryLevelLeft":"92%","device_batteryLevelRight":"90%"}}
+          {"AirPods Pro":{"device_address":"E5:04:BE:68:C2:93","device_batteryLevelCase":"88%","device_batteryLevelLeft":"92%","device_batteryLevelRight":"90%"}},
+          {"Travel Pointer":{"device_address":"F0:00:00:00:00:01","device_minorType":"Mouse"}}
         ],"device_not_connected":[
           {"Old Mouse":{"device_address":"00:00:00:00:00:00","device_batteryLevelMain":"12%","device_minorType":"Mouse"}}
         ]}]}
@@ -570,6 +571,32 @@ struct MetricsTests {
                "peripheral battery uses the lowest connected AirPods component")
         expect(!bluetoothDevices.contains { $0.name == "Old Mouse" },
                "peripheral battery ignores disconnected Bluetooth devices")
+        let bluetoothKinds = PeripheralBatterySupport.bluetoothKindsByName(
+            fromSystemProfilerJSON: bluetoothJSON
+        )
+        expect(bluetoothKinds["travel pointer"] == .mouse,
+               "peripheral battery keeps the kind of connected devices without profiler charge data")
+        let gattDevices = PeripheralBatterySupport.mergingBluetoothReadings(
+            [
+                BluetoothBatteryReading(id: "pointer", name: "Travel Pointer", percent: 73),
+                BluetoothBatteryReading(id: "pointer", name: "Renamed Pointer", percent: 64),
+                BluetoothBatteryReading(id: "duplicate", name: "soundcore space q45", percent: 17),
+                BluetoothBatteryReading(id: "invalid", name: "Invalid Accessory", percent: 101),
+            ],
+            into: bluetoothDevices,
+            knownKinds: bluetoothKinds
+        )
+        expect(gattDevices.contains(PeripheralBatteryDevice(id: "BluetoothGATT:pointer",
+                                                            name: "Travel Pointer",
+                                                            percent: 73,
+                                                            kind: .mouse)),
+               "peripheral battery adds a standard Bluetooth battery reading with its known kind")
+        expect(gattDevices.first { $0.name.caseInsensitiveCompare("soundcore Space Q45") == .orderedSame }?.percent == 100,
+               "peripheral battery keeps richer profiler data instead of a duplicate standard reading")
+        expect(!gattDevices.contains { $0.name == "Renamed Pointer" },
+               "peripheral battery keeps one row per Bluetooth identity")
+        expect(!gattDevices.contains { $0.name == "Invalid Accessory" },
+               "peripheral battery rejects invalid standard Bluetooth percentages")
         let keyboard = PeripheralBatteryDevice(id: "keyboard",
                                                name: "Magic Keyboard",
                                                percent: 78,
