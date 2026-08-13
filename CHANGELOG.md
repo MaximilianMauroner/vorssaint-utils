@@ -9,8 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Summary
 Vorssaint 3.3.2 opens the Command Bar immediately, adds a direct Emoji shortcut
 and prevents Switcher crashes, restores minimized windows and avoids lost audio.
-It also corrects power readings, app removal and updates, while improving feature
-setup, Fan Control, Dock Preview and keyboard controls.
+It also corrects power readings, app removal, updates and panel behavior, while
+improving feature setup, Fan Control, Dock Preview and keyboard controls.
 
 ### Added
 - Emoji can open directly from a shortcut assigned to its Command Bar row.
@@ -51,6 +51,8 @@ setup, Fan Control, Dock Preview and keyboard controls.
   Thanks to @MineraleYT.
 - Homebrew now clears removed package details and returns its package list to the
   start after an uninstall. Thanks to @MineraleYT.
+- The menu panel now stays open when focus changes without an outside click.
+  Thanks to @CALLmeDOMIN.
 - Fan Control can now request its required approval instead of appearing
   unavailable before its first setup.
 

@@ -345,8 +345,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
         AppAppearanceController.shared.follow(panel: popover)
-        NotificationCenter.default.addObserver(self, selector: #selector(appResignedActive),
-                                               name: NSApplication.didResignActiveNotification, object: nil)
     }
 
     private func togglePopover(anchor button: NSStatusBarButton? = nil) {
@@ -814,15 +812,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
         guard let fieldEditor = window.fieldEditor(false, for: nil) else { return false }
         return responder === fieldEditor
-    }
-
-    @objc private func appResignedActive() {
-        // Leaving the app entirely (e.g. ⌘Tab) dismisses the panel; switching to
-        // our own Settings window keeps the app active, so it stays open.
-        if popover.isShown, !PanelInteractionState.shared.keepsPopoverOpen {
-            guard statusController.containsStatusItem(at: NSEvent.mouseLocation) == false else { return }
-            closePopover()
-        }
     }
 
     @objc private func appBecameActive() {
