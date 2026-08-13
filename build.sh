@@ -80,6 +80,13 @@ if (( INSTALL && ! TEST )) && [[ "${VORSSAINT_INSTALL_CHILD:-0}" != "1" ]]; then
         exit "$child_status"
     fi
     finalize_installed_bundle_after_child "/Applications/$APP_NAME.app"
+    # The installed copy is now signed and verified. Keeping the identical
+    # staged bundle makes Spotlight show the app twice in launcher results.
+    STAGED_BUNDLE="build/stage/$APP_NAME.app"
+    if [[ -d "$STAGED_BUNDLE" ]]; then
+        rm -rf "$STAGED_BUNDLE"
+        echo "✓ Removed staged bundle: $STAGED_BUNDLE"
+    fi
     exit 0
 fi
 
