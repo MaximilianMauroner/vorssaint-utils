@@ -849,6 +849,18 @@ struct MetricsTests {
         expect(MouseNavigationSupport.shouldPassThrough(
             bundleIdentifier: "org.mozilla.firefoxdeveloperedition"),
                "every channel of the browser family passes through via the prefix rule")
+        let registeredWebHandlers: Set<String> = ["com.example.browser", "com.apple.WebViewer"]
+        expect(MouseNavigationSupport.nativeWebHandlers(
+            urlHandlers: ["com.example.browser", "com.example.linkOnly"],
+            documentHandlers: ["com.example.browser", "com.example.documentOnly"]
+        ) == ["com.example.browser"],
+               "only apps registered for web URLs and web documents are treated as browsers")
+        expect(MouseNavigationSupport.shouldPassThrough(
+            bundleIdentifier: "com.example.browser", webURLHandlers: registeredWebHandlers),
+               "a third-party web handler keeps its native side button events")
+        expect(!MouseNavigationSupport.shouldPassThrough(
+            bundleIdentifier: "com.apple.WebViewer", webURLHandlers: registeredWebHandlers),
+               "a system web handler stays on the menu-command navigation path")
         expect(MouseNavigationSupport.shouldPassThrough(
             bundleIdentifier: "com.parallels.desktop.console"),
                "virtual machines keep the raw side buttons for the guest system")
