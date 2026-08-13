@@ -7346,6 +7346,82 @@ struct MetricsTests {
         let afterReset = MetricFormat.netSpeed(previous: fast, current: slow, elapsed: 2)
         expect(afterReset.down == 0 && afterReset.up == 0, "counter reset yields zero")
 
+        var networkFallback = NetworkCounterFallback()
+        let firstFrozenDownload = networkFallback.observe(
+            previous: NetworkCounters(received: 1_000, sent: 500),
+            current: NetworkCounters(received: 1_000, sent: 700)
+        )
+        expect(firstFrozenDownload.sampleProcesses && !firstFrozenDownload.useProcessDownload,
+               "first frozen inbound sample primes the process fallback")
+        let secondFrozenDownload = networkFallback.observe(
+            previous: NetworkCounters(received: 1_000, sent: 700),
+            current: NetworkCounters(received: 1_000, sent: 900)
+        )
+        expect(secondFrozenDownload.sampleProcesses && secondFrozenDownload.useProcessDownload,
+               "second frozen inbound sample activates the process fallback")
+        let fallbackIdle = networkFallback.observe(
+            previous: NetworkCounters(received: 1_000, sent: 900),
+            current: NetworkCounters(received: 1_000, sent: 900)
+        )
+        expect(!fallbackIdle.sampleProcesses && fallbackIdle.useProcessDownload,
+               "active fallback does no process work while interface traffic is idle")
+        let inboundRecovered = networkFallback.observe(
+            previous: NetworkCounters(received: 1_000, sent: 900),
+            current: NetworkCounters(received: 1_100, sent: 950)
+        )
+        expect(!inboundRecovered.sampleProcesses && !inboundRecovered.useProcessDownload,
+               "moving inbound counters restore the lightweight interface reader")
+        _ = networkFallback.observe(
+            previous: NetworkCounters(received: 1_100, sent: 950),
+            current: NetworkCounters(received: 1_100, sent: 1_000)
+        )
+        let counterResetFallback = networkFallback.observe(
+            previous: NetworkCounters(received: 1_100, sent: 1_000),
+            current: NetworkCounters(received: 10, sent: 20)
+        )
+        expect(!counterResetFallback.sampleProcesses && !counterResetFallback.useProcessDownload,
+               "interface counter resets clear fallback suspicion")
+
+        let fallbackCounters = [
+            NetworkCounters(received: 1_000, sent: 500),
+            NetworkCounters(received: 1_000, sent: 700),
+            NetworkCounters(received: 1_000, sent: 900),
+            NetworkCounters(received: 1_200, sent: 1_000),
+        ]
+        let fallbackProcessSamples = [
+            [NetworkProcessSample(pid: 10, name: "Browser", bytesIn: 1_000, bytesOut: 500)],
+            [NetworkProcessSample(pid: 10, name: "Browser", bytesIn: 5_000, bytesOut: 700)],
+        ]
+        var fallbackCounterIndex = 0
+        var fallbackProcessIndex = 0
+        let fallbackSampler = NetworkSampler(counterReader: {
+            defer { fallbackCounterIndex += 1 }
+            return fallbackCounters[fallbackCounterIndex]
+        }, processReader: {
+            defer { fallbackProcessIndex += 1 }
+            return fallbackProcessSamples[fallbackProcessIndex]
+        })
+        let fallbackBaseline = fallbackSampler.sample(now: 0)
+        let fallbackProbe = fallbackSampler.sample(now: 2)
+        let fallbackReading = fallbackSampler.sample(now: 4)
+        let recoveredReading = fallbackSampler.sample(now: 6)
+        expect(fallbackBaseline.downBytesPerSec == nil && fallbackBaseline.upBytesPerSec == nil,
+               "network sampler first reading remains a baseline")
+        expect(fallbackProbe.downBytesPerSec == 0 && fallbackProbe.upBytesPerSec == 100,
+               "first frozen inbound sample keeps interface output while priming fallback")
+        expectClose(fallbackReading.downBytesPerSec ?? -1, 2_000,
+                    "network sampler replaces frozen interface download with process traffic")
+        expectClose(fallbackReading.upBytesPerSec ?? -1, 100,
+                    "network sampler keeps the lightweight interface upload counter")
+        expect(fallbackReading.totalDown == 4_000 && fallbackReading.totalUp == 400,
+               "network fallback accumulates process download and interface upload totals")
+        expectClose(recoveredReading.downBytesPerSec ?? -1, 100,
+                    "network sampler returns to interface download after counter recovery")
+        expect(recoveredReading.totalDown == 4_200 && recoveredReading.totalUp == 500,
+               "network totals continue across fallback recovery")
+        expect(fallbackProcessIndex == 2,
+               "network sampler invokes the process reader only for suspect interface samples")
+
         let nettopCSV = """
         time,,bytes_in,bytes_out,
         08:31:45.865507,Codex (Service).78844,78288,477660,
@@ -7381,6 +7457,8 @@ struct MetricsTests {
                     "nettop stream parser does not publish cumulative bytes")
         expect(NetworkProcessSupport.nettopArguments == ["-P", "-d", "-x", "-J", "bytes_in,bytes_out", "-L", "1", "-s", "1"],
                "nettop per-app sampling asks for one cumulative section and computes deltas in app")
+        expect(NetworkProcessSupport.externalNettopArguments == ["-P", "-d", "-x", "-t", "external", "-J", "bytes_in,bytes_out", "-L", "1", "-s", "1"],
+               "network fallback samples only external process traffic")
 
         var networkDelta = NetworkProcessDeltaTracker(maxGap: 10)
         let baselineNetwork = [
