@@ -7,8 +7,8 @@ All notable changes to this project are documented here. The format follows
 ## [3.3.2]
 
 ### Summary
-Vorssaint 3.3.2 improves app discovery in the Command Bar, Switcher, screenshots,
-screen text recognition, Cleaning Mode, Scratchpad, audio and display safety. It also refines app
+Vorssaint 3.3.2 improves app discovery in the Command Bar, recording, Switcher,
+screenshots, screen text recognition, Cleaning Mode, Scratchpad, audio and display safety. It also refines app
 management, feature setup, Fan Control, Quit on close, network monitoring, power
 and peripheral battery readings, panel behavior and keyboard controls.
 
@@ -31,6 +31,8 @@ and peripheral battery readings, panel behavior and keyboard controls.
   Thanks to @theafox.
 
 ### Fixed
+- The recording countdown ring now drains smoothly instead of staying still
+  while only the number changes.
 - The Command Bar now finds installed apps kept outside the standard Applications
   folders.
 - Copy text from screen now prioritizes the interface language, preventing Chinese

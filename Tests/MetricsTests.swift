@@ -11663,6 +11663,13 @@ struct MetricsTests {
                 && Defaults.registeredDefaults[DefaultsKey.recorderCountdown] as? Int == 3
                 && Defaults.registeredDefaults[DefaultsKey.recorderOpenEditor] as? Bool == true,
                "the recorder ships balanced, smooth, with a short countdown and the editor on")
+        expect(ScreenshotSupport.countdownRingProgress(elapsed: 0) == 1
+                && ScreenshotSupport.countdownRingProgress(elapsed: 0.46) == 0.5
+                && ScreenshotSupport.countdownRingProgress(elapsed: 0.92) == 0,
+               "the countdown ring drains smoothly across each displayed number")
+        expect(ScreenshotSupport.countdownRingProgress(elapsed: -1) == 1
+                && ScreenshotSupport.countdownRingProgress(elapsed: 2) == 0,
+               "the countdown ring clamps delayed and early frames")
         expect(GlobalShortcutRole.screenRecorder.requiredEnableKeys
                 == [DefaultsKey.recorderShortcutEnabled]
                 && GlobalShortcutRole.screenRecorder.feature == .screenRecorder,

@@ -20,6 +20,16 @@ enum ScreenshotSupport {
         allowedDelays.contains(raw) ? raw : 0
     }
 
+    /// Remaining stroke for the one-second countdown ring. Time drives the
+    /// value directly so a delayed frame catches up instead of restarting the
+    /// animation or leaving the ring frozen.
+    static func countdownRingProgress(elapsed: TimeInterval,
+                                      duration: TimeInterval = 0.92) -> CGFloat {
+        guard elapsed.isFinite, duration.isFinite, duration > 0 else { return 0 }
+        let fraction = min(max(elapsed / duration, 0), 1)
+        return CGFloat(1 - fraction)
+    }
+
     // MARK: - Scrolling capture
 
     /// A failed scroll target must never keep the capture alive forever or
