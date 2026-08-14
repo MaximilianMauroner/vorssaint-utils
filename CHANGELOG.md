@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Summary
 Vorssaint 3.3.2 improves app discovery in the Command Bar, recording, Switcher,
-screenshots, screen text recognition, Window Layout, Cleaning Mode, Scratchpad, audio and display safety. It also refines app
+screenshots, clipboard history, screen text recognition, Window Layout, Cleaning Mode, Scratchpad, audio and display safety. It also refines app
 management, feedback, feature setup, Fan Control, Quit on close, network monitoring, power
 and peripheral battery readings, panel behavior and keyboard controls.
 
@@ -31,6 +31,8 @@ and peripheral battery readings, panel behavior and keyboard controls.
   Thanks to @theafox.
 
 ### Fixed
+- Clipboard history now keeps large copied documents instead of silently
+  dropping text after 20,000 characters.
 - Window Layout now centers fixed-size windows and stops pending placements from
   undoing Full Screen.
 - The feedback text cursor now lines up with the empty-field hint.

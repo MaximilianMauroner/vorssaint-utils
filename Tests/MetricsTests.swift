@@ -273,9 +273,16 @@ struct MetricsTests {
                "clipboard editing preserves intentional outer spacing")
         expect(ClipboardHistoryEditing.storableText(" \n\t ") == nil,
                "clipboard editing rejects an empty text item")
+        let largeClipboardText = String(repeating: "long copied text ", count: 10_000)
+        expect(ClipboardHistoryEditing.storableText(largeClipboardText) == largeClipboardText,
+               "clipboard history keeps copied documents larger than the old short-text bound")
         expect(ClipboardHistoryEditing.storableText(
             String(repeating: "a", count: ClipboardHistoryEditing.maxCharacters + 1)) == nil,
                "clipboard editing keeps the history text size bound")
+        let largeClipboardPreview = ClipboardHistoryEntry(text: largeClipboardText).preview
+        expect(largeClipboardPreview.hasSuffix("…")
+                && largeClipboardPreview.count <= ClipboardHistoryEditing.previewCharacters + 1,
+               "clipboard rows keep very large text previews bounded")
         let previewID = UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
         let nextPreviewID = UUID(uuidString: "00000000-0000-0000-0000-000000000102")!
         let updatedPreview = ClipboardHistoryEntry(id: previewID, text: "updated")
