@@ -7,9 +7,9 @@ All notable changes to this project are documented here. The format follows
 ## [3.3.2]
 
 ### Summary
-Vorssaint 3.3.2 adds batch image conversion and improves app discovery and unit
-conversions in the Command Bar. It also strengthens recording, screenshots,
-clipboard, Window Layout, audio, display safety and Settings.
+Vorssaint 3.3.2 adds batch image conversion and improves app discovery in the
+Command Bar. It also strengthens recording, screenshots, clipboard, Window Layout,
+audio, display safety and Settings.
 
 ### Added
 - Media now converts images in batches with resizing, watermarks, renaming and
@@ -33,8 +33,6 @@ clipboard, Window Layout, audio, display safety and Settings.
   consistently. Thanks to @PathGao.
 - The Command Bar now accepts Control-P and Control-N to move through results.
   Thanks to @theafox.
-- Foot conversions in the Command Bar now show localized feet and inches while
-  keeping small measurements precise. Thanks to @tenbux.
 
 ### Fixed
 - The screenshot editor now lets you draw a new crop directly over the image.
