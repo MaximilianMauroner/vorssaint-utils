@@ -70,6 +70,7 @@ and peripheral battery readings, panel behavior and keyboard controls.
   Thanks to @PathGao.
 - The App Switcher now shows its configured shortcut in the large icon mode label.
   Thanks to @liuxxxu.
+- The App Switcher now keeps its shortcut working after your Mac wakes from sleep.
 - The App Switcher now restores minimized windows when selected.
 - The app no longer quits while typing when the Switcher's Windows shortcut uses a
   key whose label comes from the keyboard layout. Thanks to @eioz.
