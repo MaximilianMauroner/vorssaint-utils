@@ -8,8 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Summary
 Vorssaint 3.3.2 adds batch image conversion and improves app discovery and unit
-conversions in the Command Bar. It also strengthens recording, screenshots,
-clipboard, Window Layout, audio, display safety and Settings.
+conversions in the Command Bar. It also makes recording more flexible and strengthens
+screenshots, clipboard, Window Layout, audio, display safety and Settings.
 
 ### Added
 - Media now converts images in batches with resizing, watermarks, renaming and
@@ -18,6 +18,8 @@ clipboard, Window Layout, audio, display safety and Settings.
   Thanks to @MaximilianMauroner.
 
 ### Changed
+- Screen recordings can now start without automatic zooms. Turn them off under
+  Screen recording while keeping manual zooms available in the editor.
 - App Updates now searches more places, offers source controls and opens the
   product page for a lone selected store update.
   Thanks to @ruvelro and @PathGao.

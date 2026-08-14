@@ -20,6 +20,7 @@ struct ScreenRecorderSettings: View {
     @AppStorage(DefaultsKey.recorderMicrophone) private var microphone = false
     @AppStorage(DefaultsKey.recorderSaveFolder) private var saveFolder = ""
     @AppStorage(DefaultsKey.recorderOpenEditor) private var opensEditor = true
+    @AppStorage(DefaultsKey.recorderAutomaticZoom) private var automaticZoom = true
     @AppStorage(DefaultsKey.recorderGIFSize) private var gifSizeRaw =
         RecorderSupport.GIFSize.medium.rawValue
     @AppStorage(DefaultsKey.recorderGIFFrameRate) private var gifFrameRate = 12
@@ -112,6 +113,12 @@ struct ScreenRecorderSettings: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle(strings.openEditorToggle, isOn: $opensEditor)
                     Text(strings.openEditorCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(strings.automaticZoomToggle, isOn: $automaticZoom)
+                    Text(strings.automaticZoomCaption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

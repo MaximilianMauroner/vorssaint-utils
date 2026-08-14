@@ -8528,7 +8528,7 @@ struct MetricsTests {
                    "no em-dash in WhatsApp organizer strings (\(language.rawValue))")
             let recorderValues = Mirror(reflecting: FeatureStrings.recorder(language)).children
                 .compactMap { $0.value as? String }
-            expect(recorderValues.count == 115 && recorderValues.allSatisfy { !$0.isEmpty },
+            expect(recorderValues.count == 117 && recorderValues.allSatisfy { !$0.isEmpty },
                    "every screen recorder string is set for \(language.rawValue)")
             expect(recorderValues.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible screen recorder strings (\(language.rawValue))")
@@ -11908,8 +11908,9 @@ struct MetricsTests {
         expect(Defaults.registeredDefaults[DefaultsKey.recorderQuality] as? String == "balanced"
                 && Defaults.registeredDefaults[DefaultsKey.recorderFrameRate] as? Int == 60
                 && Defaults.registeredDefaults[DefaultsKey.recorderCountdown] as? Int == 3
+                && Defaults.registeredDefaults[DefaultsKey.recorderAutomaticZoom] as? Bool == true
                 && Defaults.registeredDefaults[DefaultsKey.recorderOpenEditor] as? Bool == true,
-               "the recorder ships balanced, smooth, with a short countdown and the editor on")
+               "the recorder ships balanced, smooth, with automatic zooms, a short countdown and the editor on")
         expect(ScreenshotSupport.countdownRingProgress(elapsed: 0) == 1
                 && ScreenshotSupport.countdownRingProgress(elapsed: 0.46) == 0.5
                 && ScreenshotSupport.countdownRingProgress(elapsed: 0.92) == 0,
@@ -11935,6 +11936,7 @@ struct MetricsTests {
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderQuality)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderGIFSize)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderMicrophone)
+                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderAutomaticZoom)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderSharingEnabled)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderSaveFolder),
                "the screen recorder settings travel in backups")
@@ -12205,6 +12207,10 @@ struct MetricsTests {
         expect(recoveredZooms.zoomSegments.count == 1
                 && recoveredZooms.zoomSegments[0].followsPointer,
                "turning automatic zoom back on recovers a click-based zoom that was deleted")
+        let disabledZooms = RecorderEditDocument(zoomEnabled: false)
+            .restoringAutomaticZooms(clicks: [click], duration: 10)
+        expect(disabledZooms.zoomSegments.isEmpty,
+               "a recording with automatic zooms off starts without zooms on its timeline")
         var intentionalZoom = RecorderTimeline.ZoomSegment(start: 2, end: 4, amount: 2.2)
         intentionalZoom.focusX = 0.2
         intentionalZoom.focusY = 0.3
