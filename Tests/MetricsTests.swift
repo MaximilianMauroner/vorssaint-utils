@@ -2412,6 +2412,11 @@ struct MetricsTests {
         expect(WindowLayoutGeometry.accepts(actualRect: .zero, targetRect: .zero,
                                             action: .fullScreen, anchorTolerance: 10) == false,
                "full screen never joins the frame-based gesture acceptance")
+        expect(WindowLayoutAction.center.targetCapability == .position
+                && WindowLayoutAction.fullScreen.targetCapability == .fullScreen
+                && WindowLayoutAction.maximize.targetCapability == .frame
+                && WindowLayoutAction.restore.targetCapability == .frame,
+               "window layout targets only the attributes each action changes")
 
         // MARK: Editing, navigation and upper function keys as shortcuts (#308)
 
