@@ -9491,6 +9491,20 @@ struct MetricsTests {
                                                        fromCenter: true)
         expect(centered == CGRect(x: 30, y: 40, width: 40, height: 20),
                "option grows the selection from the center")
+        let cropBounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let cropDraft = CGRect(x: 120, y: 90, width: 400, height: 300)
+        expect(ScreenshotSupport.startsNewCropSelection(
+                    at: CGPoint(x: 300, y: 250), draft: cropBounds, within: cropBounds),
+               "dragging inside the initial full-image crop starts a new selection")
+        expect(!ScreenshotSupport.startsNewCropSelection(
+                    at: CGPoint(x: 300, y: 250), draft: cropDraft, within: cropBounds),
+               "dragging inside an adjusted crop keeps moving it")
+        expect(ScreenshotSupport.startsNewCropSelection(
+                    at: CGPoint(x: 700, y: 500), draft: cropDraft, within: cropBounds),
+               "dragging elsewhere in the image replaces an adjusted crop")
+        expect(!ScreenshotSupport.startsNewCropSelection(
+                    at: CGPoint(x: 900, y: 700), draft: cropDraft, within: cropBounds),
+               "a drag outside the image cannot start a crop")
         expect(ScreenshotSupport.isClick(from: CGPoint(x: 5, y: 5), to: CGPoint(x: 7, y: 8))
                 && !ScreenshotSupport.isClick(from: .zero, to: CGPoint(x: 12, y: 0)),
                "a tiny drag is a click, a real drag is not")
