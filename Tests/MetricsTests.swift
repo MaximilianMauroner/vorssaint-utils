@@ -6369,6 +6369,11 @@ struct MetricsTests {
         expect(QuickToolsSupport.hiddenIDs(from: QuickToolsSupport.serializeHiddenIDs(Set(["x", "y"])))
                    == Set(["x", "y"]),
                "launcher hidden set round-trips")
+        let repeatedProcessValues = SwitcherSupport.firstValuesByPID([(pid_t(1678), "first"),
+                                                                      (pid_t(1678), "duplicate"),
+                                                                      (pid_t(2048), "other")])
+        expect(repeatedProcessValues == [1678: "first", 2048: "other"],
+               "window enumeration keeps the first value when the system repeats a process")
         let groupedSwitcherItems = [
             SwitcherItem.window(id: 1, title: "One", appName: "Alpha", pid: 101,
                                 isOnScreen: true, frame: .zero),

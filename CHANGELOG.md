@@ -9,7 +9,7 @@ All notable changes to this project are documented here. The format follows
 ### Summary
 Vorssaint 3.3.2 adds batch image conversion and local Command Bar scripts, and improves
 app discovery, unit conversions and full-screen switching. It also makes recording more
-flexible and strengthens screenshots, clipboard, Window Layout, audio, display safety and Settings.
+flexible and prevents launch failures across window tools.
 
 ### Added
 - Media now converts images in batches with resizing, watermarks, renaming and
@@ -41,6 +41,8 @@ flexible and strengthens screenshots, clipboard, Window Layout, audio, display s
   keeping small measurements precise. Thanks to @tenbux.
 
 ### Fixed
+- Window tools no longer quit Vorssaint at launch when the running app list
+  contains the same process twice.
 - The screenshot editor now lets you draw a new crop directly over the image.
 - Clipboard history now keeps large copied documents instead of silently
   dropping text after 20,000 characters.
