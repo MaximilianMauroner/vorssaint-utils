@@ -8,9 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Summary
 Vorssaint 3.3.2 adds batch image conversion, local Command Bar scripts, recent captures and
-desktop window controls. It also improves app discovery, conversions and capture control while
-making Shelf selection faster, preventing launch failures across window tools and keeping source
-builds compatible with older development tools.
+desktop window controls. It also improves app discovery, conversions, capture control and volume
+adjustments while making Shelf selection faster, keeping window tools from quitting at launch and
+making source builds compatible with older development tools.
 
 ### Added
 - Media now converts images in batches with resizing, watermarks, renaming and
@@ -26,6 +26,7 @@ builds compatible with older development tools.
   Thanks to @MaximilianMauroner.
 
 ### Changed
+- Volume Mixer percentages can now be entered directly for the system output and each app.
 - Building Vorssaint from source now works with older development tools.
   Thanks to @Bald-M.
 - Screen recordings can now pause and resume from the floating controls without
