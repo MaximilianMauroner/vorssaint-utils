@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Summary
 Vorssaint 3.3.2 adds batch image conversion, local Command Bar scripts, recent captures and
-desktop window controls. It also improves app discovery, conversions and capture clarity while
+desktop window controls. It also improves app discovery, conversions and capture control while
 preventing launch failures across window tools.
 
 ### Added
@@ -25,6 +25,8 @@ preventing launch failures across window tools.
   Thanks to @MaximilianMauroner.
 
 ### Changed
+- Screen recordings can now pause and resume from the floating controls without
+  leaving a gap in the video or its audio. Thanks to @monfxx.
 - Area recordings now keep the chosen region visible with a dimmed guide until
   recording stops. Thanks to @lmilojevicc.
 - Copied screenshots now work as image files, so tools that expect a file path

@@ -8617,7 +8617,7 @@ struct MetricsTests {
                    "no em-dash in WhatsApp organizer strings (\(language.rawValue))")
             let recorderValues = Mirror(reflecting: FeatureStrings.recorder(language)).children
                 .compactMap { $0.value as? String }
-            expect(recorderValues.count == 117 && recorderValues.allSatisfy { !$0.isEmpty },
+            expect(recorderValues.count == 119 && recorderValues.allSatisfy { !$0.isEmpty },
                    "every screen recorder string is set for \(language.rawValue)")
             expect(recorderValues.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible screen recorder strings (\(language.rawValue))")
@@ -12145,6 +12145,28 @@ struct MetricsTests {
                "elapsed time reads like a player position and grows an hour field only when needed")
         expect(RecorderSupport.elapsedLabel(seconds: -5) == "0:00",
                "a clock that never went forward still reads as zero")
+
+        var pauseTimeline = RecorderPauseTimeline()
+        expect(pauseTimeline.pause(at: 3) && !pauseTimeline.pause(at: 4),
+               "a recording enters one pause only once")
+        expect(pauseTimeline.elapsed(since: 0, at: 7) == 3
+                && pauseTimeline.sampleTime(start: 5, duration: 0.01, since: 0) == nil,
+               "an open pause freezes elapsed time and discards captured samples")
+        expect(pauseTimeline.resume(at: 8) && !pauseTimeline.resume(at: 9),
+               "a recording resumes one open pause only once")
+        expect(pauseTimeline.sampleTime(start: 2, duration: 0.01, since: 0) == 2
+                && pauseTimeline.sampleTime(start: 8, duration: 0.01, since: 0) == 3
+                && pauseTimeline.eventTime(10, since: 0) == 5,
+               "video, audio and event time close the paused gap exactly")
+        expect(pauseTimeline.sampleTime(start: 2.99, duration: 0.02, since: 0) == nil,
+               "an audio buffer crossing the pause edge is dropped instead of overlapping")
+        expect(pauseTimeline.sampleTime(start: -0.01, duration: 0.01, since: 0) == nil,
+               "a late sample from before the recording origin stays out")
+        _ = pauseTimeline.pause(at: 12)
+        _ = pauseTimeline.resume(at: 14)
+        expect(pauseTimeline.eventTime(13, since: 0) == nil
+                && pauseTimeline.elapsed(since: 0, at: 16) == 9,
+               "several pauses stay excluded from every recording track")
 
         expect(RecorderSupport.sanitizedFrameRate(60) == 60
                 && RecorderSupport.sanitizedFrameRate(30) == 30
