@@ -8884,11 +8884,12 @@ struct MetricsTests {
         // MARK: Display brightness (DDC/CI helpers)
 
         let ddcWrite = BrightnessSupport.writePacket(code: 0x10, value: 0x1234)
-        expect(ddcWrite == [0x84, 0x03, 0x10, 0x12, 0x34,
-                            UInt8(0x6E ^ 0x51 ^ 0x84 ^ 0x03 ^ 0x10 ^ 0x12 ^ 0x34)],
+        let expectedDDCWrite: [UInt8] = [0x84, 0x03, 0x10, 0x12, 0x34, 0x8E]
+        expect(ddcWrite == expectedDDCWrite,
                "DDC write packet carries the set opcode, big-endian value and checksum")
         let ddcRead = BrightnessSupport.readRequestPacket(code: 0x10)
-        expect(ddcRead == [0x82, 0x01, 0x10, UInt8(0x6E ^ 0x82 ^ 0x01 ^ 0x10)],
+        let expectedDDCRead: [UInt8] = [0x82, 0x01, 0x10, 0xFD]
+        expect(ddcRead == expectedDDCRead,
                "DDC read request omits the sub-address from its checksum seed")
         expect(Array(BrightnessSupport.writePacket(code: 0x10, value: 100)[3...4]) == [0x00, 0x64],
                "DDC values split into high and low bytes")
