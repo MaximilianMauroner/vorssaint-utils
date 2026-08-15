@@ -7,8 +7,8 @@ All notable changes to this project are documented here. The format follows
 ## [3.3.2]
 
 ### Summary
-Vorssaint 3.3.2 adds batch image conversion, local Command Bar scripts and recent captures
-across capture tools. It also improves app discovery, conversions and capture clarity while
+Vorssaint 3.3.2 adds batch image conversion, local Command Bar scripts, recent captures and
+desktop window controls. It also improves app discovery, conversions and capture clarity while
 preventing launch failures across window tools.
 
 ### Added
@@ -19,6 +19,8 @@ preventing launch failures across window tools.
 - Screenshot and screen recording now open recent captures from the panel, their editors
   and the Command Bar.
   Thanks to @lmilojevicc.
+- Window Layout can send the active window to the previous or next desktop with
+  optional shortcuts.
 - Emoji can open directly from a shortcut assigned to its Command Bar row.
   Thanks to @MaximilianMauroner.
 

@@ -1533,6 +1533,34 @@ struct MetricsTests {
                                           visibleSpaces: [0],
                                           target: 40) == nil,
                "space travel refuses hops beyond the press cap")
+        expect(WindowSpaceMoveSupport.destination(windowSpaces: [4],
+                                                  orderedUserSpacesPerDisplay: [[3, 4, 5]],
+                                                  direction: .next) == 5
+                && WindowSpaceMoveSupport.destination(windowSpaces: [4],
+                                                       orderedUserSpacesPerDisplay: [[3, 4, 5]],
+                                                       direction: .previous) == 3,
+               "window desktop movement follows the neighboring user desktop")
+        expect(WindowSpaceMoveSupport.destination(windowSpaces: [3],
+                                                  orderedUserSpacesPerDisplay: [[3, 4, 5]],
+                                                  direction: .previous) == 5
+                && WindowSpaceMoveSupport.destination(windowSpaces: [5],
+                                                       orderedUserSpacesPerDisplay: [[3, 4, 5]],
+                                                       direction: .next) == 3,
+               "window desktop movement wraps in both directions")
+        expect(WindowSpaceMoveSupport.destination(windowSpaces: [9],
+                                                  orderedUserSpacesPerDisplay: [[3, 4], [8, 9]],
+                                                  direction: .previous) == 8,
+               "window desktop movement stays on the display that owns the window")
+        expect(WindowSpaceMoveSupport.destination(windowSpaces: [3, 4],
+                                                  orderedUserSpacesPerDisplay: [[3, 4]],
+                                                  direction: .next) == nil
+                && WindowSpaceMoveSupport.destination(windowSpaces: [7],
+                                                       orderedUserSpacesPerDisplay: [[3, 4]],
+                                                       direction: .next) == nil
+                && WindowSpaceMoveSupport.destination(windowSpaces: [3],
+                                                       orderedUserSpacesPerDisplay: [[3]],
+                                                       direction: .next) == nil,
+               "window desktop movement rejects pinned, unknown and lone-desktop windows")
         expect(SpaceHopSupport.firstStage(appHasWindowOnVisibleSpace: true) == .moveASpace,
                "an app with a window on the visible Space cannot travel by being activated, so the move is asked for right away")
         expect(SpaceHopSupport.firstStage(appHasWindowOnVisibleSpace: false) == .waitForActivationTravel,
@@ -2391,6 +2419,8 @@ struct MetricsTests {
             DefaultsKey.windowLayoutShortcutBottomRightSixth,
             DefaultsKey.windowLayoutShortcutPreviousDisplay,
             DefaultsKey.windowLayoutShortcutMarginMaximize,
+            DefaultsKey.windowLayoutShortcutPreviousSpace,
+            DefaultsKey.windowLayoutShortcutNextSpace,
         ]
         expect(unassignedLayoutShortcutKeys.allSatisfy {
                    registeredDefaults[$0] as? String == WindowLayoutAction.clearedShortcutStorageValue
@@ -2444,13 +2474,21 @@ struct MetricsTests {
                 && Defaults.registeredDefaults[DefaultsKey.windowLayoutShortcutMarginMaximize] as? String
                     == WindowLayoutAction.clearedShortcutStorageValue,
                "margin maximize starts with no combination of its own")
+        expect(WindowLayoutAction.previousSpace.shortcutID == 56
+                && WindowLayoutAction.nextSpace.shortcutID == 57
+                && WindowLayoutAction(shortcutID: 56) == .previousSpace
+                && WindowLayoutAction(shortcutID: 57) == .nextSpace
+                && WindowLayoutAction.previousSpace.defaultShortcut == nil
+                && WindowLayoutAction.nextSpace.defaultShortcut == nil,
+               "desktop directions have stable optional shortcut ids")
         expect(Set(WindowLayoutAction.allCases.map(\.shortcutID)).count
                 == WindowLayoutAction.allCases.count,
                "every layout action keeps a distinct shortcut id")
         for language in AppLanguage.allCases {
             let layoutStrings = FeatureStrings.windowLayout(language)
             expect(!layoutStrings.fullScreen.isEmpty && !layoutStrings.previousDisplay.isEmpty
-                    && !layoutStrings.marginMaximize.isEmpty,
+                    && !layoutStrings.marginMaximize.isEmpty && !layoutStrings.spaces.isEmpty
+                    && !layoutStrings.previousSpace.isEmpty && !layoutStrings.nextSpace.isEmpty,
                    "\(language.rawValue) names the latest window layout actions")
         }
         expect(WindowLayoutGeometry.accepts(actualRect: .zero, targetRect: .zero,
@@ -3535,8 +3573,10 @@ struct MetricsTests {
         expect(WindowLayoutAction.shortcutActions.count == WindowLayoutAction.allCases.count,
                "every window layout action can register a global shortcut")
         expect(WindowLayoutAction.shortcutActions.contains(.previousDisplay)
-                && WindowLayoutAction.shortcutActions.contains(.nextDisplay),
-               "both display directions can register a global shortcut")
+                && WindowLayoutAction.shortcutActions.contains(.nextDisplay)
+                && WindowLayoutAction.shortcutActions.contains(.previousSpace)
+                && WindowLayoutAction.shortcutActions.contains(.nextSpace),
+               "both display and desktop directions can register a global shortcut")
         expect(Set(WindowLayoutAction.shortcutActions.map(\.shortcutKey)).count
                == WindowLayoutAction.shortcutActions.count,
                "every window layout shortcut has its own defaults key")
