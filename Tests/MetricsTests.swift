@@ -8517,6 +8517,14 @@ struct MetricsTests {
                    "every screenshot string is set for \(language.rawValue)")
             expect(screenshotValues.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible screenshot strings (\(language.rawValue))")
+            let recentCaptureValues = Mirror(
+                reflecting: FeatureStrings.recentCaptures(language)).children
+                .compactMap { $0.value as? String }
+            expect(recentCaptureValues.count == 8
+                    && recentCaptureValues.allSatisfy { !$0.isEmpty },
+                   "every recent capture string is set for \(language.rawValue)")
+            expect(recentCaptureValues.allSatisfy { !$0.contains("—") },
+                   "no em-dash in recent capture strings (\(language.rawValue))")
             let feedbackValues = Mirror(reflecting: FeatureStrings.feedback(language)).children
                 .compactMap { $0.value as? String }
             expect(feedbackValues.count == 28 && feedbackValues.allSatisfy { !$0.isEmpty },
@@ -10328,6 +10336,19 @@ struct MetricsTests {
                "guessable ids and short deletion tokens are rejected")
         expect(Defaults.registeredDefaults[DefaultsKey.panelUtilityScreenshot] as? Bool == true,
                "the panel row ships visible like its siblings")
+        let recentCaptureIDs = (0..<14).map { _ in UUID() }
+        expect(ScreenshotSupport.cappedRecentCaptureIDs(recentCaptureIDs)
+                == Array(recentCaptureIDs.prefix(12))
+                && ScreenshotSupport.recentCaptureLimit == 12,
+               "recent captures keeps only the newest bounded set")
+        let oversizedCaptureIDs = Array(recentCaptureIDs.prefix(3))
+        expect(ScreenshotSupport.cappedRecentCaptureIDs(
+            oversizedCaptureIDs,
+            screenshotBytes: [
+                oversizedCaptureIDs[0]: ScreenshotSupport.recentCaptureMaximumBytes - 1,
+                oversizedCaptureIDs[1]: 2,
+            ]) == [oversizedCaptureIDs[0], oversizedCaptureIDs[2]],
+               "recent captures keeps the latest screenshot and respects its disk budget")
         expect(GlobalShortcutRole.screenshot.requiredEnableKeys == [DefaultsKey.screenshotShortcutEnabled]
                 && GlobalShortcutRole.screenshot.feature == .screenshot,
                "the screenshot shortcut role gates on its toggle and feature")
@@ -11751,6 +11772,7 @@ struct MetricsTests {
                 && CommandBarPreferences.source(ofRowID: "menu.1.Bold") == .menus
                 && CommandBarPreferences.source(ofRowID: "folder./tmp") == .folders
                 && CommandBarPreferences.source(ofRowID: "action.screenshot") == .actions
+                && CommandBarPreferences.source(ofRowID: "action.recentCaptures") == .actions
                 && CommandBarPreferences.emojiBrowserRowID == "emoji.browse"
                 && CommandBarPreferences.source(ofRowID: CommandBarPreferences.emojiBrowserRowID)
                     == .emoji,
@@ -12794,6 +12816,10 @@ struct MetricsTests {
                "an unrelated word stays out")
         expect(CommandBarSearch.matches(title: "Capturar tela", keywords: "screenshot print", query: "print"),
                "keywords match like the title does")
+        expect(CommandBarSearch.matches(title: "Capturas recentes",
+                                        keywords: "Recent captures screenshot recording",
+                                        query: "recent captures"),
+               "recent captures stays searchable by its familiar English name")
         expect(CommandBarSearch.matches(title: "Silenciar microfone", query: "silenciar micro"),
                "tokens match in any order as prefixes")
         expect(!CommandBarSearch.matches(title: "Silenciar microfone", query: "silenciar tela"),

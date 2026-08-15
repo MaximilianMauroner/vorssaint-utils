@@ -524,6 +524,7 @@ final class ScreenRecorderService: ObservableObject {
             openEditor(with: take)
             return
         }
+        RecentCaptureService.shared.recordRecording(at: destination)
         let folder = destination.deletingLastPathComponent().lastPathComponent
         QuickToolHUD.show(icon: "record.circle",
                           message: reason ?? String(format: strings.savedHUDFormat, folder))
