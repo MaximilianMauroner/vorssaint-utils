@@ -204,6 +204,8 @@ final class ScreenRecorderService: ObservableObject {
     private func teardownSurfaces() {
         countdown?.cancel()
         countdown = nil
+        indicator?.hide()
+        indicator = nil
         selection?.cancel()
         selection = nil
         for editor in editors {
@@ -242,6 +244,8 @@ final class ScreenRecorderService: ObservableObject {
         if countdown != nil {
             countdown?.cancel()
             countdown = nil
+            indicator?.hide()
+            indicator = nil
             return
         }
         guard selection == nil, !isFinishing else { return }
@@ -282,6 +286,9 @@ final class ScreenRecorderService: ObservableObject {
             self.selection = nil
             switch outcome {
             case .region(let region):
+                let indicator = RecorderIndicator(onStop: { [weak self] in self?.stop() })
+                indicator.showRegionGuide(for: region)
+                self.indicator = indicator
                 self.prepareCountdown(for: region,
                                       wantsMicrophone: audioOptions.microphone)
             case .captured, .scrollingRegion, .cancelled:
@@ -348,6 +355,8 @@ final class ScreenRecorderService: ObservableObject {
 
     private func beginRecording(region: RecorderSupport.Region) {
         guard session == nil, let take = RecorderTakeStore.shared.makeTake() else {
+            indicator?.hide()
+            indicator = nil
             QuickToolHUD.show(icon: "record.circle", message: strings.recordFailed)
             return
         }
@@ -362,6 +371,8 @@ final class ScreenRecorderService: ObservableObject {
                                             frameRate: frameRate,
                                             capturesSystemAudio: capturesSystemAudio,
                                             capturesMicrophone: capturesMicrophone) else {
+            indicator?.hide()
+            indicator = nil
             RecorderTakeStore.shared.delete(take)
             QuickToolHUD.show(icon: "record.circle", message: strings.recordFailed)
             return
@@ -382,7 +393,7 @@ final class ScreenRecorderService: ObservableObject {
         // the capture filter names the windows it leaves out and can only name
         // the ones that already exist. Everything else this app shows stays in
         // the picture.
-        let indicator = RecorderIndicator(onStop: { [weak self] in self?.stop() })
+        let indicator = indicator ?? RecorderIndicator(onStop: { [weak self] in self?.stop() })
         indicator.show(on: NSScreen.screens.first { $0.displayID == region.displayID },
                        tooltip: strings.indicatorTooltip)
         indicator.update(elapsed: RecorderSupport.elapsedLabel(seconds: 0))
@@ -396,7 +407,7 @@ final class ScreenRecorderService: ObservableObject {
             try? await Task.sleep(nanoseconds: 120_000_000)
             guard self.session === session else { return }
             var chrome = Set(ScreenshotService.shared.protectedWindowIDsForCapture.map(Int.init))
-            if let number = indicator.excludedWindowNumber { chrome.insert(number) }
+            chrome.formUnion(indicator.excludedWindowNumbers)
             if let number = QuickToolHUD.currentWindowNumber { chrome.insert(number) }
             if let failure = await session.start(frameRate: frameRate,
                                                  capturesSystemAudio: capturesSystemAudio,
