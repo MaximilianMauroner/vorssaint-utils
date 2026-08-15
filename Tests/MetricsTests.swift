@@ -5102,6 +5102,28 @@ struct MetricsTests {
 
         // MARK: Shelf persistence
 
+        expect(ShelfSelectionSupport.rangeSelectionIDs(
+            allIDs: ["a", "b", "c", "d"], anchorID: "b", targetID: "d") == ["b", "c", "d"],
+               "shelf shift-click selects the forward visible range")
+        expect(ShelfSelectionSupport.rangeSelectionIDs(
+            allIDs: ["a", "b", "c", "d"], anchorID: "d", targetID: "b") == ["b", "c", "d"],
+               "shelf shift-click selects the reverse visible range")
+        expect(ShelfSelectionSupport.rangeSelectionIDs(
+            allIDs: ["a", "b"], anchorID: nil, targetID: "b") == ["b"],
+               "shelf shift-click without an anchor starts at the clicked tile")
+        expect(ShelfSelectionSupport.rangeSelectionIDs(
+            allIDs: ["a", "b"], anchorID: "a", targetID: "missing").isEmpty,
+               "shelf shift-click ignores a tile outside the visible list")
+        expect(ShelfSelectionSupport.isClearSelectionShortcut(
+            keyCode: 53, hasSelectionModifiers: false),
+               "shelf Escape clears the current selection")
+        expect(!ShelfSelectionSupport.isClearSelectionShortcut(
+            keyCode: 53, hasSelectionModifiers: true),
+               "shelf keeps modified Escape available for other shortcuts")
+        expect(!ShelfSelectionSupport.isClearSelectionShortcut(
+            keyCode: 36, hasSelectionModifiers: false),
+               "shelf does not clear selection for an unrelated key")
+
         expect(ShelfInteractionSupport.allowsAutomaticOpen(
             sourceBundleIdentifier: "com.example.Editor",
             excludedBundleIdentifiers: ["com.example.Browser"]),
