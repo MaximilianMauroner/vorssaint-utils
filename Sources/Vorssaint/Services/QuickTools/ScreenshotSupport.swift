@@ -508,6 +508,35 @@ enum ScreenshotSupport {
         return url
     }
 
+    /// Keeps copied captures available long enough for paste targets that read
+    /// the file after accepting its URL from the pasteboard.
+    static func copiedFile(data: Data, name: String, directory: URL,
+                           now: Date = Date()) throws -> URL {
+        let manager = FileManager.default
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let cutoff = now.addingTimeInterval(-24 * 3600)
+        if let files = try? manager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey]
+        ) {
+            for file in files {
+                let values = try? file.resourceValues(
+                    forKeys: [.contentModificationDateKey, .isRegularFileKey])
+                if values?.isRegularFile == true,
+                   (values?.contentModificationDate ?? .distantFuture) < cutoff {
+                    try? manager.removeItem(at: file)
+                }
+            }
+        }
+        let safeName = (name as NSString).lastPathComponent
+        let uniqueName = uniqueFileName(safeName) { candidate in
+            manager.fileExists(atPath: directory.appendingPathComponent(candidate).path)
+        }
+        let url = directory.appendingPathComponent(uniqueName)
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
     static func removeTemporaryDragDirectories(
         directory: URL = FileManager.default.temporaryDirectory
     ) {

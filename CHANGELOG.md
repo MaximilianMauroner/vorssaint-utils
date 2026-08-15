@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Summary
 Vorssaint 3.3.2 adds batch image conversion and local Command Bar scripts, and improves
-app discovery, unit conversions and full-screen switching. It also makes recording clearer
+app discovery, unit conversions and full-screen switching. It also makes capture clearer
 and more flexible while preventing launch failures across window tools.
 
 ### Added
@@ -22,6 +22,8 @@ and more flexible while preventing launch failures across window tools.
 ### Changed
 - Area recordings now keep the chosen region visible with a dimmed guide until
   recording stops. Thanks to @lmilojevicc.
+- Copied screenshots now work as image files, so tools that expect a file path
+  can use them. Thanks to @lmilojevicc.
 - Screen recordings can now start without automatic zooms. Turn them off under
   Screen recording while keeping manual zooms available in the editor.
 - App Updates now searches more places, offers source controls and opens the

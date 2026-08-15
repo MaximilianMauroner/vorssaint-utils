@@ -556,7 +556,8 @@ final class ScreenshotService: ObservableObject {
     @discardableResult
     private func copyDirect(_ capture: ScreenshotSelectionController.Capture) -> Bool {
         guard let image = flatten(capture) else { return false }
-        guard ScreenshotEditorController.copyImage(image) else {
+        guard ScreenshotEditorController.copyImage(
+            image, fileNamePrefix: strings.fileNamePrefix) else {
             NSSound.beep()
             return false
         }
@@ -603,7 +604,7 @@ final class ScreenshotService: ObservableObject {
             return nil
         }
 
-        let copied = ScreenshotEditorController.copyImage(image)
+        let copied = ScreenshotEditorController.copyFile(url)
         let format = copied ? strings.savedAndCopiedHUDFormat : strings.savedHUDFormat
         QuickToolHUD.show(icon: "camera.viewfinder",
                           message: String(format: format,

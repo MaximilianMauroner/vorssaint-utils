@@ -17,7 +17,7 @@ final class ScreenshotQuickPreviewModel: ObservableObject {
 }
 
 /// A transient in-memory capture preview. It stays outside Command Tab and
-/// performs no file write until the user explicitly chooses Save.
+/// performs no file write until the user explicitly chooses Save or Copy.
 final class ScreenshotQuickPreviewController {
     enum Action {
         case edit

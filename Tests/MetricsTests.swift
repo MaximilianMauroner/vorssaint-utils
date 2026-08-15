@@ -9948,6 +9948,29 @@ struct MetricsTests {
                "temporary screenshot cleanup removes only app-owned drag directories")
         try? FileManager.default.removeItem(at: dragRoot)
 
+        let copyRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenshotCopyTests-\(UUID().uuidString)", isDirectory: true)
+        let staleCopy = try? ScreenshotSupport.copiedFile(
+            data: dragData, name: "Old.png", directory: copyRoot)
+        if let staleCopy {
+            try? FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: 1)],
+                ofItemAtPath: staleCopy.path)
+        }
+        let currentCopy = try? ScreenshotSupport.copiedFile(
+            data: dragData, name: "../Capture.png", directory: copyRoot,
+            now: Date(timeIntervalSince1970: 100_000))
+        let nextCopy = try? ScreenshotSupport.copiedFile(
+            data: dragData, name: "Capture.png", directory: copyRoot,
+            now: Date(timeIntervalSince1970: 100_000))
+        expect(staleCopy.map { !FileManager.default.fileExists(atPath: $0.path) } == true,
+               "copying a screenshot removes expired copied files")
+        expect(currentCopy?.lastPathComponent == "Capture.png"
+                && nextCopy?.lastPathComponent == "Capture 2.png"
+                && currentCopy.flatMap { try? Data(contentsOf: $0) } == dragData,
+               "copied screenshots stay as unique complete png files")
+        try? FileManager.default.removeItem(at: copyRoot)
+
         var counterList = [
             ScreenshotSupport.Annotation(tool: .counter, number: 1),
             ScreenshotSupport.Annotation(tool: .arrow),
