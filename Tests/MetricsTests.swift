@@ -9331,6 +9331,10 @@ struct MetricsTests {
                                                                    currentGeneration: 5,
                                                                    cacheEnabled: false),
                "App Switcher rejects queued cache work after suspension or a later cache generation")
+        expect(SwitcherWindowCacheSupport.canReuseWithCheapFingerprint(accessibilityTargetCount: 0)
+               && !SwitcherWindowCacheSupport.canReuseWithCheapFingerprint(accessibilityTargetCount: 1)
+               && !SwitcherWindowCacheSupport.canReuseWithCheapFingerprint(accessibilityTargetCount: 12),
+               "App Switcher never reuses a cheap fingerprint for an AX-dependent enumeration")
         expect(SwitcherSupport.isCurrentActivationGeneration(12, current: 12)
                && !SwitcherSupport.isCurrentActivationGeneration(11, current: 12),
                "App Switcher ignores retries left by an older activation")

@@ -764,7 +764,7 @@ final class AppSwitcher: ObservableObject {
         if allWindows == nil {
             // The warm-up normally wins this race. Keep the first shortcut
             // functional when the feature was enabled only a moment ago.
-            let enumerated = WindowEnumerator.listWindows(
+            let enumeration = WindowEnumerator.enumerateSwitcherWindows(
                 groupByApp: groupByApp,
                 preservingGroupedWindows: preservesGroupedWindows
             )
@@ -772,12 +772,12 @@ final class AppSwitcher: ObservableObject {
                 groupByApp: groupByApp,
                 preservingGroupedWindows: preservesGroupedWindows
             )
-            if fingerprint == refreshedFingerprint {
-                storeCachedWindows(enumerated, fingerprint: refreshedFingerprint)
+            if enumeration.cacheIsReusable, fingerprint == refreshedFingerprint {
+                storeCachedWindows(enumeration.items, fingerprint: refreshedFingerprint)
             } else {
                 invalidateWindowCache()
             }
-            allWindows = enumerated
+            allWindows = enumeration.items
         }
         guard let allWindows else { return }
         let windows: [SwitcherItem]
@@ -980,12 +980,12 @@ final class AppSwitcher: ObservableObject {
                 )
             }
             guard authorized else { return }
-            let items = WindowEnumerator.listWindows(
+            let enumeration = WindowEnumerator.enumerateSwitcherWindows(
                 groupByApp: groupByApp,
                 preservingGroupedWindows: preservesGroupedWindows
             )
             DispatchQueue.main.async { [weak self] in
-                self?.finishWindowCacheRefresh(items: items,
+                self?.finishWindowCacheRefresh(enumeration: enumeration,
                                                fingerprint: fingerprint,
                                                groupByApp: groupByApp,
                                                preservingGroupedWindows: preservesGroupedWindows,
@@ -994,7 +994,7 @@ final class AppSwitcher: ObservableObject {
         }
     }
 
-    private func finishWindowCacheRefresh(items: [SwitcherItem],
+    private func finishWindowCacheRefresh(enumeration: SwitcherWindowEnumeration,
                                           fingerprint: SwitcherWindowFingerprint,
                                           groupByApp: Bool,
                                           preservingGroupedWindows: Bool,
@@ -1017,13 +1017,13 @@ final class AppSwitcher: ObservableObject {
                 currentGeneration: windowCacheGeneration,
                 cacheEnabled: windowCacheEnabled
             ) else { return false }
-            if fingerprint == currentFingerprint {
-                cachedWindowItems = items
+            if enumeration.cacheIsReusable, fingerprint == currentFingerprint {
+                cachedWindowItems = enumeration.items
                 cachedWindowFingerprint = currentFingerprint
             } else {
                 cachedWindowItems = nil
                 cachedWindowFingerprint = nil
-                enumerationRefreshRequested = true
+                enumerationRefreshRequested = fingerprint != currentFingerprint
             }
             guard enumerationRefreshRequested else {
                 enumerationScheduled = false

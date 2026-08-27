@@ -111,6 +111,12 @@ enum WindowEnumerator {
 
     static func listWindows(groupByApp: Bool = UserDefaults.standard.bool(forKey: DefaultsKey.switcherMergeTabs),
                             preservingGroupedWindows: Bool = false) -> [SwitcherItem] {
+        enumerateSwitcherWindows(groupByApp: groupByApp,
+                                 preservingGroupedWindows: preservingGroupedWindows).items
+    }
+
+    static func enumerateSwitcherWindows(groupByApp: Bool,
+                                         preservingGroupedWindows: Bool) -> SwitcherWindowEnumeration {
         listWindows(
             appRules: SwitcherAppRule.rules(
                 storedValue: UserDefaults.standard.dictionary(forKey: DefaultsKey.switcherAppRules)),
@@ -124,13 +130,13 @@ enum WindowEnumerator {
     /// preferences. An app hidden from ⌘Tab must remain searchable there.
     static func listWindowsForCommandBar() -> [SwitcherItem] {
         listWindows(appRules: [:], groupByApp: false,
-                    preservingGroupedWindows: false, marksHiddenSpaces: false)
+                    preservingGroupedWindows: false, marksHiddenSpaces: false).items
     }
 
     private static func listWindows(appRules: [String: SwitcherAppRule],
                                     groupByApp: Bool,
                                     preservingGroupedWindows: Bool,
-                                    marksHiddenSpaces: Bool) -> [SwitcherItem] {
+                                    marksHiddenSpaces: Bool) -> SwitcherWindowEnumeration {
         let windowlessApps = SwitcherWindowlessApps.mode(
             storedValue: UserDefaults.standard.string(forKey: DefaultsKey.switcherWindowlessApps))
         let currentSpaceOnly = UserDefaults.standard.bool(forKey: DefaultsKey.switcherCurrentSpaceOnly)
@@ -170,7 +176,7 @@ enum WindowEnumerator {
                     showFullscreenWindows: true,
                     preservingGroupedWindows: false,
                     currentSpaceOnly: false,
-                    marksHiddenSpaces: false)
+                    marksHiddenSpaces: false).items
     }
 
     private static func listWindows(filterPID: pid_t?,
@@ -182,7 +188,7 @@ enum WindowEnumerator {
                                     showFullscreenWindows: Bool,
                                     preservingGroupedWindows: Bool,
                                     currentSpaceOnly: Bool,
-                                    marksHiddenSpaces: Bool) -> [SwitcherItem] {
+                                    marksHiddenSpaces: Bool) -> SwitcherWindowEnumeration {
         let raw = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
 
         let ownPid = ProcessInfo.processInfo.processIdentifier
@@ -472,7 +478,12 @@ enum WindowEnumerator {
                 return window.withHiddenSpaceState(isOnHiddenSpace(windowID))
             }
         }
-        return result
+        return SwitcherWindowEnumeration(
+            items: result,
+            cacheIsReusable: SwitcherWindowCacheSupport.canReuseWithCheapFingerprint(
+                accessibilityTargetCount: accessibilityPids.count
+            )
+        )
     }
 
     /// WindowServer can keep stale, titled surfaces around after some apps close

@@ -65,11 +65,22 @@ struct SwitcherWindowFingerprint: Equatable {
     let inputs: Inputs
 }
 
+struct SwitcherWindowEnumeration {
+    let items: [SwitcherItem]
+    let cacheIsReusable: Bool
+}
+
 enum SwitcherWindowCacheSupport {
     static func refreshIsAuthorized(enqueuedGeneration: UInt64,
                                     currentGeneration: UInt64,
                                     cacheEnabled: Bool) -> Bool {
         cacheEnabled && enqueuedGeneration == currentGeneration
+    }
+
+    /// A cheap WindowServer fingerprint cannot prove an Accessibility target
+    /// stayed unchanged. It can reuse only enumerations that had no AX target.
+    static func canReuseWithCheapFingerprint(accessibilityTargetCount: Int) -> Bool {
+        accessibilityTargetCount == 0
     }
 }
 
