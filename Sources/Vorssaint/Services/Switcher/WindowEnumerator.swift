@@ -36,6 +36,79 @@ enum WindowEnumerator {
     /// thread stalls the event taps with it (issue #189), so it must expire.
     private static let accessibilityBatchBudget: TimeInterval = 5.0
 
+    /// Reads the cheap WindowServer and workspace state used to prove that an
+    /// Accessibility result still describes the desktop. Call this on main so
+    /// AppKit application metadata and Space state are read consistently.
+    static func switcherFingerprint(groupByApp: Bool,
+                                    preservingGroupedWindows: Bool) -> SwitcherWindowFingerprint {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let defaults = UserDefaults.standard
+        let raw = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
+        let windows = raw.compactMap { info -> SwitcherWindowFingerprint.Window? in
+            guard let id = (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+                  let ownerPID = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                  let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue,
+                  layer == 0,
+                  let boundsDictionary = info[kCGWindowBounds as String] as? [String: Any]
+            else { return nil }
+            let bounds = CGRect(x: (boundsDictionary["X"] as? NSNumber)?.doubleValue ?? 0,
+                                y: (boundsDictionary["Y"] as? NSNumber)?.doubleValue ?? 0,
+                                width: (boundsDictionary["Width"] as? NSNumber)?.doubleValue ?? 0,
+                                height: (boundsDictionary["Height"] as? NSNumber)?.doubleValue ?? 0)
+            let isOnScreen = (info[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue
+                ?? (info[kCGWindowIsOnscreen as String] as? Bool)
+                ?? false
+            return SwitcherWindowFingerprint.Window(
+                id: CGWindowID(id),
+                ownerPID: ownerPID,
+                layer: layer,
+                title: info[kCGWindowName as String] as? String ?? "",
+                bounds: bounds,
+                alpha: (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1,
+                isOnScreen: isOnScreen,
+                spaces: SpaceWindowBridge.spaces(of: CGWindowID(id)).sorted()
+            )
+        }
+        let applications = NSWorkspace.shared.runningApplications.map { app in
+            SwitcherWindowFingerprint.Application(
+                pid: app.processIdentifier,
+                bundleIdentifier: app.bundleIdentifier,
+                name: app.localizedName,
+                activationPolicy: app.activationPolicy.rawValue,
+                isHidden: app.isHidden,
+                isTerminated: app.isTerminated,
+                bundlePath: app.bundleURL?.path,
+                executablePath: app.executableURL?.path
+            )
+        }.sorted { $0.pid < $1.pid }
+        let appRules = SwitcherAppRule.rules(
+            storedValue: defaults.dictionary(forKey: DefaultsKey.switcherAppRules)
+        )
+        let windowlessApps = SwitcherWindowlessApps.mode(
+            storedValue: defaults.string(forKey: DefaultsKey.switcherWindowlessApps)
+        )
+        let minimizedPlacement = WindowSwitchMinimizedPlacement(
+            rawValue: defaults.string(forKey: DefaultsKey.switcherMinimizedPlacement) ?? ""
+        ) ?? .normal
+        let showFullscreenWindows = defaults.object(
+            forKey: DefaultsKey.switcherShowFullscreenWindows
+        ) as? Bool ?? true
+        return SwitcherWindowFingerprint(
+            windows: windows,
+            applications: applications,
+            visibleSpaces: SpaceWindowBridge.topology()?.visibleSpaces ?? [],
+            inputs: .init(
+                appRules: appRules,
+                windowlessApps: windowlessApps,
+                groupByApp: groupByApp,
+                preservesGroupedWindows: preservingGroupedWindows,
+                minimizedPlacement: minimizedPlacement.rawValue,
+                showFullscreenWindows: showFullscreenWindows,
+                currentSpaceOnly: defaults.bool(forKey: DefaultsKey.switcherCurrentSpaceOnly)
+            )
+        )
+    }
+
     static func listWindows(groupByApp: Bool = UserDefaults.standard.bool(forKey: DefaultsKey.switcherMergeTabs),
                             preservingGroupedWindows: Bool = false) -> [SwitcherItem] {
         listWindows(

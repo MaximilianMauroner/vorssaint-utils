@@ -9265,6 +9265,72 @@ struct MetricsTests {
                                                       commitWhenReady: false,
                                                       matchesShortcut: false) == .handleActiveSession,
                "App Switcher still routes repeated shortcuts and keys from a session that just became active")
+        func switcherWindowFingerprint(windowID: CGWindowID = 77,
+                                       title: String = "Project",
+                                       isOnScreen: Bool = true,
+                                       spaces: [UInt64] = [1],
+                                       visibleSpaces: Set<UInt64> = [1],
+                                       appRules: [String: SwitcherAppRule] = [:],
+                                       windowlessApps: SwitcherWindowlessApps = .finder,
+                                       groupByApp: Bool = false,
+                                       preservesGroupedWindows: Bool = false,
+                                       minimizedPlacement: WindowSwitchMinimizedPlacement = .normal,
+                                       showFullscreenWindows: Bool = true,
+                                       currentSpaceOnly: Bool = false) -> SwitcherWindowFingerprint {
+            SwitcherWindowFingerprint(
+                windows: [.init(id: windowID,
+                                ownerPID: 202,
+                                layer: 0,
+                                title: title,
+                                bounds: CGRect(x: 20, y: 20, width: 900, height: 600),
+                                alpha: 1,
+                                isOnScreen: isOnScreen,
+                                spaces: spaces)],
+                applications: [.init(pid: 202,
+                                     bundleIdentifier: "test.primary",
+                                     name: "Primary",
+                                     activationPolicy: NSApplication.ActivationPolicy.regular.rawValue,
+                                     isHidden: false,
+                                     isTerminated: false,
+                                     bundlePath: "/Applications/Primary.app",
+                                     executablePath: "/Applications/Primary.app/Contents/MacOS/Primary")],
+                visibleSpaces: visibleSpaces,
+                inputs: .init(appRules: appRules,
+                              windowlessApps: windowlessApps,
+                              groupByApp: groupByApp,
+                              preservesGroupedWindows: preservesGroupedWindows,
+                              minimizedPlacement: minimizedPlacement.rawValue,
+                              showFullscreenWindows: showFullscreenWindows,
+                              currentSpaceOnly: currentSpaceOnly)
+            )
+        }
+        let stableSwitcherFingerprint = switcherWindowFingerprint()
+        expect(stableSwitcherFingerprint == switcherWindowFingerprint(),
+               "App Switcher reuses a warmed list only when its complete cache identity matches")
+        expect(stableSwitcherFingerprint != switcherWindowFingerprint(windowID: 78)
+               && stableSwitcherFingerprint != switcherWindowFingerprint(title: "Renamed")
+               && stableSwitcherFingerprint != switcherWindowFingerprint(isOnScreen: false)
+               && stableSwitcherFingerprint != switcherWindowFingerprint(spaces: [2])
+               && stableSwitcherFingerprint != switcherWindowFingerprint(visibleSpaces: [2]),
+               "App Switcher invalidates warmed windows after create, visibility, and Space state changes")
+        expect(stableSwitcherFingerprint != switcherWindowFingerprint(appRules: ["test.primary": .hidden])
+               && stableSwitcherFingerprint != switcherWindowFingerprint(windowlessApps: .all)
+               && stableSwitcherFingerprint != switcherWindowFingerprint(groupByApp: true)
+               && stableSwitcherFingerprint != switcherWindowFingerprint(preservesGroupedWindows: true)
+               && stableSwitcherFingerprint != switcherWindowFingerprint(minimizedPlacement: .hidden)
+               && stableSwitcherFingerprint != switcherWindowFingerprint(showFullscreenWindows: false)
+               && stableSwitcherFingerprint != switcherWindowFingerprint(currentSpaceOnly: true),
+               "App Switcher cache identity includes every setting that changes enumeration")
+        expect(SwitcherWindowCacheSupport.refreshIsAuthorized(enqueuedGeneration: 5,
+                                                              currentGeneration: 5,
+                                                              cacheEnabled: true)
+               && !SwitcherWindowCacheSupport.refreshIsAuthorized(enqueuedGeneration: 5,
+                                                                   currentGeneration: 6,
+                                                                   cacheEnabled: true)
+               && !SwitcherWindowCacheSupport.refreshIsAuthorized(enqueuedGeneration: 5,
+                                                                   currentGeneration: 5,
+                                                                   cacheEnabled: false),
+               "App Switcher rejects queued cache work after suspension or a later cache generation")
         expect(SwitcherSupport.isCurrentActivationGeneration(12, current: 12)
                && !SwitcherSupport.isCurrentActivationGeneration(11, current: 12),
                "App Switcher ignores retries left by an older activation")

@@ -24,6 +24,55 @@ struct SwitcherSearchRecord: Equatable {
     let appName: String
 }
 
+/// The cheap state that proves a warmed window list still describes the
+/// current desktop and every setting that shapes enumeration.
+struct SwitcherWindowFingerprint: Equatable {
+    struct Window: Equatable {
+        let id: CGWindowID
+        let ownerPID: pid_t
+        let layer: Int
+        let title: String
+        let bounds: CGRect
+        let alpha: Double
+        let isOnScreen: Bool
+        let spaces: [UInt64]
+    }
+
+    struct Application: Equatable {
+        let pid: pid_t
+        let bundleIdentifier: String?
+        let name: String?
+        let activationPolicy: Int
+        let isHidden: Bool
+        let isTerminated: Bool
+        let bundlePath: String?
+        let executablePath: String?
+    }
+
+    struct Inputs: Equatable {
+        let appRules: [String: SwitcherAppRule]
+        let windowlessApps: SwitcherWindowlessApps
+        let groupByApp: Bool
+        let preservesGroupedWindows: Bool
+        let minimizedPlacement: String
+        let showFullscreenWindows: Bool
+        let currentSpaceOnly: Bool
+    }
+
+    let windows: [Window]
+    let applications: [Application]
+    let visibleSpaces: Set<UInt64>
+    let inputs: Inputs
+}
+
+enum SwitcherWindowCacheSupport {
+    static func refreshIsAuthorized(enqueuedGeneration: UInt64,
+                                    currentGeneration: UInt64,
+                                    cacheEnabled: Bool) -> Bool {
+        cacheEnabled && enqueuedGeneration == currentGeneration
+    }
+}
+
 /// What a letter typed with the panel open does. Anything else goes to search.
 enum SwitcherLetterAction: Equatable {
     case closeWindow

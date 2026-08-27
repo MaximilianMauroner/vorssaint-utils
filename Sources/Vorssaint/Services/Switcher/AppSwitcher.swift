@@ -110,9 +110,9 @@ final class AppSwitcher: ObservableObject {
                                                   qos: .userInitiated)
     private let enumerationLock = NSLock()
     private var cachedWindowItems: [SwitcherItem]?
-    private var cachedWindowGroupByApp = false
-    private var cachedWindowPreservesGroupedWindows = false
+    private var cachedWindowFingerprint: SwitcherWindowFingerprint?
     private var windowCacheEnabled = false
+    private var windowCacheGeneration: UInt64 = 0
     private var enumerationScheduled = false
     private var enumerationRefreshRequested = false
     private var workspaceTokens: [NSObjectProtocol] = []
@@ -209,6 +209,7 @@ final class AppSwitcher: ObservableObject {
         stopObservingWake()
         routeLock.withLock { routeCanStartSession = false }
         removeTap()
+        stopWindowCache()
     }
 
     /// While a shortcut field is listening, every key has to reach it, even
@@ -755,8 +756,11 @@ final class AppSwitcher: ObservableObject {
             mergeWindowsByApp: mergeWindowsByApp,
             simpleMode: simpleModeEnabled
         )
-        var allWindows = cachedWindows(groupByApp: groupByApp,
-                                       preservingGroupedWindows: preservesGroupedWindows)
+        let fingerprint = WindowEnumerator.switcherFingerprint(
+            groupByApp: groupByApp,
+            preservingGroupedWindows: preservesGroupedWindows
+        )
+        var allWindows = cachedWindows(matching: fingerprint)
         if allWindows == nil {
             // The warm-up normally wins this race. Keep the first shortcut
             // functional when the feature was enabled only a moment ago.
@@ -764,9 +768,15 @@ final class AppSwitcher: ObservableObject {
                 groupByApp: groupByApp,
                 preservingGroupedWindows: preservesGroupedWindows
             )
-            storeCachedWindows(enumerated,
-                               groupByApp: groupByApp,
-                               preservingGroupedWindows: preservesGroupedWindows)
+            let refreshedFingerprint = WindowEnumerator.switcherFingerprint(
+                groupByApp: groupByApp,
+                preservingGroupedWindows: preservesGroupedWindows
+            )
+            if fingerprint == refreshedFingerprint {
+                storeCachedWindows(enumerated, fingerprint: refreshedFingerprint)
+            } else {
+                invalidateWindowCache()
+            }
             allWindows = enumerated
         }
         guard let allWindows else { return }
@@ -896,7 +906,15 @@ final class AppSwitcher: ObservableObject {
     /// lifecycle changes refresh it, and every session starts another refresh
     /// for window changes that do not activate a different application.
     private func startWindowCache() {
-        enumerationLock.withLock { windowCacheEnabled = true }
+        let started = enumerationLock.withLock { () -> Bool in
+            guard !windowCacheEnabled else { return false }
+            windowCacheEnabled = true
+            windowCacheGeneration &+= 1
+            cachedWindowItems = nil
+            cachedWindowFingerprint = nil
+            return true
+        }
+        guard started else { return }
         if workspaceTokens.isEmpty {
             let center = NSWorkspace.shared.notificationCenter
             let names: [Notification.Name] = [
@@ -919,73 +937,126 @@ final class AppSwitcher: ObservableObject {
         workspaceTokens = []
         enumerationLock.withLock {
             windowCacheEnabled = false
+            windowCacheGeneration &+= 1
+            enumerationScheduled = false
             enumerationRefreshRequested = false
             cachedWindowItems = nil
+            cachedWindowFingerprint = nil
         }
     }
 
     private func scheduleWindowCacheRefresh() {
-        let shouldSchedule = enumerationLock.withLock { () -> Bool in
-            guard windowCacheEnabled else { return false }
+        let generation = enumerationLock.withLock { () -> UInt64? in
+            guard windowCacheEnabled else { return nil }
             if enumerationScheduled {
                 enumerationRefreshRequested = true
-                return false
+                return nil
             }
             enumerationScheduled = true
-            return true
+            return windowCacheGeneration
         }
-        guard shouldSchedule else { return }
+        guard let generation else { return }
+        scheduleWindowCacheRefresh(generation: generation)
+    }
+
+    private func scheduleWindowCacheRefresh(generation: UInt64) {
+        let groupByApp = UserDefaults.standard.bool(forKey: DefaultsKey.switcherMergeTabs)
+        let preservesGroupedWindows = SwitcherSupport.preservesGroupedWindowsDuringEnumeration(
+            allApps: true,
+            mergeWindowsByApp: groupByApp,
+            simpleMode: simpleModeEnabled
+        )
+        let fingerprint = WindowEnumerator.switcherFingerprint(
+            groupByApp: groupByApp,
+            preservingGroupedWindows: preservesGroupedWindows
+        )
         enumerationQueue.async { [weak self] in
             guard let self else { return }
-            while true {
-                let groupByApp = UserDefaults.standard.bool(forKey: DefaultsKey.switcherMergeTabs)
-                let preservesGroupedWindows = SwitcherSupport.preservesGroupedWindowsDuringEnumeration(
-                    allApps: true,
-                    mergeWindowsByApp: groupByApp,
-                    simpleMode: self.simpleModeEnabled
+            let authorized = self.enumerationLock.withLock {
+                SwitcherWindowCacheSupport.refreshIsAuthorized(
+                    enqueuedGeneration: generation,
+                    currentGeneration: self.windowCacheGeneration,
+                    cacheEnabled: self.windowCacheEnabled
                 )
-                let items = WindowEnumerator.listWindows(
-                    groupByApp: groupByApp,
-                    preservingGroupedWindows: preservesGroupedWindows
-                )
-                let shouldRepeat = self.enumerationLock.withLock { () -> Bool in
-                    guard self.windowCacheEnabled else {
-                        self.enumerationScheduled = false
-                        self.enumerationRefreshRequested = false
-                        return false
-                    }
-                    self.cachedWindowItems = items
-                    self.cachedWindowGroupByApp = groupByApp
-                    self.cachedWindowPreservesGroupedWindows = preservesGroupedWindows
-                    guard self.enumerationRefreshRequested else {
-                        self.enumerationScheduled = false
-                        return false
-                    }
-                    self.enumerationRefreshRequested = false
-                    return true
-                }
-                guard shouldRepeat else { return }
+            }
+            guard authorized else { return }
+            let items = WindowEnumerator.listWindows(
+                groupByApp: groupByApp,
+                preservingGroupedWindows: preservesGroupedWindows
+            )
+            DispatchQueue.main.async { [weak self] in
+                self?.finishWindowCacheRefresh(items: items,
+                                               fingerprint: fingerprint,
+                                               groupByApp: groupByApp,
+                                               preservingGroupedWindows: preservesGroupedWindows,
+                                               generation: generation)
             }
         }
     }
 
-    private func cachedWindows(groupByApp: Bool,
-                               preservingGroupedWindows: Bool) -> [SwitcherItem]? {
+    private func finishWindowCacheRefresh(items: [SwitcherItem],
+                                          fingerprint: SwitcherWindowFingerprint,
+                                          groupByApp: Bool,
+                                          preservingGroupedWindows: Bool,
+                                          generation: UInt64) {
+        let authorized = enumerationLock.withLock {
+            SwitcherWindowCacheSupport.refreshIsAuthorized(
+                enqueuedGeneration: generation,
+                currentGeneration: windowCacheGeneration,
+                cacheEnabled: windowCacheEnabled
+            )
+        }
+        guard authorized else { return }
+        let currentFingerprint = WindowEnumerator.switcherFingerprint(
+            groupByApp: groupByApp,
+            preservingGroupedWindows: preservingGroupedWindows
+        )
+        let shouldRepeat = enumerationLock.withLock { () -> Bool in
+            guard SwitcherWindowCacheSupport.refreshIsAuthorized(
+                enqueuedGeneration: generation,
+                currentGeneration: windowCacheGeneration,
+                cacheEnabled: windowCacheEnabled
+            ) else { return false }
+            if fingerprint == currentFingerprint {
+                cachedWindowItems = items
+                cachedWindowFingerprint = currentFingerprint
+            } else {
+                cachedWindowItems = nil
+                cachedWindowFingerprint = nil
+                enumerationRefreshRequested = true
+            }
+            guard enumerationRefreshRequested else {
+                enumerationScheduled = false
+                return false
+            }
+            enumerationRefreshRequested = false
+            return true
+        }
+        if shouldRepeat {
+            scheduleWindowCacheRefresh(generation: generation)
+        }
+    }
+
+    private func cachedWindows(matching fingerprint: SwitcherWindowFingerprint) -> [SwitcherItem]? {
         enumerationLock.withLock {
-            guard cachedWindowGroupByApp == groupByApp,
-                  cachedWindowPreservesGroupedWindows == preservingGroupedWindows
-            else { return nil }
+            guard cachedWindowFingerprint == fingerprint else { return nil }
             return cachedWindowItems
         }
     }
 
     private func storeCachedWindows(_ items: [SwitcherItem],
-                                    groupByApp: Bool,
-                                    preservingGroupedWindows: Bool) {
+                                    fingerprint: SwitcherWindowFingerprint) {
         enumerationLock.withLock {
+            guard windowCacheEnabled else { return }
             cachedWindowItems = items
-            cachedWindowGroupByApp = groupByApp
-            cachedWindowPreservesGroupedWindows = preservingGroupedWindows
+            cachedWindowFingerprint = fingerprint
+        }
+    }
+
+    private func invalidateWindowCache() {
+        enumerationLock.withLock {
+            cachedWindowItems = nil
+            cachedWindowFingerprint = nil
         }
     }
 
