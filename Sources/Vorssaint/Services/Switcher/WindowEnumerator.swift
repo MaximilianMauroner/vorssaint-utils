@@ -186,6 +186,14 @@ enum WindowEnumerator {
         // after that. Mapping those pids to a regular app used to admit their
         // leftover surfaces as switchable windows, which is how an app's
         // preview outlived its quit (issue #807).
+        // The window server's own layering: an ordinary window sits at level 0
+        // while HUDs, panels and overlays float above. It is the signal that
+        // keeps undescribed overlays out of the switcher once undescribed
+        // windows count as switch targets.
+        let normalLevelWindowIDs = Set(raw.compactMap { info -> CGWindowID? in
+            guard (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0 else { return nil }
+            return (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+        })
         let runningApps = snapshot.runningApps
         let hiddenAppPIDs = Set(runningApps.lazy
             .filter { $0.isHidden }
@@ -245,6 +253,7 @@ enum WindowEnumerator {
                                                         bundleIdentifiers: bundleIdentifiers,
                                                         undescribedSubrolePids: compatibilityLayerPids,
                                                         accessibilityGranted: snapshot.accessibilityGranted,
+                                                        normalLevelWindowIDs: normalLevelWindowIDs,
                                                         screenFrames: snapshot.screenFrames,
                                                         isCancelled: isCancelled)
         guard !isCancelled() else { return [] }
@@ -523,6 +532,7 @@ enum WindowEnumerator {
                                              bundleIdentifiers: [pid_t: String] = [:],
                                              undescribedSubrolePids: Set<pid_t> = [],
                                              accessibilityGranted: Bool,
+                                             normalLevelWindowIDs: Set<CGWindowID>,
                                              screenFrames: [CGRect],
                                              isCancelled: @escaping () -> Bool = { false }) -> [pid_t: AccessibilityWindowSnapshotList] {
         guard accessibilityGranted, !isCancelled() else { return [:] }
@@ -549,6 +559,7 @@ enum WindowEnumerator {
                     for: pid,
                     bundleIdentifier: bundleIdentifiers[pid],
                     acceptsUndescribedSubroles: undescribedSubrolePids.contains(pid),
+                    normalLevelWindowIDs: normalLevelWindowIDs,
                     screenFrames: screenFrames,
                     isCancelled: { operation.isCancelled || isCancelled() }
                 )
@@ -585,6 +596,7 @@ enum WindowEnumerator {
     private static func accessibilityWindows(for pid: pid_t,
                                              bundleIdentifier: String? = nil,
                                              acceptsUndescribedSubroles: Bool = false,
+                                             normalLevelWindowIDs: Set<CGWindowID>,
                                              screenFrames: [CGRect],
                                              isCancelled: () -> Bool) -> AccessibilityWindowSnapshotList? {
         guard !isCancelled() else { return nil }
@@ -608,6 +620,7 @@ enum WindowEnumerator {
                 if isUserFacingWindow(window,
                                       bundleIdentifier: bundleIdentifier,
                                       acceptsUndescribedSubroles: acceptsUndescribedSubroles,
+                                      normalLevelWindowIDs: normalLevelWindowIDs,
                                       screenFrames: screenFrames,
                                       isCancelled: isCancelled) {
                     appendUnique(window, to: &axWindows)
@@ -622,6 +635,7 @@ enum WindowEnumerator {
                 if isUserFacingWindow(window,
                                       bundleIdentifier: bundleIdentifier,
                                       acceptsUndescribedSubroles: acceptsUndescribedSubroles,
+                                      normalLevelWindowIDs: normalLevelWindowIDs,
                                       screenFrames: screenFrames,
                                       isCancelled: isCancelled) {
                     appendUnique(window, to: &axWindows)
@@ -772,6 +786,7 @@ enum WindowEnumerator {
     private static func isUserFacingWindow(_ window: AXUIElement,
                                            bundleIdentifier: String? = nil,
                                            acceptsUndescribedSubroles: Bool = false,
+                                           normalLevelWindowIDs: Set<CGWindowID>,
                                            screenFrames: [CGRect],
                                            isCancelled: () -> Bool) -> Bool {
         guard !isCancelled() else { return false }
@@ -795,15 +810,20 @@ enum WindowEnumerator {
             let fillsScreen = canBePlaybackSurface
                 && frameLooksFullscreen(accessibilityFrame(for: window, isCancelled: isCancelled),
                                         screenFrames: screenFrames)
-            // Compatibility-layer processes draw their own window chrome on
-            // borderless surfaces, which Accessibility reports as AXUnknown;
-            // for them the window role is the real signal.
-            // Other apps can expose full-screen playback the same way. The
-            // screen-sized frame keeps ordinary utility windows filtered.
+            // Apps that draw their own window chrome — game clients, DAWs,
+            // compatibility layers — ship borderless windows, which
+            // Accessibility reports as an undescribed AXWindow. Only the
+            // window server can say whether such a surface is one of those
+            // real windows or an overlay floating above them.
+            let hasNormalWindowLevel = subrole == "AXUnknown"
+                && role == (kAXWindowRole as String)
+                && (AXWindowResolver.windowID(for: window)
+                    .map(normalLevelWindowIDs.contains) ?? false)
             return SwitcherSupport.isSwitchableNonstandardWindow(
                 role: role,
                 subrole: subrole,
                 fillsScreen: fillsScreen,
+                hasNormalWindowLevel: hasNormalWindowLevel,
                 acceptsUndescribedSubroles: acceptsUndescribedSubroles)
         }
         guard !isCancelled() else { return false }
