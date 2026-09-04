@@ -6,6 +6,7 @@ import ApplicationServices
 import Carbon.HIToolbox
 import Combine
 import CoreGraphics
+import UniformTypeIdentifiers
 
 /// Turns the standard Back and Forward side buttons into the matching app
 /// commands. File managers and browsers expose those commands as Command-[ and
@@ -30,13 +31,30 @@ final class MouseNavigationService: ObservableObject {
     private var passThroughButtons: Set<Int64> = []
     /// Alive only while the tap is, like every other resource here.
     private var keyboardObserver: NSObjectProtocol?
+    /// Registered web handlers that should keep their native side-button events.
+    /// Resolved outside the tap callback so its hot path only reads memory.
+    private var webURLHandlers: Set<String> = []
+    private var webHandlerObservers: [NSObjectProtocol] = []
+    private var webHandlerRefreshWork: DispatchWorkItem?
+    private var webHandlerRefreshGeneration = 0
 
-    private init() {}
+    private init() {
+        // A filter tap owned by a switched-away login session stalls input in
+        // the session on screen. Hand it back on resign and rebuild it from
+        // preferences when this session becomes active again.
+        SessionActivity.shared.onChange { [weak self] _ in
+            self?.syncWithPreferences()
+        }
+    }
 
     func syncWithPreferences() {
         let wanted = AppFeature.mouseNavigation.isAvailable
             && UserDefaults.standard.bool(forKey: DefaultsKey.mouseNavigationEnabled)
-        if wanted, Permissions.shared.accessibility {
+        if SessionActivitySupport.tapShouldRun(
+            featureWanted: wanted,
+            accessibilityGranted: AXIsProcessTrusted(),
+            sessionIsActive: SessionActivity.shared.isActive
+        ) {
             start()
         } else {
             stop()
@@ -50,6 +68,7 @@ final class MouseNavigationService: ObservableObject {
             isRunning = true
             return
         }
+        webURLHandlers = Self.registeredWebURLHandlers()
         let mask = CGEventMask(1 << CGEventType.otherMouseDown.rawValue)
             | CGEventMask(1 << CGEventType.otherMouseUp.rawValue)
             | CGEventMask(1 << CGEventType.otherMouseDragged.rawValue)
@@ -65,6 +84,7 @@ final class MouseNavigationService: ObservableObject {
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
+            webURLHandlers.removeAll()
             isRunning = false
             return
         }
@@ -74,6 +94,7 @@ final class MouseNavigationService: ObservableObject {
         runLoopSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        observeWebHandlerChanges()
         // Which keys carry Back and Forward depends on the keyboard in use, so
         // the answer is asked for now and again on every keyboard change.
         MouseNavigationKeys.refresh()
@@ -90,20 +111,91 @@ final class MouseNavigationService: ObservableObject {
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
+        if let tap {
+            CFMachPortInvalidate(tap)
+        }
         if let keyboardObserver {
             DistributedNotificationCenter.default().removeObserver(keyboardObserver)
         }
         keyboardObserver = nil
+        webHandlerRefreshGeneration += 1
+        webHandlerRefreshWork?.cancel()
+        webHandlerRefreshWork = nil
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        for observer in webHandlerObservers { workspaceCenter.removeObserver(observer) }
+        webHandlerObservers.removeAll()
         MouseNavigationKeys.reset()
+        webURLHandlers.removeAll()
         tap = nil
         runLoopSource = nil
         passThroughButtons.removeAll()
         isRunning = false
     }
 
+    private func observeWebHandlerChanges() {
+        let center = NSWorkspace.shared.notificationCenter
+        let names: [Notification.Name] = [
+            NSWorkspace.didLaunchApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification,
+            NSWorkspace.didActivateApplicationNotification,
+            NSWorkspace.didMountNotification,
+            NSWorkspace.didUnmountNotification,
+        ]
+        webHandlerObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                let activatedPID = (notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication)?.processIdentifier
+                guard MouseNavigationSupport.shouldRefreshWebHandlers(
+                    isApplicationActivation: notification.name
+                        == NSWorkspace.didActivateApplicationNotification,
+                    activatedPID: activatedPID,
+                    ownPID: ProcessInfo.processInfo.processIdentifier
+                ) else { return }
+                self?.scheduleWebHandlerRefresh()
+            }
+        }
+    }
+
+    private func scheduleWebHandlerRefresh() {
+        webHandlerRefreshGeneration += 1
+        let generation = webHandlerRefreshGeneration
+        webHandlerRefreshWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.tap != nil,
+                  self.webHandlerRefreshGeneration == generation else { return }
+            self.webHandlerRefreshWork = nil
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let handlers = MouseNavigationService.registeredWebURLHandlers()
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.tap != nil,
+                          self.webHandlerRefreshGeneration == generation else { return }
+                    self.webURLHandlers = handlers
+                }
+            }
+        }
+        webHandlerRefreshWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+    }
+
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            let wanted = AppFeature.mouseNavigation.isAvailable
+                && UserDefaults.standard.bool(forKey: DefaultsKey.mouseNavigationEnabled)
+            let shouldRearm = SessionActivitySupport.tapShouldRun(
+                featureWanted: wanted,
+                accessibilityGranted: AXIsProcessTrusted(),
+                sessionIsActive: SessionActivity.shared.isActive
+            )
+            if shouldRearm, let tap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            } else {
+                // Invalidating the port from its own callback stack is unsafe;
+                // finish this callback fail-open, then release the tap.
+                DispatchQueue.main.async { [weak self] in
+                    self?.stop()
+                    self?.syncWithPreferences()
+                }
+            }
             return Unmanaged.passUnretained(event)
         }
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
@@ -119,7 +211,8 @@ final class MouseNavigationService: ObservableObject {
         // other side button keeps navigating. While the shortcut capture row
         // is listening, every press belongs to it, including a button with no
         // mapping yet, or the capture could never see the button it is asked
-        // to watch for.
+        // to watch for. Both claims are asked again on every Drag of a held
+        // side button, so both have to stay cheap.
         if RadialMenuSupport.claimsMouseButton(buttonNumber)
             || MouseButtonShortcutSupport.claimsButton(buttonNumber)
             || MouseButtonShortcutService.isCaptureActive {
@@ -134,7 +227,8 @@ final class MouseNavigationService: ObservableObject {
             // Checked only on Down (never per Drag), and both answers come
             // from cached state, so the tap callback stays cheap.
             if MouseNavigationSupport.shouldPassThrough(
-                bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+                bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+                webURLHandlers: webURLHandlers)
                 || MouseAppExceptions.shared.excludesActionTarget(.navigation, at: event.location) {
                 passThroughButtons.insert(buttonNumber)
                 return Unmanaged.passUnretained(event)
@@ -155,6 +249,18 @@ final class MouseNavigationService: ObservableObject {
         // Swallow the full side-button gesture. Letting its Up or Drag through
         // after replacing the Down leaves apps with an unmatched mouse event.
         return nil
+    }
+
+    private static func registeredWebURLHandlers() -> Set<String> {
+        guard let url = URL(string: "https://example.invalid") else { return [] }
+        let urlHandlers = Set(NSWorkspace.shared.urlsForApplications(toOpen: url).compactMap {
+            Bundle(url: $0)?.bundleIdentifier
+        })
+        let documentHandlers = Set(NSWorkspace.shared.urlsForApplications(toOpen: UTType.html).compactMap {
+            Bundle(url: $0)?.bundleIdentifier
+        })
+        return MouseNavigationSupport.nativeWebHandlers(
+            urlHandlers: urlHandlers, documentHandlers: documentHandlers)
     }
 
     private enum MenuPressOutcome {

@@ -89,10 +89,11 @@ enum FeatureEnergyProfile: String {
 extension AppFeature {
     var energyProfile: FeatureEnergyProfile {
         switch self {
-        case .scrollInverter, .smoothScroll, .windowMaximizer, .middleClick,
-             .mouseNavigation, .mouseButtonShortcuts, .dockPreview, .dockClick, .shelf:
+        case .scrollInverter, .focusFollowsMouse, .smoothScroll, .windowMaximizer, .middleClick,
+             .mouseNavigation, .mouseButtonShortcuts, .mouseClickDebounce,
+             .dockPreview, .dockClick, .shelf:
             return .mouse
-        case .switcher, .keyboardDebounce, .finderCutPaste, .finderRename, .superKey:
+        case .switcher, .keyboardDebounce, .finderCutPaste, .finderRename, .superKey, .quitWindowProtection:
             return .keyboard
         case .textSnippets, .autoQuit:
             return .inputs
@@ -110,11 +111,14 @@ extension AppFeature {
              .monitorCPU, .monitorGPU, .monitorMemory,
              .monitorNetwork, .monitorDisk, .monitorPower:
             return .periodic
-        case .pastePlain, .mixer, .soundOutputSwitcher, .micMute,
-             .musicBlock, .keepAwake, .brightness, .quickLauncher, .quickToggles, .colorPicker,
+        case .mixer:
+            return UserDefaults.standard.bool(forKey: DefaultsKey.preciseVolumeRollerEnabled)
+                ? .keyboard : .idle
+        case .mouseAcceleration, .pastePlain, .soundOutputSwitcher, .micMute,
+             .musicBlock, .bluetoothSleep, .keepAwake, .brightness, .quickLauncher, .quickToggles, .colorPicker,
              .screenOCR, .cleaningMode, .mediaTools, .cleaner, .uninstaller, .homebrew, .screenshot,
              .cameraPreview, .scratchpad, .commandBar, .screenRecorder, .fanControl,
-             .diskImageInstaller:
+             .diskImageInstaller, .killProcess:
             return .idle
         case .appUpdates:
             // The list is on demand; only a background schedule keeps a timer.

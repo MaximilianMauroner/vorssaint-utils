@@ -120,6 +120,17 @@ struct RecorderFeatureStrings {
     let microphoneUnavailableHUD: String
     let microphonePermissionName: String
     let microphonePermissionExplain: String
+    let automaticZoomToggle: String
+    let automaticZoomCaption: String
+    let pauseButton: String
+    let resumeButton: String
+    let blurLaneLabel: String
+    let addBlurButton: String
+    let blurLaneEmptyHint: String
+    let thisBlurLabel: String
+    let blurPickArea: String
+    let blurPickAreaHint: String
+    let blurCaption: String
 }
 
 extension FeatureStrings {
@@ -151,7 +162,7 @@ extension RecorderFeatureStrings {
         stopButton: "Stop recording",
         fileNamePrefix: "Recording",
         selectionPurpose: "Choose what to record",
-        indicatorTooltip: "Recording. Click to stop.",
+        indicatorTooltip: "Recording controls",
         countdownLabel: "Countdown",
         countdownOff: "Off",
         countdownSecondsFormat: "%d s",
@@ -259,6 +270,17 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "Microphone unavailable",
         microphonePermissionName: "Microphone",
         microphonePermissionExplain: "Lets screen recordings include your voice when you turn it on.",
+        automaticZoomToggle: "Add zooms automatically",
+        automaticZoomCaption: "Turn this off to start new recordings without zooms. You can still add them in the editor.",
+        pauseButton: "Pause recording",
+        resumeButton: "Resume recording",
+        blurLaneLabel: "Blur",
+        addBlurButton: "Blur an area",
+        blurLaneEmptyHint: "Click here to add a blur",
+        thisBlurLabel: "This blur",
+        blurPickArea: "Choose the area",
+        blurPickAreaHint: "Drag over what should stay hidden",
+        blurCaption: "Hidden for as long as its block lasts on the timeline."
     )
 
     static let ptBR = RecorderFeatureStrings(
@@ -269,7 +291,7 @@ extension RecorderFeatureStrings {
         stopButton: "Parar a gravação",
         fileNamePrefix: "Gravação",
         selectionPurpose: "Escolha o que gravar",
-        indicatorTooltip: "Gravando. Clique para parar.",
+        indicatorTooltip: "Controles da gravação",
         countdownLabel: "Contagem regressiva",
         countdownOff: "Desligada",
         countdownSecondsFormat: "%d s",
@@ -377,6 +399,17 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "Microfone indisponível",
         microphonePermissionName: "Microfone",
         microphonePermissionExplain: "Permite incluir sua voz nas gravações de tela quando você ativar.",
+        automaticZoomToggle: "Adicionar zooms automaticamente",
+        automaticZoomCaption: "Desative para começar novas gravações sem zooms. Você ainda pode adicioná-los no editor.",
+        pauseButton: "Pausar gravação",
+        resumeButton: "Retomar gravação",
+        blurLaneLabel: "Desfoque",
+        addBlurButton: "Desfocar uma área",
+        blurLaneEmptyHint: "Clique aqui para adicionar um desfoque",
+        thisBlurLabel: "Este desfoque",
+        blurPickArea: "Escolher a área",
+        blurPickAreaHint: "Arraste sobre o que deve ficar escondido",
+        blurCaption: "Fica escondido enquanto o bloco durar na linha do tempo."
     )
 
     static let tr = RecorderFeatureStrings(
@@ -387,7 +420,7 @@ extension RecorderFeatureStrings {
         stopButton: "Kaydı durdur",
         fileNamePrefix: "Kayıt",
         selectionPurpose: "Neyi kaydedeceğinizi seçin",
-        indicatorTooltip: "Kaydediliyor. Durdurmak için tıklayın.",
+        indicatorTooltip: "Kayıt denetimleri",
         countdownLabel: "Geri sayım",
         countdownOff: "Kapalı",
         countdownSecondsFormat: "%d sn",
@@ -495,6 +528,17 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "Mikrofon kullanılamıyor",
         microphonePermissionName: "Mikrofon",
         microphonePermissionExplain: "Açtığınızda ekran kayıtlarına sesinizi ekler.",
+        automaticZoomToggle: "Yakınlaştırmaları otomatik ekle",
+        automaticZoomCaption: "Yeni kayıtları yakınlaştırmasız başlatmak için kapatın. Düzenleyicide yine ekleyebilirsiniz.",
+        pauseButton: "Kaydı duraklat",
+        resumeButton: "Kayda devam et",
+        blurLaneLabel: "Bulanıklık",
+        addBlurButton: "Bir alanı bulanıklaştır",
+        blurLaneEmptyHint: "Bulanıklık eklemek için buraya tıklayın",
+        thisBlurLabel: "Bu bulanıklık",
+        blurPickArea: "Alanı seç",
+        blurPickAreaHint: "Gizli kalması gerekenin üzerine sürükleyin",
+        blurCaption: "Zaman çizelgesindeki blok sürdüğü sürece gizli kalır."
     )
 
     static let ru = RecorderFeatureStrings(
@@ -505,7 +549,7 @@ extension RecorderFeatureStrings {
         stopButton: "Остановить запись",
         fileNamePrefix: "Запись",
         selectionPurpose: "Выберите, что записать",
-        indicatorTooltip: "Идёт запись. Нажмите, чтобы остановить.",
+        indicatorTooltip: "Управление записью",
         countdownLabel: "Обратный отсчёт",
         countdownOff: "Выкл.",
         countdownSecondsFormat: "%d с",
@@ -613,6 +657,17 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "Микрофон недоступен",
         microphonePermissionName: "Микрофон",
         microphonePermissionExplain: "Добавляет ваш голос в запись экрана, когда вы это включаете.",
+        automaticZoomToggle: "Добавлять масштабирование автоматически",
+        automaticZoomCaption: "Отключите, чтобы новые записи начинались без масштабирования. Его можно добавить в редакторе.",
+        pauseButton: "Приостановить запись",
+        resumeButton: "Продолжить запись",
+        blurLaneLabel: "Размытие",
+        addBlurButton: "Размыть область",
+        blurLaneEmptyHint: "Нажмите здесь, чтобы добавить размытие",
+        thisBlurLabel: "Это размытие",
+        blurPickArea: "Выбрать область",
+        blurPickAreaHint: "Проведите по тому, что нужно скрыть",
+        blurCaption: "Скрыто, пока длится блок на шкале времени."
     )
 
     static let es = RecorderFeatureStrings(
@@ -623,7 +678,7 @@ extension RecorderFeatureStrings {
         stopButton: "Detener grabación",
         fileNamePrefix: "Grabación",
         selectionPurpose: "Elige qué grabar",
-        indicatorTooltip: "Grabando. Haz clic para detener.",
+        indicatorTooltip: "Controles de grabación",
         countdownLabel: "Cuenta atrás",
         countdownOff: "Desactivada",
         countdownSecondsFormat: "%d s",
@@ -731,6 +786,17 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "Micrófono no disponible",
         microphonePermissionName: "Micrófono",
         microphonePermissionExplain: "Permite incluir tu voz en las grabaciones de pantalla al activarlo.",
+        automaticZoomToggle: "Añadir zooms automáticamente",
+        automaticZoomCaption: "Desactívalo para iniciar nuevas grabaciones sin zooms. Aún puedes añadirlos en el editor.",
+        pauseButton: "Pausar grabación",
+        resumeButton: "Reanudar grabación",
+        blurLaneLabel: "Desenfoque",
+        addBlurButton: "Desenfocar un área",
+        blurLaneEmptyHint: "Haz clic aquí para añadir un desenfoque",
+        thisBlurLabel: "Este desenfoque",
+        blurPickArea: "Elegir el área",
+        blurPickAreaHint: "Arrastra sobre lo que debe quedar oculto",
+        blurCaption: "Queda oculto mientras dure su bloque en la línea de tiempo."
     )
 
     static let de = RecorderFeatureStrings(
@@ -741,7 +807,7 @@ extension RecorderFeatureStrings {
         stopButton: "Aufnahme stoppen",
         fileNamePrefix: "Bildschirmaufnahme",
         selectionPurpose: "Wähle aus, was du aufnehmen möchtest",
-        indicatorTooltip: "Aufnahme läuft. Zum Stoppen klicken.",
+        indicatorTooltip: "Aufnahmesteuerung",
         countdownLabel: "Countdown",
         countdownOff: "Aus",
         countdownSecondsFormat: "%d s",
@@ -849,6 +915,17 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "Mikrofon nicht verfügbar",
         microphonePermissionName: "Mikrofon",
         microphonePermissionExplain: "Nimmt deine Stimme auf Wunsch in Bildschirmaufnahmen auf.",
+        automaticZoomToggle: "Zooms automatisch hinzufügen",
+        automaticZoomCaption: "Deaktivieren, um neue Aufnahmen ohne Zooms zu beginnen. Im Editor kannst du sie weiterhin hinzufügen.",
+        pauseButton: "Aufnahme pausieren",
+        resumeButton: "Aufnahme fortsetzen",
+        blurLaneLabel: "Unschärfe",
+        addBlurButton: "Bereich unkenntlich machen",
+        blurLaneEmptyHint: "Hier klicken, um eine Unschärfe hinzuzufügen",
+        thisBlurLabel: "Diese Unschärfe",
+        blurPickArea: "Bereich wählen",
+        blurPickAreaHint: "Über das ziehen, was verborgen bleiben soll",
+        blurCaption: "Bleibt verborgen, solange der Block in der Zeitleiste dauert."
     )
 
     static let fr = RecorderFeatureStrings(
@@ -859,7 +936,7 @@ extension RecorderFeatureStrings {
         stopButton: "Arrêter l’enregistrement",
         fileNamePrefix: "Enregistrement",
         selectionPurpose: "Choisissez ce que vous voulez enregistrer",
-        indicatorTooltip: "Enregistrement en cours. Cliquez pour arrêter.",
+        indicatorTooltip: "Commandes d’enregistrement",
         countdownLabel: "Compte à rebours",
         countdownOff: "Aucun",
         countdownSecondsFormat: "%d s",
@@ -967,6 +1044,17 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "Microphone indisponible",
         microphonePermissionName: "Microphone",
         microphonePermissionExplain: "Permet d’ajouter votre voix aux enregistrements d’écran si vous l’activez.",
+        automaticZoomToggle: "Ajouter les zooms automatiquement",
+        automaticZoomCaption: "Désactivez cette option pour commencer sans zoom. Vous pourrez toujours en ajouter dans l’éditeur.",
+        pauseButton: "Mettre l’enregistrement en pause",
+        resumeButton: "Reprendre l’enregistrement",
+        blurLaneLabel: "Flou",
+        addBlurButton: "Flouter une zone",
+        blurLaneEmptyHint: "Cliquez ici pour ajouter un flou",
+        thisBlurLabel: "Ce flou",
+        blurPickArea: "Choisir la zone",
+        blurPickAreaHint: "Faites glisser sur ce qui doit rester caché",
+        blurCaption: "Reste caché tant que son bloc dure dans la chronologie."
     )
 
     static let it = RecorderFeatureStrings(
@@ -977,7 +1065,7 @@ extension RecorderFeatureStrings {
         stopButton: "Interrompi registrazione",
         fileNamePrefix: "Registrazione",
         selectionPurpose: "Scegli cosa registrare",
-        indicatorTooltip: "Registrazione in corso. Fai clic per interrompere.",
+        indicatorTooltip: "Controlli di registrazione",
         countdownLabel: "Conto alla rovescia",
         countdownOff: "Disattivato",
         countdownSecondsFormat: "%d s",
@@ -1085,6 +1173,17 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "Microfono non disponibile",
         microphonePermissionName: "Microfono",
         microphonePermissionExplain: "Include la tua voce nelle registrazioni dello schermo quando lo attivi.",
+        automaticZoomToggle: "Aggiungi zoom automaticamente",
+        automaticZoomCaption: "Disattiva per iniziare le nuove registrazioni senza zoom. Puoi comunque aggiungerli nell’editor.",
+        pauseButton: "Metti in pausa la registrazione",
+        resumeButton: "Riprendi la registrazione",
+        blurLaneLabel: "Sfocatura",
+        addBlurButton: "Sfoca un’area",
+        blurLaneEmptyHint: "Fai clic qui per aggiungere una sfocatura",
+        thisBlurLabel: "Questa sfocatura",
+        blurPickArea: "Scegli l’area",
+        blurPickAreaHint: "Trascina su ciò che deve restare nascosto",
+        blurCaption: "Resta nascosto finché dura il blocco nella timeline."
     )
 
     static let ja = RecorderFeatureStrings(
@@ -1095,7 +1194,7 @@ extension RecorderFeatureStrings {
         stopButton: "収録を停止",
         fileNamePrefix: "画面収録",
         selectionPurpose: "収録する対象を選択",
-        indicatorTooltip: "収録中。クリックで停止します。",
+        indicatorTooltip: "収録コントロール",
         countdownLabel: "カウントダウン",
         countdownOff: "オフ",
         countdownSecondsFormat: "%d秒",
@@ -1203,6 +1302,17 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "マイクを使用できません",
         microphonePermissionName: "マイク",
         microphonePermissionExplain: "オンにすると画面収録に声を含められます。",
+        automaticZoomToggle: "ズームを自動的に追加",
+        automaticZoomCaption: "オフにすると、新しい収録はズームなしで始まります。エディタで後から追加できます。",
+        pauseButton: "収録を一時停止",
+        resumeButton: "収録を再開",
+        blurLaneLabel: "ぼかし",
+        addBlurButton: "範囲をぼかす",
+        blurLaneEmptyHint: "ここをクリックしてぼかしを追加",
+        thisBlurLabel: "このぼかし",
+        blurPickArea: "範囲を選ぶ",
+        blurPickAreaHint: "隠したい部分をドラッグ",
+        blurCaption: "タイムラインのブロックが続く間は隠れたままです。"
     )
 
     static let ko = RecorderFeatureStrings(
@@ -1213,7 +1323,7 @@ extension RecorderFeatureStrings {
         stopButton: "기록 중단",
         fileNamePrefix: "화면 기록",
         selectionPurpose: "기록할 대상 선택",
-        indicatorTooltip: "기록 중입니다. 클릭하면 중단됩니다.",
+        indicatorTooltip: "화면 기록 제어",
         countdownLabel: "카운트다운",
         countdownOff: "끔",
         countdownSecondsFormat: "%d초",
@@ -1321,6 +1431,17 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "마이크를 사용할 수 없습니다",
         microphonePermissionName: "마이크",
         microphonePermissionExplain: "켜면 화면 녹화에 음성을 포함합니다.",
+        automaticZoomToggle: "확대 효과 자동 추가",
+        automaticZoomCaption: "끄면 새 화면 기록이 확대 효과 없이 시작됩니다. 편집기에서 나중에 추가할 수 있습니다.",
+        pauseButton: "화면 기록 일시 정지",
+        resumeButton: "화면 기록 계속",
+        blurLaneLabel: "흐림",
+        addBlurButton: "영역 흐리게",
+        blurLaneEmptyHint: "여기를 클릭해 흐림을 추가하세요",
+        thisBlurLabel: "선택한 흐림",
+        blurPickArea: "영역 선택",
+        blurPickAreaHint: "숨길 부분 위로 드래그하세요",
+        blurCaption: "타임라인의 블록이 지속되는 동안 숨겨집니다."
     )
 
     static let zhHans = RecorderFeatureStrings(
@@ -1331,7 +1452,7 @@ extension RecorderFeatureStrings {
         stopButton: "停止录制",
         fileNamePrefix: "屏幕录制",
         selectionPurpose: "选择要录制的内容",
-        indicatorTooltip: "正在录制。点按可停止。",
+        indicatorTooltip: "录制控制",
         countdownLabel: "倒计时",
         countdownOff: "关闭",
         countdownSecondsFormat: "%d 秒",
@@ -1396,7 +1517,7 @@ extension RecorderFeatureStrings {
         shapeWide: "宽屏",
         shapeSquare: "方形",
         shapeVertical: "竖屏",
-        noPointerNote: "这段录制没有跟踪指针，所以没有可以平滑或放大的内容。",
+        noPointerNote: "这段录制没有跟踪指针，所以没有可以平滑的内容。手动放置的缩放仍然有效。",
         zoomLaneEmptyHint: "点按此处添加缩放",
         removeZoom: "移除",
         thisZoomLabel: "当前缩放",
@@ -1417,9 +1538,9 @@ extension RecorderFeatureStrings {
         textPositionLabel: "位置",
         textColorLabel: "颜色",
         removeText: "移除",
-        copyAndDeleteButton: "复制并删除",
+        copyAndDeleteButton: "拷贝并删除",
         saveAsButton: "另存为…",
-        discardSavedMessage: "已保存和复制的文件会保留在原位置。",
+        discardSavedMessage: "已存储和已拷贝的文件会保留在原位置。",
         presetsButton: "预设",
         savePreset: "保存当前预设…",
         presetNamePlaceholder: "预设名称",
@@ -1439,6 +1560,17 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "麦克风不可用",
         microphonePermissionName: "麦克风",
         microphonePermissionExplain: "开启后可在屏幕录制中加入你的声音。",
+        automaticZoomToggle: "自动添加缩放",
+        automaticZoomCaption: "关闭后，新录制将不带缩放。你仍可在编辑器中添加缩放。",
+        pauseButton: "暂停录制",
+        resumeButton: "继续录制",
+        blurLaneLabel: "模糊",
+        addBlurButton: "模糊一个区域",
+        blurLaneEmptyHint: "点按此处添加模糊",
+        thisBlurLabel: "当前模糊",
+        blurPickArea: "选取区域",
+        blurPickAreaHint: "拖过需要隐藏的内容",
+        blurCaption: "在时间线上的区块持续期间保持隐藏。"
     )
 
     static let zhTW = RecorderFeatureStrings(
@@ -1449,7 +1581,7 @@ extension RecorderFeatureStrings {
         stopButton: "停止錄製",
         fileNamePrefix: "螢幕錄製",
         selectionPurpose: "選擇要錄製的內容",
-        indicatorTooltip: "錄製中。按一下即可停止。",
+        indicatorTooltip: "錄製控制",
         countdownLabel: "倒數計時",
         countdownOff: "關閉",
         countdownSecondsFormat: "%d 秒",
@@ -1547,16 +1679,27 @@ extension RecorderFeatureStrings {
         createAutomaticZooms: "建立自動縮放",
         typingZoomToggle: "輸入時保持縮放",
         typingZoomCaption: "點按後繼續輸入，會讓自動縮放停留在該位置。",
-        microphoneToggle: "錄製咪高風",
+        microphoneToggle: "錄製麥克風",
         microphoneCaption: "你的聲音會進入獨立音軌，並可在編輯器中調整。",
         systemAudioTrackLabel: "Mac 聲音",
-        microphoneTrackLabel: "咪高風",
+        microphoneTrackLabel: "麥克風",
         audioVolumeLabel: "音量",
         removeAudio: "移除",
         restoreAudio: "還原",
-        microphoneUnavailableHUD: "咪高風無法使用",
-        microphonePermissionName: "咪高風",
+        microphoneUnavailableHUD: "麥克風無法使用",
+        microphonePermissionName: "麥克風",
         microphonePermissionExplain: "開啟後可在螢幕錄製中加入你的聲音。",
+        automaticZoomToggle: "自動加入縮放",
+        automaticZoomCaption: "關閉後，新錄影將不含縮放。你仍可在編輯器中加入縮放。",
+        pauseButton: "暫停錄製",
+        resumeButton: "繼續錄製",
+        blurLaneLabel: "模糊",
+        addBlurButton: "模糊一個區域",
+        blurLaneEmptyHint: "按一下這裡加入模糊",
+        thisBlurLabel: "這個模糊",
+        blurPickArea: "選取區域",
+        blurPickAreaHint: "拖曳過需要隱藏的內容",
+        blurCaption: "在時間軸上的區塊持續期間保持隱藏。"
     )
 
     static let zhHK = RecorderFeatureStrings(
@@ -1567,7 +1710,7 @@ extension RecorderFeatureStrings {
         stopButton: "停止錄製",
         fileNamePrefix: "螢幕錄製",
         selectionPurpose: "選擇要錄製的內容",
-        indicatorTooltip: "錄製中。按一下停止。",
+        indicatorTooltip: "錄製控制",
         countdownLabel: "倒數",
         countdownOff: "關閉",
         countdownSecondsFormat: "%d 秒",
@@ -1675,5 +1818,16 @@ extension RecorderFeatureStrings {
         microphoneUnavailableHUD: "麥克風無法使用",
         microphonePermissionName: "咪高風",
         microphonePermissionExplain: "開啟後可在螢幕錄製加入你的聲音。",
+        automaticZoomToggle: "自動加入縮放",
+        automaticZoomCaption: "關閉後，新錄影將不含縮放。你仍可在編輯器中加入縮放。",
+        pauseButton: "暫停錄製",
+        resumeButton: "繼續錄製",
+        blurLaneLabel: "模糊",
+        addBlurButton: "模糊一個區域",
+        blurLaneEmptyHint: "點按這裡加入模糊",
+        thisBlurLabel: "這個模糊",
+        blurPickArea: "選取區域",
+        blurPickAreaHint: "拖曳過需要隱藏的內容",
+        blurCaption: "在時間軸上的區塊持續期間保持隱藏。"
     )
 }

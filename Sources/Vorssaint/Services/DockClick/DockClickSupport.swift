@@ -128,6 +128,20 @@ enum DockClickSupport {
         }
     }
 
+    /// Whether a captured minimize still speaks for the app's current state.
+    ///
+    /// The capture is written when this feature minimizes an app and consumed
+    /// when it restores one, so anything that brings those windows back some
+    /// other way — the App Switcher, the window menu, the app itself — leaves
+    /// it behind. Acting on a leftover later would claim a minimize this
+    /// feature never performed, which is exactly what `ownsMinimize` exists to
+    /// prevent. The capture holds only while at least one window it named is
+    /// still down.
+    static func capturedMinimizeStillHolds(captured: [CGWindowID],
+                                           stillMinimized: Set<CGWindowID>) -> Bool {
+        captured.contains { stillMinimized.contains($0) }
+    }
+
     static func repeatDecision(lastAction: DockClickAction?,
                                elapsed: TimeInterval?) -> DockClickRepeatDecision {
         guard let lastAction, let elapsed, elapsed < toggleIntentWindow else { return .deriveFromState }
@@ -142,9 +156,14 @@ enum DockClickSupport {
 
     /// Dock click actions for the active app. Hide works at app level, while
     /// minimize acts on visible windows and restores them on the next click.
-    /// Restore when everything the app has is minimized
-    /// (the Dock's native click would activate without unminimizing — Finder
-    /// would even open a brand-new window). Modifier clicks always keep the
+    ///
+    /// Restore only reclaims what this feature itself put away — `ownsMinimize`.
+    /// The toggle it advertises is that pair and nothing else, so a window the
+    /// user minimized some other way (⌘M, the window's own button, the app)
+    /// keeps the Dock's native restore. Taking those over bought nothing: the
+    /// stacking this batch is rebuilt from was never captured for them, which
+    /// the restore walk itself has to paper over by guessing at a front window.
+    /// Modifier clicks always keep the
     /// Dock's native behaviors (⌘ reveals in Finder, ⌥ hides the previous
     /// app, ⌃ opens the menu). Fullscreen windows can't minimize, and restoring
     /// siblings from inside a fullscreen Space would yank the user to another
@@ -162,6 +181,30 @@ enum DockClickSupport {
         unminimizedCount > 0 || (minimizedCount == 0 && windowServerSeesWindows)
     }
 
+    /// Which of the app's windows a cycling click can rotate through, as
+    /// indices into `windowIDs`, front to back.
+    ///
+    /// `windowIDs` are the app's unminimized windows in Accessibility order
+    /// (nil where the id could not be resolved); `onScreenFrontToBack` is the
+    /// window server's on-screen list, which holds only the Space the user is
+    /// looking at. A window parked on another Space therefore has no place in
+    /// the result and can never be raised.
+    ///
+    /// This is the single list behind both halves of the feature: `action`
+    /// only promises `.cycleWindows` when it holds more than one window, and
+    /// the raise takes its last element. Deciding from one set of windows and
+    /// raising from another is what made a Dock click either loop over two
+    /// windows forever or jump to a different desktop (issue #1204).
+    static func cycleCandidateIndices(windowIDs: [CGWindowID?],
+                                      onScreenFrontToBack: [CGWindowID]) -> [Int] {
+        var depths: [(index: Int, depth: Int)] = []
+        for (index, id) in windowIDs.enumerated() {
+            guard let id, let depth = onScreenFrontToBack.firstIndex(of: id) else { continue }
+            depths.append((index, depth))
+        }
+        return depths.sorted { $0.depth < $1.depth }.map(\.index)
+    }
+
     static func action(appIsFrontmost: Bool,
                        hasUnminimizedWindows: Bool,
                        hasMinimizedWindows: Bool,
@@ -170,15 +213,18 @@ enum DockClickSupport {
                        minimizeEnabled: Bool = true,
                        hideEnabled: Bool = false,
                        cycleWindowsEnabled: Bool = false,
-                       unminimizedWindowCount: Int = 0) -> DockClickAction {
+                       cycleCandidateCount: Int = 0,
+                       ownsMinimize: Bool = false) -> DockClickAction {
         guard !hasModifiers else { return .passThrough }
-        if cycleWindowsEnabled, appIsFrontmost, !hasFullscreenWindows, unminimizedWindowCount > 1 {
+        // Counted on the current Space only: a click must not advertise a
+        // rotation the raise cannot perform without changing desktops.
+        if cycleWindowsEnabled, appIsFrontmost, !hasFullscreenWindows, cycleCandidateCount > 1 {
             return .cycleWindows
         }
         if hideEnabled, appIsFrontmost { return .hide }
         guard !hasFullscreenWindows else { return .passThrough }
         if minimizeEnabled, appIsFrontmost, hasUnminimizedWindows { return .minimize }
-        if minimizeEnabled, !hasUnminimizedWindows, hasMinimizedWindows { return .restore }
+        if minimizeEnabled, ownsMinimize, !hasUnminimizedWindows, hasMinimizedWindows { return .restore }
         return .passThrough
     }
 
@@ -213,5 +259,25 @@ enum DockClickSupport {
         return point.y >= screenFrame.maxY - fallbackMargin
             || point.x <= screenFrame.minX + fallbackMargin
             || point.x >= screenFrame.maxX - fallbackMargin
+    }
+
+    /// Whether the Dock is the first visible window that could receive the
+    /// click. Its layer window can cover a whole display even when fullscreen
+    /// content is drawn above it, so bounds alone are not ownership.
+    static func dockOwnsPoint(_ point: CGPoint,
+                              windows: [MouseAppExceptionSupport.Window],
+                              dockProcessID: pid_t,
+                              dockLayer: Int,
+                              ownProcessID: pid_t) -> Bool {
+        for window in windows where window.alpha > 0 {
+            let isDockStrip = window.processID == dockProcessID && window.layer == dockLayer
+            let contains = isDockStrip
+                ? window.frame.insetBy(dx: -8, dy: -8).contains(point)
+                : window.frame.contains(point)
+            guard contains else { continue }
+            if window.processID == ownProcessID { continue }
+            return isDockStrip
+        }
+        return false
     }
 }

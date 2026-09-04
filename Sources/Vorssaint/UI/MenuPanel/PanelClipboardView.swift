@@ -31,8 +31,8 @@ struct PanelClipboardView: View {
             controls
             entriesList
         }
-        .onAppear { PanelInteractionState.shared.keepsPopoverOpen = true }
-        .onDisappear { PanelInteractionState.shared.keepsPopoverOpen = false }
+        .onAppear { PanelInteractionState.shared.viewKeepsPopoverOpen = true }
+        .onDisappear { PanelInteractionState.shared.viewKeepsPopoverOpen = false }
     }
 
     private var header: some View {
@@ -138,11 +138,15 @@ struct PanelClipboardView: View {
     private func entryPreview(_ entry: ClipboardHistoryEntry) -> some View {
         switch entry.kind {
         case .text:
+            // Deliberately not selectable: clicking a selectable Text swaps in
+            // the selection renderer, which lays the whole preview out and
+            // ignores the line limit, so a long entry paints over the rows
+            // below it. The history window shows the full, selectable text.
             Text(entry.preview)
                 .font(.system(size: 10.5))
                 .lineLimit(3)
                 .truncationMode(.tail)
-                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
         case .image:
             HStack(alignment: .center, spacing: 7) {
                 if let name = entry.imageFile,
@@ -158,18 +162,36 @@ struct PanelClipboardView: View {
                     .foregroundStyle(.secondary)
             }
         case .files:
-            HStack(alignment: .center, spacing: 7) {
-                Image(systemName: "folder")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text(entry.filePaths.count == 1
-                     ? (entry.fileNames.first ?? entry.preview)
-                     : String(format: text.fileCountFormat, entry.filePaths.count))
-                    .font(.system(size: 10.5))
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+            if entry.filePaths.count == 1,
+               let path = entry.filePaths.first,
+               ClipboardImageStore.isImageFile(atPath: path),
+               let thumbnail = ClipboardImageStore.fileThumbnail(atPath: path) {
+                HStack(alignment: .center, spacing: 7) {
+                    Image(nsImage: thumbnail)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 110, maxHeight: 40)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    Text(entry.fileNames.first ?? entry.preview)
+                        .font(.system(size: 10.5))
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+                .help(path)
+            } else {
+                HStack(alignment: .center, spacing: 7) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(entry.filePaths.count == 1
+                         ? (entry.fileNames.first ?? entry.preview)
+                         : String(format: text.fileCountFormat, entry.filePaths.count))
+                        .font(.system(size: 10.5))
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+                .help(entry.filePaths.joined(separator: "\n"))
             }
-            .help(entry.filePaths.joined(separator: "\n"))
         }
     }
 
@@ -212,8 +234,12 @@ struct PanelClipboardView: View {
                 .controlSize(.mini)
                 .help(entry.isPinned ? text.unpin : text.pin)
                 Button {
-                    history.copy(entry)
-                    copiedID = entry.id
+                    // The tick means "it is on the clipboard", so it waits for
+                    // the write instead of announcing one still queued behind
+                    // a stalled pasteboard provider.
+                    history.copy(entry) { copied in
+                        if copied { copiedID = entry.id }
+                    }
                 } label: {
                     Label(copiedID == entry.id ? text.copied : text.copy,
                           systemImage: copiedID == entry.id ? "checkmark" : "doc.on.doc")

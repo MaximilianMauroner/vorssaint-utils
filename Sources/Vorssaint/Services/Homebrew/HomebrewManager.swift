@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Vorssaint
 
 import Combine
+import Darwin
 import Foundation
 
 final class HomebrewManager: ObservableObject {
@@ -41,6 +42,9 @@ final class HomebrewManager: ObservableObject {
     private var popularityLoads: Set<HomebrewPackageKind> = []
     private var activeProcess: Process?
     private var cancelRequested = false
+    private var installedCaskRecords: [HomebrewCaskRecord] = []
+    private var installedCaskRecordsFetchedAt: Date?
+    private var ownershipLoads: [String: [(HomebrewPackage?) -> Void]] = [:]
     private var completedOperationCleanup: DispatchWorkItem?
     private lazy var analyticsSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
@@ -61,16 +65,21 @@ final class HomebrewManager: ObservableObject {
         brewPath = detectBrewPath()
     }
 
-    func refreshInstalled() {
+    /// - Parameter clearingError: pass `false` when refreshing straight after a
+    ///   failed operation, so the reason that operation gave is still on screen
+    ///   while the fresh state loads.
+    func refreshInstalled(clearingError: Bool = true) {
         guard let brewPath = detectBrewPath() else {
             self.brewPath = nil
             installed = []
+            installedCaskRecords = []
+            installedCaskRecordsFetchedAt = nil
             searchResults = []
             selectedPackage = nil
             outdatedGeneration += 1
             outdatedPackagesByID = [:]
             isLoadingOutdated = false
-            errorMessage = nil
+            if clearingError { errorMessage = nil }
             isShellConfigured = true
             shellConfigProfilePath = nil
             didOpenShellConfig = false
@@ -79,7 +88,7 @@ final class HomebrewManager: ObservableObject {
         self.brewPath = brewPath
         updateShellConfigStatus(brewPath: brewPath)
         isLoadingInstalled = true
-        errorMessage = nil
+        if clearingError { errorMessage = nil }
         clearUntrustedTap()
         let command = HomebrewCommandBuilder.installed(brewPath: brewPath)
         run(command) { [weak self] status, output in
@@ -99,6 +108,8 @@ final class HomebrewManager: ObservableObject {
                 }
                 do {
                     self.installed = try HomebrewParser.parseInfoCommandOutput(output).map(self.packageEnriched)
+                    self.installedCaskRecords = HomebrewParser.parseInstalledCaskRecords(output)
+                    self.installedCaskRecordsFetchedAt = Date()
                     self.didOpenInstaller = false
                     if let selected = self.selectedPackage {
                         self.selectedPackage = self.packageEnriched(self.installed.first { $0.id == selected.id } ?? selected)
@@ -199,6 +210,47 @@ final class HomebrewManager: ObservableObject {
         perform(.uninstall, package: package)
     }
 
+    /// Looks up whether Homebrew owns this exact app bundle. The cached
+    /// installed catalog is reused when fresh; otherwise one read-only command
+    /// answers every concurrent request for the same path.
+    func packageManagingApplication(at url: URL,
+                                    completion: @escaping (HomebrewPackage?) -> Void) {
+        let path = url.standardizedFileURL.path
+        if let fetchedAt = installedCaskRecordsFetchedAt,
+           Date().timeIntervalSince(fetchedAt) < 60 {
+            completion(HomebrewOwnershipSupport.packageManagingApplication(
+                atPath: path,
+                installed: installedCaskRecords
+            ))
+            return
+        }
+        if ownershipLoads[path] != nil {
+            ownershipLoads[path]?.append(completion)
+            return
+        }
+        ownershipLoads[path] = [completion]
+        guard let brewPath = brewPath ?? detectBrewPath() else {
+            finishOwnershipLoad(path: path, package: nil)
+            return
+        }
+        self.brewPath = brewPath
+        run(HomebrewCommandBuilder.installed(brewPath: brewPath)) { [weak self] status, output in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let records = status == 0 ? HomebrewParser.parseInstalledCaskRecords(output) : []
+                if status == 0 {
+                    self.installedCaskRecords = records
+                    self.installedCaskRecordsFetchedAt = Date()
+                }
+                let package = HomebrewOwnershipSupport.packageManagingApplication(
+                    atPath: path,
+                    installed: records
+                )
+                self.finishOwnershipLoad(path: path, package: package)
+            }
+        }
+    }
+
     func upgrade(_ package: HomebrewPackage) {
         perform(.upgrade, package: package)
     }
@@ -227,7 +279,9 @@ final class HomebrewManager: ObservableObject {
     func cancelOperation() {
         guard operation != nil else { return }
         cancelRequested = true
-        activeProcess?.terminate()
+        if let activeProcess {
+            Self.stop(activeProcess)
+        }
         appendLog("\nCancelled.\n")
     }
 
@@ -328,34 +382,56 @@ final class HomebrewManager: ObservableObject {
                     self.markOperationComplete(result: .succeeded,
                                                phase: .refreshing,
                                                activity: nil)
+                    if action.clearsSelectionOnSuccess {
+                        if self.selectedPackage?.id == package?.id {
+                            self.clearSelection()
+                        }
+                    }
                     self.refreshInstalled()
-                    if let package {
+                    if !action.clearsSelectionOnSuccess, let package {
                         self.select(package)
                     }
                 } else if self.cancelRequested {
                     self.markOperationComplete(result: .cancelled,
                                                phase: self.operationStatus?.phase ?? .finalizing,
                                                activity: nil)
+                    self.refreshInstalled(clearingError: false)
                 } else if HomebrewCommandBuilder.needsTerminalFallback(output: output) {
                     self.terminalFallbackCommand = HomebrewCommandBuilder.shellCommand(command)
                     self.markOperationComplete(result: .needsTerminal,
                                                phase: self.operationStatus?.phase ?? .finalizing,
                                                activity: HomebrewProgressParser.visibleError(from: output))
+                    // Same partly-done case: `upgrade` moves the formulae, then a
+                    // cask asks for a password and brew stops there.
+                    self.refreshInstalled(clearingError: false)
                 } else if let tap = HomebrewCommandBuilder.untrustedTapName(fromOutput: output) {
                     self.presentUntrustedTap(tap) { [weak self] in self?.perform(action, package: package) }
                     self.markOperationComplete(result: .failed,
                                                phase: self.operationStatus?.phase ?? .finalizing,
                                                activity: nil)
+                    // No refresh here: `refreshInstalled` calls `clearUntrustedTap()`,
+                    // which would drop the prompt and retry closure just installed.
                 } else {
                     let message = HomebrewProgressParser.visibleError(from: output)
                     self.errorMessage = message.isEmpty ? output.trimmingCharacters(in: .whitespacesAndNewlines) : message
                     self.markOperationComplete(result: .failed,
                                                phase: self.operationStatus?.phase ?? .finalizing,
                                                activity: self.errorMessage)
+                    // brew reports a run as failed when it could not do all of it,
+                    // not only when it did none of it: one disabled package makes
+                    // `upgrade` skip that one, upgrade the rest and still exit
+                    // non-zero. Re-read regardless, or the panel keeps showing the
+                    // versions from before a run that moved most of them.
+                    self.refreshInstalled(clearingError: false)
                 }
                 self.cancelRequested = false
             }
         }
+    }
+
+    private func finishOwnershipLoad(path: String, package: HomebrewPackage?) {
+        let completions = ownershipLoads.removeValue(forKey: path) ?? []
+        completions.forEach { $0(package) }
     }
 
     private func standardCommand(for action: HomebrewOperation.Action,
@@ -601,6 +677,37 @@ final class HomebrewManager: ObservableObject {
         }
     }
 
+    /// Timeout for read-only Homebrew commands (info, search, outdated).
+    /// These are normally fast, but a hung NFS share or locked database can
+    /// make them stall indefinitely.
+    private static let brewReadTimeout: TimeInterval = 30
+    /// Install/upgrade/uninstall run on the same serial queue as every read, so a
+    /// hung one must end eventually. A big download, a source build and a copy into
+    /// Applications are all slow but never silent, so the bound is on silence: a cap
+    /// on total time would end work that was still going.
+    private static let brewSilenceTimeout: TimeInterval = 15 * 60
+    private static let processTerminationGrace: TimeInterval = 2
+
+    /// SIGTERM is cooperative. Escalate only when a command ignores it so a
+    /// cancelled or timed-out operation cannot keep the serial queue forever.
+    private static func stop(_ process: Process, finished: DispatchSemaphore? = nil) {
+        guard process.isRunning else { return }
+        process.terminate()
+        if let finished {
+            if finished.wait(timeout: .now() + processTerminationGrace) == .timedOut,
+               process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = finished.wait(timeout: .now() + processTerminationGrace)
+            }
+            return
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + processTerminationGrace) {
+            if process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+            }
+        }
+    }
+
     private func run(_ command: HomebrewCommand,
                      completion: @escaping (_ status: Int32, _ output: String) -> Void) {
         workQueue.async {
@@ -610,15 +717,38 @@ final class HomebrewManager: ObservableObject {
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = pipe
+            var data = Data()
+            let lock = NSLock()
+            let drained = DispatchSemaphore(value: 0)
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                guard !chunk.isEmpty else {
+                    drained.signal()
+                    return
+                }
+                lock.lock()
+                data.append(chunk)
+                lock.unlock()
+            }
+            let finished = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in finished.signal() }
             do {
                 try process.run()
             } catch {
+                pipe.fileHandleForReading.readabilityHandler = nil
                 completion(-1, error.localizedDescription)
                 return
             }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            completion(process.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+            if finished.wait(timeout: .now() + Self.brewReadTimeout) == .timedOut {
+                Self.stop(process, finished: finished)
+            }
+            _ = drained.wait(timeout: .now() + 1)
+            pipe.fileHandleForReading.readabilityHandler = nil
+            try? pipe.fileHandleForReading.close()
+            lock.lock()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            lock.unlock()
+            completion(process.isRunning ? -1 : process.terminationStatus, output)
         }
     }
 
@@ -633,17 +763,25 @@ final class HomebrewManager: ObservableObject {
             process.standardOutput = pipe
             process.standardError = pipe
             var output = Data()
+            var lastOutput = Date()
             let lock = NSLock()
+            let drained = DispatchSemaphore(value: 0)
             pipe.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
-                guard !data.isEmpty else { return }
+                guard !data.isEmpty else {
+                    drained.signal()
+                    return
+                }
                 lock.lock()
                 output.append(data)
+                lastOutput = Date()
                 lock.unlock()
                 if let chunk = String(data: data, encoding: .utf8) {
                     DispatchQueue.main.async { onOutput(chunk) }
                 }
             }
+            let finished = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in finished.signal() }
             do {
                 try process.run()
             } catch {
@@ -651,19 +789,27 @@ final class HomebrewManager: ObservableObject {
                 completion(-1, error.localizedDescription)
                 return
             }
-            DispatchQueue.main.async { self?.activeProcess = process }
-            process.waitUntilExit()
-            pipe.fileHandleForReading.readabilityHandler = nil
-            let remainder = pipe.fileHandleForReading.readDataToEndOfFile()
-            if !remainder.isEmpty {
-                lock.lock()
-                output.append(remainder)
-                lock.unlock()
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.activeProcess = process
+                if self.cancelRequested { Self.stop(process) }
             }
+            while finished.wait(timeout: .now() + Self.brewSilenceTimeout) == .timedOut {
+                lock.lock()
+                let silence = Date().timeIntervalSince(lastOutput)
+                lock.unlock()
+                if silence >= Self.brewSilenceTimeout {
+                    Self.stop(process, finished: finished)
+                    break
+                }
+            }
+            _ = drained.wait(timeout: .now() + 1)
+            pipe.fileHandleForReading.readabilityHandler = nil
+            try? pipe.fileHandleForReading.close()
             lock.lock()
             let finalOutput = String(data: output, encoding: .utf8) ?? ""
             lock.unlock()
-            completion(process.terminationStatus, finalOutput)
+            completion(process.isRunning ? -1 : process.terminationStatus, finalOutput)
         }
     }
 

@@ -37,6 +37,14 @@ enum SpaceHopSupport {
         return !windowSpaces.contains { visibleSpaces.contains($0) }
     }
 
+    /// Whether at least one Space assigned to a window is a native fullscreen
+    /// Space. This is stronger than guessing from the window frame: a tiled or
+    /// zoomed window can fill the same rectangle without owning its own Space.
+    static func isOnFullscreenSpace(windowSpaces: [UInt64],
+                                    fullscreenSpaces: Set<UInt64>) -> Bool {
+        windowSpaces.contains { fullscreenSpaces.contains($0) }
+    }
+
     /// The window server marks surfaces that must stay out of app window
     /// cycling. This remains meaningful when Accessibility cannot inspect a
     /// window because it lives on another Space.
@@ -48,14 +56,11 @@ enum SpaceHopSupport {
     /// How many "move a space" presses take the user from the visible Space to
     /// `target`. Positive means move right, negative means move left. Returns
     /// nil when the target is already visible, cannot be found, or sits
-    /// farther than `maximumArrowSteps` away. With more than one display it
-    /// always returns nil: the replayed shortcut moves whichever display has
-    /// keyboard focus, which is not necessarily the display owning the target,
-    /// so a hop there could shuffle the wrong display's desktops.
+    /// farther than `maximumArrowSteps` away.
     static func arrowSteps(orderedSpacesPerDisplay: [[UInt64]],
                            visibleSpaces: Set<UInt64>,
                            target: UInt64) -> Int? {
-        guard orderedSpacesPerDisplay.count == 1, let row = orderedSpacesPerDisplay.first else { return nil }
+        guard let row = orderedSpacesPerDisplay.first(where: { $0.contains(target) }) else { return nil }
         guard !visibleSpaces.contains(target) else { return nil }
         guard let targetIndex = row.firstIndex(of: target),
               let currentIndex = row.firstIndex(where: { visibleSpaces.contains($0) })

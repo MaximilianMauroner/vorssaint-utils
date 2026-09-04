@@ -17,13 +17,16 @@ final class RadialMenuService: ObservableObject {
     /// Wheels from root to the currently shown submenu; the last entry is on
     /// screen. Empty means no session.
     @Published private(set) var stack: [[RadialMenuItem]] = []
+    /// The profile active in the current session.
+    @Published private(set) var activeProfile: RadialMenuProfile?
     /// Names of the submenus that were descended into, for the hub's back hint.
     @Published private(set) var trail: [String] = []
     @Published private(set) var highlightedIndex: Int?
-    /// True while a hold-capable session still owns its shortcut or side
+    @Published private(set) var nowPlayingState = RadialNowPlayingState.nothingPlaying
+    /// True while a hold-capable session still owns its shortcut or mouse
     /// button; release behavior is determined by `sessionActivationMode`.
     @Published private(set) var holdPhase = false
-    /// True when macOS refused the shortcut (taken by another app).
+    /// True when macOS refused a shortcut (taken by another app).
     @Published private(set) var registrationFailed = false
     /// True while the app is actually able to watch for the chosen mouse
     /// button. Off means the button can never open the wheel, whatever the
@@ -51,7 +54,7 @@ final class RadialMenuService: ObservableObject {
     /// render, true the moment a session fills the stack.
     var visible: Bool { sessionActive }
 
-    private let hotkey = QuickToolHotkey(id: 17)
+    private var hotkeys: [UUID: QuickToolHotkey] = [:]
     private var panel: NSPanel?
     private var wheelCenter: CGPoint = .zero
     private var openPointerLocation: CGPoint = .zero
@@ -60,10 +63,9 @@ final class RadialMenuService: ObservableObject {
     private var sessionActivationMode = RadialMenuActivationMode.pressOrHold
     private var sessionUsesSuperKey = false
     private var sessionID = 0
-    /// Set while a session was summoned by the side button and it is still
+    /// Set while a session was summoned by a mouse button and it is still
     /// down; releasing it runs the pointed slice, mirroring the chord.
     private var holdButton: Int64?
-    private var mouseTrigger = RadialMenuMouseTrigger.off
     private var mouseTap: CFMachPort?
     private var mouseTapSource: CFRunLoopSource?
     private var eventMonitors: [Any] = []
@@ -71,7 +73,17 @@ final class RadialMenuService: ObservableObject {
     private var promptedForAccessibility = false
 
     private init() {
-        hotkey.onPress = { [weak self] in self?.hotkeyPressed() }
+        // A filter tap owned by a switched-away login session keeps its place
+        // in the chain, so the account on screen waits out this tap's timeout
+        // on every extra-button click it makes (issue #1075). Hand the tap
+        // back on resign and build it again from preferences on the way in.
+        // The open wheel goes with it: this tap is the only thing that sees a
+        // held summoner released, so a wheel still up when the tap is handed
+        // back would come back stuck in hold phase with no release coming.
+        SessionActivity.shared.onChange { [weak self] active in
+            if !active { self?.endSession() }
+            self?.syncMouseTap()
+        }
     }
 
     var sessionActive: Bool { !stack.isEmpty }
@@ -89,34 +101,77 @@ final class RadialMenuService: ObservableObject {
             registrationFailed = false
             return
         }
-        let shortcut = GlobalShortcut.saved(for: DefaultsKey.radialMenuShortcut,
-                                            fallback: .radialMenuDefault)
-        registrationFailed = !hotkey.sync(enabled: true, shortcut: shortcut)
-        mouseTrigger = RadialMenuMouseTrigger.sanitized(
-            defaults.string(forKey: DefaultsKey.radialMenuMouseButton))
-        syncMouseTap()
+
+        let profiles = RadialMenuSupport.decodeProfiles(
+            defaults.data(forKey: DefaultsKey.radialMenuProfiles),
+            defaults: defaults
+        )
+
+        for hotkey in hotkeys.values { hotkey.unregister() }
+        hotkeys.removeAll()
+
+        var anyFailed = false
+        for (index, profile) in profiles.enumerated() {
+            guard !profile.shortcut.isEmpty,
+                  let shortcut = GlobalShortcut(storageValue: profile.shortcut) else { continue }
+            let hotkey = QuickToolHotkey(id: 1700 + UInt32(index))
+            hotkey.onPress = { [weak self] in self?.hotkeyPressed(for: profile) }
+            let registered = hotkey.sync(enabled: true, shortcut: shortcut)
+            if !registered { anyFailed = true }
+            hotkeys[profile.id] = hotkey
+        }
+        registrationFailed = anyFailed
+
+        syncMouseTap(profiles: profiles)
         // First render of a hosting view costs real time; pay it now so the
         // wheel appears the instant the shortcut fires.
         ensurePanel().contentView?.layoutSubtreeIfNeeded()
     }
 
     func suspend() {
-        hotkey.unregister()
-        // The trigger ivar must die with the tap: the settings page's button
-        // test calls syncMouseTap() on appear, and a stale trigger would let
-        // it resurrect the tap — and the wheel — with the feature off.
-        mouseTrigger = .off
+        for hotkey in hotkeys.values { hotkey.unregister() }
+        hotkeys.removeAll()
         tearDownMouseTap()
         endSession()
         panel = nil
     }
 
-    // MARK: - Side button trigger (a tap so the click never doubles as
-    // back/forward in the app under the pointer; alive only while a button
-    // is configured, torn down with the feature)
+    // MARK: - Mouse button trigger (a tap so the click never also reaches the
+    // app under the pointer; alive only while a button is configured, torn
+    // down with the feature)
 
-    private func syncMouseTap() {
-        guard mouseTrigger.buttonNumber != nil else {
+    /// Whether the button tap has a job right now. The feature check is here
+    /// rather than only in `syncWithPreferences`, because the resign handler
+    /// and the capture row call the sync directly and so never pass that
+    /// guard. The capture row wants the tap even with the feature switched
+    /// off, so it can tell a button this app cannot see from one that is
+    /// simply set to something else.
+    private func mouseTapWanted(profiles: [RadialMenuProfile]?) -> Bool {
+        let defaults = UserDefaults.standard
+        // Asked of the stored buttons alone when the caller has no profiles in
+        // hand: this only needs to know whether any wheel is bound to a button,
+        // and the full decode pays for every item and icon to answer it.
+        let hasAnyButton = profiles.map { list in
+            list.contains { RadialMenuMouseTrigger.sanitized($0.mouseButton).buttonNumber != nil }
+        } ?? !RadialMenuSupport.claimedMouseButtons(
+            defaults.data(forKey: DefaultsKey.radialMenuProfiles),
+            defaults: defaults
+        ).isEmpty
+        let enabled = AppFeature.radialMenu.isAvailable
+            && defaults.bool(forKey: DefaultsKey.radialMenuEnabled)
+        return (hasAnyButton && enabled) || isReportingMouseButtons
+    }
+
+    private func syncMouseTap(profiles: [RadialMenuProfile]? = nil) {
+        // Accessibility is asked of the system and not of `Permissions.shared`,
+        // whose answer is a poll up to `PermissionPollingSupport.interval` old.
+        // The re-arm hands a tap it declines to put back to this sync to be
+        // stopped, and a stale grant here would install it straight back.
+        guard SessionActivitySupport.tapShouldRun(
+            featureWanted: mouseTapWanted(profiles: profiles),
+            accessibilityGranted: AXIsProcessTrusted(),
+            sessionIsActive: SessionActivity.shared.isActive
+        ) else {
             tearDownMouseTap()
             return
         }
@@ -125,7 +180,7 @@ final class RadialMenuService: ObservableObject {
         if let mouseTap, !CGEvent.tapIsEnabled(tap: mouseTap) {
             tearDownMouseTap()
         }
-        guard mouseTap == nil, AXIsProcessTrusted() else { return }
+        guard mouseTap == nil else { return }
         let mask = (CGEventMask(1) << CGEventType.otherMouseDown.rawValue)
             | (CGEventMask(1) << CGEventType.otherMouseUp.rawValue)
         guard let tap = CGEvent.tapCreate(
@@ -163,7 +218,23 @@ final class RadialMenuService: ObservableObject {
 
     private func handleMouseTap(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let mouseTap { CGEvent.tapEnable(tap: mouseTap, enable: true) }
+            // This tap's callback runs on the main run loop, so the session
+            // flag is read where it is written. A tap put straight back is a
+            // tap put back into whatever session is on screen now, which is
+            // the stall the gate exists to end (issue #1075). Accessibility is
+            // asked for the same reason as the sync: this tap swallows the
+            // click, so a revoked grant has to end it rather than put it back.
+            if SessionActivitySupport.tapShouldRun(
+                featureWanted: mouseTapWanted(profiles: nil),
+                accessibilityGranted: AXIsProcessTrusted(),
+                sessionIsActive: SessionActivity.shared.isActive
+            ), let mouseTap {
+                CGEvent.tapEnable(tap: mouseTap, enable: true)
+            } else {
+                // Invalidating the port from its own callback stack is unsafe;
+                // finish this callback fail-open, then release the tap.
+                DispatchQueue.main.async { [weak self] in self?.syncMouseTap() }
+            }
             return Unmanaged.passUnretained(event)
         }
         let pressed = Int(event.getIntegerValueField(.mouseEventButtonNumber))
@@ -180,8 +251,17 @@ final class RadialMenuService: ObservableObject {
         if isReportingMouseButtons, type == .otherMouseDown {
             lastMouseButtonSeen = pressed
         }
-        guard let button = mouseTrigger.buttonNumber, pressed == button
-        else { return Unmanaged.passUnretained(event) }
+        let defaults = UserDefaults.standard
+        let button = Int64(pressed)
+        // Every press and release of every extra button lands here, so the
+        // cheap question comes first: the wheels themselves are decoded only
+        // once a press turns out to be a summoner, and only to open one.
+        guard RadialMenuSupport.claimedMouseButtons(
+            defaults.data(forKey: DefaultsKey.radialMenuProfiles),
+            defaults: defaults
+        ).contains(button) else {
+            return Unmanaged.passUnretained(event)
+        }
 
         // The source lives on the main run loop, so this already runs on
         // main; acting synchronously keeps a quick click ordered (the down
@@ -191,7 +271,20 @@ final class RadialMenuService: ObservableObject {
         // caption promises exactly that).
         if type == .otherMouseDown {
             if !sessionActive {
-                beginSession(hold: false, heldButton: button)
+                let profiles = RadialMenuSupport.decodeProfiles(
+                    defaults.data(forKey: DefaultsKey.radialMenuProfiles),
+                    defaults: defaults
+                )
+                // The guard above already claimed the click, and the release
+                // will be swallowed to match it. A profile the full decode
+                // drops but the cheap read keeps (a corrupt blob) therefore
+                // opens no wheel and still costs the app under the pointer
+                // nothing: never one half of a click.
+                if let matchingProfile = profiles.first(where: {
+                    RadialMenuMouseTrigger.sanitized($0.mouseButton).buttonNumber == button
+                }) {
+                    beginSession(for: matchingProfile, hold: false, heldButton: button)
+                }
             } else if !holdPhase {
                 endSession()
             }
@@ -205,34 +298,50 @@ final class RadialMenuService: ObservableObject {
 
     // MARK: - Session
 
-    private func hotkeyPressed() {
+    private func hotkeyPressed(for profile: RadialMenuProfile) {
         // Carbon hot keys never autorepeat, so a press during a session is
         // always the user asking to close, even with the modifiers still
         // held from the summoning chord.
         if sessionActive {
+            if activeProfile?.id == profile.id {
+                endSession()
+                return
+            }
             endSession()
-            return
         }
-        beginSession(hold: true)
+        beginSession(for: profile, hold: true)
     }
 
     /// The Settings page's try-it button: a sticky session with the saved
     /// placement, exactly like a quick press of the shortcut.
-    func presentPreview() {
+    func presentPreview(for profile: RadialMenuProfile? = nil) {
         endSession()
-        beginSession(hold: false)
+        let defaults = UserDefaults.standard
+        let profiles = RadialMenuSupport.decodeProfiles(
+            defaults.data(forKey: DefaultsKey.radialMenuProfiles),
+            defaults: defaults
+        )
+        let targetProfile = profile ?? profiles.first ?? RadialMenuProfilePreset.general.createProfile()
+        beginSession(for: targetProfile, hold: false)
     }
 
-    private func beginSession(hold: Bool, heldButton: Int64? = nil) {
+    private func beginSession(for profile: RadialMenuProfile, hold: Bool, heldButton: Int64? = nil) {
         let defaults = UserDefaults.standard
-        let items = availableItems(RadialMenuSupport.decode(defaults.data(forKey: DefaultsKey.radialMenuItems)))
+        let items = availableItems(profile.items)
         guard !items.isEmpty else {
             NSSound.beep()
             return
         }
+        activeProfile = profile
+        if RadialMenuSupport.containsNowPlaying(items) {
+            let nowPlaying = RadialNowPlayingService.shared
+            nowPlaying.dismissDetails()
+            nowPlaying.refresh { [weak self] state in self?.nowPlayingState = state }
+        } else {
+            nowPlayingState = .nothingPlaying
+        }
 
-        let shortcut = GlobalShortcut.saved(for: DefaultsKey.radialMenuShortcut,
-                                            fallback: .radialMenuDefault)
+        let shortcut = GlobalShortcut(storageValue: profile.shortcut) ?? .radialMenuDefault
         let activationMode = RadialMenuActivationMode.sanitized(
             defaults.string(forKey: DefaultsKey.radialMenuActivationMode))
         let startsHeld = activationMode.startsHeld(
@@ -297,6 +406,7 @@ final class RadialMenuService: ObservableObject {
         stopTrackingSuperKeyHold()
         panel?.orderOut(nil)
         stack = []
+        activeProfile = nil
         trail = []
         highlightedIndex = nil
         holdPhase = false
@@ -583,7 +693,11 @@ final class RadialMenuService: ObservableObject {
             }
         case .media:
             if let key = item.mediaKey {
-                postWhenModifiersReleased(attempt: 0) { Self.postMediaKey(key) }
+                if key == .nowPlaying {
+                    RadialNowPlayingService.shared.presentDetails(at: wheelCenter)
+                } else {
+                    postWhenModifiersReleased(attempt: 0) { Self.postMediaKey(key) }
+                }
             }
         case .tool:
             if let tool = item.tool { run(tool) }
@@ -603,6 +717,7 @@ final class RadialMenuService: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             switch tool {
             case .screenshot: ScreenshotService.shared.capture()
+            case .screenRecorder: ScreenRecorderService.shared.toggle()
             case .colorPicker: ColorSamplerService.shared.pick()
             case .screenOCR: ScreenTextService.shared.capture()
             case .micMute: MicMuteService.shared.toggle()
@@ -611,10 +726,20 @@ final class RadialMenuService: ObservableObject {
             case .cameraPreview: CameraPreviewService.shared.show()
             case .scratchpad: ScratchpadService.shared.show()
             case .shelf: ShelfService.shared.summon()
+            case .cleaner: Self.openSettings(at: .cleaner)
+            case .uninstaller: Self.openSettings(at: .uninstaller)
+            case .appUpdates:
+                AppUpdatesService.shared.check()
+                Self.openSettings(at: .appUpdates)
             case .cleaningMode: CleaningModeManager.shared.activate()
             case .keepAwake: KeepAwakeManager.shared.toggle()
             }
         }
+    }
+
+    private static func openSettings(at page: SettingsPage) {
+        SettingsRouter.shared.page = page
+        appDelegate()?.openSettingsWindow()
     }
 
     private func run(_ action: RadialMenuQuickToggle) {
@@ -693,8 +818,9 @@ final class RadialMenuService: ObservableObject {
     /// Posts the aux-button pair the physical media keys produce, so whatever
     /// player owns the media keys reacts exactly as if F8 was pressed.
     private static func postMediaKey(_ key: RadialMenuMediaKey) {
-        postAuxKey(key.auxKeyType, down: true)
-        postAuxKey(key.auxKeyType, down: false)
+        guard let auxKeyType = key.auxKeyType else { return }
+        postAuxKey(auxKeyType, down: true)
+        postAuxKey(auxKeyType, down: false)
     }
 
     private static func postAuxKey(_ type: Int32, down: Bool) {

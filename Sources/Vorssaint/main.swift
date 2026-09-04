@@ -3,7 +3,10 @@
 
 import AppKit
 
+SuperKeyMappingGuard.runIfRequestedAndExit()
 Defaults.register()
+MouseAccelerationGuard.runIfRequestedAndExit()
+MouseAccelerationService.recoverPendingAtLaunch()
 
 if CommandLine.arguments.contains("--selftest") {
     SelfTest.runAndExit()

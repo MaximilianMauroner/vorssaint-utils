@@ -12,14 +12,34 @@ import SwiftUI
 struct FeatureHubSettings: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var features = FeatureRuntime.shared
+    @ObservedObject private var router = SettingsRouter.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(DefaultsKey.superKeySource) private var superKeySourceRaw =
+        SuperKeySource.capsLock.rawValue
     @State private var tab: Tab = .features
     @State private var confirmingPreset: FeaturePreset?
+    /// Tracks the feature-target request currently being revealed, so a
+    /// delayed retry from an older request cannot act after a newer one has
+    /// already taken over (same convention as `SettingsSectionFocusModifier`).
+    @State private var revealID = UUID()
+    /// The row briefly tinted after a search or Command Bar selection lands
+    /// on it, mirroring the section highlight `SettingsSectionFocusModifier`
+    /// gives an ordinary page anchor.
+    @State private var highlightedFeature: AppFeature?
 
     private enum Tab { case features, permissions }
 
     private var hub: FeatureHubStrings { FeatureStrings.hub(l10n.language) }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            content
+                .onAppear { revealPendingFeatureTarget(using: proxy) }
+                .onChange(of: router.requestID) { _, _ in revealPendingFeatureTarget(using: proxy) }
+        }
+    }
+
+    private var content: some View {
         Form {
             Section {
                 Picker("", selection: $tab) {
@@ -34,14 +54,14 @@ struct FeatureHubSettings: View {
                 if tab == .features {
                     HStack(spacing: 8) {
                         Text(String(format: hub.activeCountFormat,
-                                    features.availableCount, AppFeature.allCases.count))
+                                    features.availableCount, features.installableCount))
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                         Spacer(minLength: 8)
                         Button(hub.installAllButton) {
                             FeatureRuntime.shared.setAllAvailable(true)
                         }
-                        .disabled(features.availableCount == AppFeature.allCases.count)
+                        .disabled(features.availableCount == features.installableCount)
                         Button(hub.uninstallAllButton) {
                             FeatureRuntime.shared.setAllAvailable(false)
                         }
@@ -96,6 +116,52 @@ struct FeatureHubSettings: View {
         }
     }
 
+    /// Consumes a pending Feature Hub target: switches off the Permissions
+    /// tab if needed and scrolls the requested row into view. Retried once
+    /// after the first run-loop turn, the same allowance
+    /// `SettingsSectionFocusModifier` gives a freshly installed Form to
+    /// register its row identities.
+    private func revealPendingFeatureTarget(using proxy: ScrollViewProxy) {
+        guard let request = router.pendingFeatureTarget else { return }
+        router.consumeFeatureTarget(id: request.id)
+        revealID = request.id
+        if tab == .permissions { tab = .features }
+        DispatchQueue.main.async {
+            guard self.revealID == request.id else { return }
+            reveal(request.feature, using: proxy)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                guard self.revealID == request.id else { return }
+                reveal(request.feature, using: proxy)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    guard self.revealID == request.id else { return }
+                    clearHighlight()
+                }
+            }
+        }
+    }
+
+    private func reveal(_ feature: AppFeature, using proxy: ScrollViewProxy) {
+        if reduceMotion {
+            proxy.scrollTo(feature, anchor: .center)
+            highlightedFeature = feature
+        } else {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                proxy.scrollTo(feature, anchor: .center)
+                highlightedFeature = feature
+            }
+        }
+    }
+
+    private func clearHighlight() {
+        if reduceMotion {
+            highlightedFeature = nil
+        } else {
+            withAnimation(.easeOut(duration: 0.25)) {
+                highlightedFeature = nil
+            }
+        }
+    }
+
     /// Three one-click starting points. Nobody arrives wanting 37 decisions;
     /// a preset shapes the app in one move and everything else stays one
     /// click away in the list below.
@@ -142,7 +208,15 @@ struct FeatureHubSettings: View {
         ForEach(FeatureGroup.allCases, id: \.self) { group in
             Section {
                 ForEach(AppFeature.features(in: group), id: \.self) { feature in
-                    FeatureHubRow(feature: feature, hub: hub)
+                    FeatureHubRow(
+                        feature: feature,
+                        hub: hub,
+                        symbolName: feature == .superKey
+                            ? SuperKeySource.sanitized(superKeySourceRaw).systemImage
+                            : feature.symbolName,
+                        isHighlighted: highlightedFeature == feature
+                    )
+                        .id(feature)
                 }
                 if group == .monitor,
                    !FeatureVisibilitySupport.monitorFeatures.contains(where: \.isAvailable) {
@@ -222,8 +296,15 @@ private struct FeatureHubRow: View {
     @State private var working = false
     let feature: AppFeature
     let hub: FeatureHubStrings
+    let symbolName: String
+    var isHighlighted: Bool = false
 
     private var installed: Bool { feature.isAvailable }
+
+    /// Set only while this Mac cannot run the feature and it is not yet
+    /// installed, so an install that predates the check keeps an ordinary
+    /// row with its settings and Uninstall reachable.
+    private var unsupportedReason: String? { feature.installBlockedReason }
 
     private var accessibilityTitle: String {
         let title = feature.hubTitle(l10n.s, hub: hub)
@@ -243,13 +324,68 @@ private struct FeatureHubRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            if installed, feature.hasNavigableSettingsDestination {
+                Button {
+                    SettingsRouter.shared.request(feature.settingsDestination)
+                } label: {
+                    rowContent(showsChevron: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(accessibilityTitle). \(feature.hubDescription(hub))")
+                .accessibilityAddTraits(.isLink)
+                .accessibilityRemoveTraits(.isButton)
+            } else {
+                rowContent(showsChevron: false)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(accessibilityTitle). \(feature.hubDescription(hub))")
+                    .opacity(unsupportedReason == nil ? 1 : 0.4)
+                    .saturation(unsupportedReason == nil ? 1 : 0)
+            }
+            if working {
+                ProgressView()
+                    .controlSize(.small)
+            } else if installed {
+                Button(hub.uninstallButton) { flip(to: false) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("\(hub.uninstallButton) \(accessibilityTitle)")
+            } else if let reason = unsupportedReason {
+                // .help() never fires on a disabled control, so the tooltip
+                // has to sit on this wrapper. Flattening it loses the only
+                // place the reason is shown.
+                HStack(spacing: 0) {
+                    Button(hub.installButton) { flip(to: true) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(true)
+                        .accessibilityLabel("\(hub.installButton) \(accessibilityTitle). \(reason)")
+                }
+                .help(reason)
+            } else {
+                Button(hub.installButton) { flip(to: true) }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .accessibilityLabel("\(hub.installButton) \(accessibilityTitle)")
+            }
+        }
+        .padding(.vertical, 1)
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.accentColor.opacity(isHighlighted ? 0.10 : 0))
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func rowContent(showsChevron: Bool) -> some View {
+        HStack(spacing: 10) {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(installed
                         ? AnyShapeStyle(Theme.spaceGradient)
                         : AnyShapeStyle(Color.secondary.opacity(0.22)))
                 .frame(width: 30, height: 30)
                 .overlay(
-                    Image(systemName: feature.symbolName)
+                    Image(systemName: symbolName)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(installed ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
                 )
@@ -287,23 +423,15 @@ private struct FeatureHubRow: View {
                     .foregroundStyle(installed ? Color.secondary : Color.secondary.opacity(0.6))
             }
             Spacer(minLength: 8)
-            if working {
-                ProgressView()
-                    .controlSize(.small)
-            } else if installed {
-                Button(hub.uninstallButton) { flip(to: false) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-            } else {
-                Button(hub.installButton) { flip(to: true) }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+            if showsChevron {
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
             }
         }
-        .padding(.vertical, 1)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityTitle)
-        .accessibilityValue(installed ? "1" : "0")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     /// A quick, honest beat of feedback: the spinner shows the action landed,
@@ -329,6 +457,7 @@ struct PermissionsPortalSections: View {
     let hub: FeatureHubStrings
     let visiblePermissions: [AppPermission]
     @State private var automation: [Permissions.AutomationTarget: Permissions.AutomationStatus] = [:]
+    @State private var pollingDemandID = UUID()
 
     init(hub: FeatureHubStrings,
          visiblePermissions: [AppPermission] = AppPermission.allCases) {
@@ -347,6 +476,10 @@ struct PermissionsPortalSections: View {
             // read the moment the portal shows; automation is checked off the
             // main thread because the AE round trip can block briefly.
             permissions.refresh()
+            if visiblePermissions.contains(.accessibility)
+                || visiblePermissions.contains(.screenRecording) {
+                permissions.setActivePermissionSurface(pollingDemandID, visible: true)
+            }
             DispatchQueue.global(qos: .userInitiated).async {
                 let finder = Permissions.automationStatus(for: .finder)
                 let terminal = Permissions.automationStatus(for: .terminal)
@@ -354,6 +487,9 @@ struct PermissionsPortalSections: View {
                     automation = [.finder: finder, .terminal: terminal]
                 }
             }
+        }
+        .onDisappear {
+            permissions.setActivePermissionSurface(pollingDemandID, visible: false)
         }
     }
 
@@ -363,7 +499,10 @@ struct PermissionsPortalSections: View {
         case .screenRecording: return permissions.screenRecording ? .granted : .missing
         case .fullDiskAccess: return permissions.fullDiskAccess ? .granted : .missing
         case .filesAndFolders:
-            guard AppFeature.cleaner.isAvailable else { return .unknown }
+            guard AppFeature.cleaner.isAvailable,
+                  WhatsAppDownloadSupport.isEnabled else {
+                return .unknown
+            }
             switch WhatsAppDownloadManager.shared.accessStatus {
             case .available: return .granted
             case .denied: return .missing
@@ -564,14 +703,19 @@ extension AppFeature {
         case .windowMaximizer: return s.windowMaximizeName
         case .windowLayout: return FeatureStrings.windowLayout(L10n.shared.language).title
         case .autoQuit: return s.autoQuitName
+        case .quitWindowProtection: return FeatureStrings.quitProtection(L10n.shared.language).name
         case .scrollInverter: return s.invertMouseScroll
+        case .focusFollowsMouse: return s.focusFollowsMouseName
         case .smoothScroll: return s.smoothScrollName
+        case .mouseAcceleration: return s.mouseAccelerationName
         case .mouseNavigation: return hub.titleMouseNavigation
         case .mouseButtonShortcuts: return FeatureStrings.mouseButtons(L10n.shared.language).pageTitle
         case .middleClick: return s.middleClickSection
         case .keyboardDebounce: return s.keyDebounceName
         case .textSnippets: return FeatureStrings.snippets(L10n.shared.language).pageTitle
         case .superKey: return FeatureStrings.superKey(L10n.shared.language).pageTitle
+        case .mouseClickDebounce:
+            return FeatureStrings.mouseClickDebounce(L10n.shared.language).title
         case .clipboardHistory: return FeatureStrings.clipboard(L10n.shared.language).title
         case .pastePlain: return s.pastePlainName
         case .finderCutPaste: return s.cutPasteName
@@ -587,6 +731,7 @@ extension AppFeature {
         case .keepAwake: return s.keepAwakeTitle
         case .brightness: return FeatureStrings.brightness(L10n.shared.language).pageTitle
         case .extraBrightness: return s.extraBrightnessName
+        case .bluetoothSleep: return FeatureStrings.bluetoothSleep(L10n.shared.language).pageTitle
         case .quickLauncher: return s.launcherName
         case .quickToggles: return FeatureStrings.quickToggles(L10n.shared.language).pageTitle
         case .colorPicker: return s.colorPickerName
@@ -601,6 +746,7 @@ extension AppFeature {
         case .mediaTools: return s.mediaName
         case .cleaner: return s.cleanerName
         case .uninstaller: return s.uninstallerName
+        case .killProcess: return FeatureStrings.killProcess(L10n.shared.language).pageTitle
         case .homebrew: return s.homebrewName
         case .appUpdates: return FeatureStrings.appUpdates(L10n.shared.language).pageTitle
         case .monitorCPU: return s.monitorShowCPU
@@ -621,14 +767,19 @@ extension AppFeature {
         case .windowMaximizer: return hub.descWindowMaximizer
         case .windowLayout: return hub.descWindowLayout
         case .autoQuit: return hub.descAutoQuit
+        case .quitWindowProtection: return FeatureStrings.quitProtection(L10n.shared.language).description
         case .scrollInverter: return hub.descScrollInverter
+        case .focusFollowsMouse: return L10n.shared.s.focusFollowsMouseCaption
         case .smoothScroll: return hub.descSmoothScroll
+        case .mouseAcceleration: return L10n.shared.s.mouseAccelerationCaption
         case .mouseNavigation: return hub.descMouseNavigation
         case .mouseButtonShortcuts: return FeatureStrings.mouseButtons(L10n.shared.language).hubDescription
         case .middleClick: return hub.descMiddleClick
         case .keyboardDebounce: return hub.descKeyboardDebounce
         case .textSnippets: return FeatureStrings.snippets(L10n.shared.language).hubDescription
         case .superKey: return FeatureStrings.superKey(L10n.shared.language).hubDescription
+        case .mouseClickDebounce:
+            return FeatureStrings.mouseClickDebounce(L10n.shared.language).caption
         case .clipboardHistory: return hub.descClipboardHistory
         case .pastePlain: return hub.descPastePlain
         case .finderCutPaste: return hub.descFinderCutPaste
@@ -644,6 +795,7 @@ extension AppFeature {
         case .keepAwake: return hub.descKeepAwake
         case .brightness: return FeatureStrings.brightness(L10n.shared.language).hubDescription
         case .extraBrightness: return hub.descExtraBrightness
+        case .bluetoothSleep: return FeatureStrings.bluetoothSleep(L10n.shared.language).hubDescription
         case .quickLauncher: return hub.descQuickLauncher
         case .quickToggles: return FeatureStrings.quickToggles(L10n.shared.language).hubDescription
         case .colorPicker: return hub.descColorPicker
@@ -657,9 +809,14 @@ extension AppFeature {
         case .cleaningMode: return hub.descCleaningMode
         case .mediaTools: return hub.descMediaTools
         case .cleaner:
-            return hub.descCleaner + " · "
+            let description = hub.descCleaner
+            guard WhatsAppDownloadSupport.isEnabled else {
+                return description
+            }
+            return description + " · "
                 + FeatureStrings.whatsAppDownloads(L10n.shared.language).hubDescription
         case .uninstaller: return hub.descUninstaller
+        case .killProcess: return FeatureStrings.killProcess(L10n.shared.language).hubDescription
         case .homebrew: return hub.descHomebrew
         case .appUpdates: return FeatureStrings.appUpdates(L10n.shared.language).hubDescription
         case .monitorCPU: return hub.descMonitorCPU
