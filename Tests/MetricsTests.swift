@@ -21665,15 +21665,15 @@ struct MetricsTests {
         expect(CommandBarEmoji.emoji.contains {
             $0.character == "😂" && $0.name == "face with tears of joy"
                 && $0.keywords.contains("haha") && $0.keywords.contains("roflmao")
-        }, "CLDR chat vocabulary finds laughter the way mainstream pickers do")
+        }, "chat vocabulary finds laughter the way mainstream pickers do")
         expect(CommandBarEmoji.emoji.contains {
             $0.character == "🤷" && $0.keywords.contains("idk")
                 && $0.keywords.contains("whatever")
-        }, "CLDR conversational aliases find common reactions")
+        }, "conversational aliases find common reactions")
         expect(CommandBarEmoji.emoji.contains {
             $0.character == "🙏" && $0.keywords.contains("appreciate")
                 && $0.keywords.contains("thx")
-        }, "CLDR finds chat shorthand and intent, not only literal gestures")
+        }, "chat shorthand and intent find emoji, not only literal gestures")
         expect(CommandBarEmoji.emoji.contains { $0.name.contains("heart") },
                "the ones people look for by feeling are findable")
         expect(CommandBarEmoji.emoji.contains {
