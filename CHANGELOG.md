@@ -6,6 +6,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Switching Spaces by dragging a button can follow your hand, the way a trackpad swipe does, in Mouse settings.
+- Recent captures can open from their own assignable shortcut without returning to the menu bar panel.
+
+### Changed
+- The radial menu throws its actions out of the center one after another when it opens and gathers them back in when it closes.
+- The radial menu's highlight sweeps to the pointed slice, and its actions sit on the glass as raised buttons with guides between them.
+- Panel outlines answer the system's Increase Contrast, which they were ignoring while already following reduced motion and transparency.
+
+### Fixed
+- The Keep Awake option for no icon shows the crossed-out circle it promised, where the bar across it was never drawn.
+- Saving the scratchpad to a file says so when it cannot be written, where a full disk or a read-only volume ended in silence.
+- Numbers on screen use the decimal mark of your region, where the panel, the menu bar and the editors always wrote a point.
+- The App Switcher and Dock preview now show their selection on the light appearance, where it was white on a light card.
+- The App Switcher names an app once, where a window titled after its own app made it say the name three times.
+- Searching the clipboard and Settings works in Turkish, where the dotted I kept matches from being found.
+- The list of apps on the first screen sorts by the rules of your language, where accented names were pushed past Z.
+- Counts read correctly in Russian, where two to four items take a form of their own and were being given the wrong word.
+- The selected-text and process counts read correctly at one, where every language showed "1 words" and "1 processes".
+- Spanish, Italian, Portuguese and Turkish quote the way the system does, instead of borrowing the French marks.
+- French keeps its punctuation and quotation marks on the line they belong to, where a line break could strand them.
+- Labels that say work is under way end with a real ellipsis, and apostrophes across every language are the typographic ones.
+- The Command Bar's battery example works in every language, where the English word matched nothing and led to an empty list.
+- A menu command names its app once, where every app's own menu made the row read the name twice.
+- The Media preview stops re-reading the watermark image from disk on every frame while its opacity is dragged.
+- The disk monitor no longer asks a mounted image how much it could free, a question it answered with an error every sample.
+- The recording editor's look presets carry one name each instead of repeating it, and sizes use a proper multiplication sign.
+- The zoom panel's button says what it does instead of borrowing the timeline's hint to click somewhere else.
+- Slider labels shrink instead of being cut where Turkish and Spanish run past the column, in the backdrop and recording panels.
+- Clicks and scrolling no longer lag in full-screen apps and games while the three-finger middle click or the reversed scroll direction is on.
+
 ## [3.3.3-beta.4] - 2026-09-03
 
 ### Summary

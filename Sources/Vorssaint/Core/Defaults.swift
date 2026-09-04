@@ -51,6 +51,7 @@ enum DefaultsKey {
     static let mouseButtonShortcuts = "mouseButtonShortcuts" // [button number: GlobalShortcut storage value]
     static let mouseSpacesGestureEnabled = "mouseSpacesGestureEnabled" // hold a button and drag to switch Spaces (issue #1012)
     static let mouseSpacesGestureButton = "mouseSpacesGestureButton"   // button number, 0 while none is chosen
+    static let mouseSpacesGestureFollowsDrag = "mouseSpacesGestureFollowsDrag" // the Space moves with the hand, the way natural scrolling does
     static let mouseClickDebounceEnabled = "mouseClickDebounceEnabled"
     static let mouseClickDebounceWindowMs = "mouseClickDebounceWindowMs"
     static let superKeyEnabled = "superKeyEnabled"        // chosen key holds the configured modifiers (issue #330)
@@ -524,6 +525,8 @@ enum DefaultsKey {
     static let screenshotFullScreenShortcut = "screenshotFullScreenShortcut"
     static let screenshotLastCaptureShortcutEnabled = "screenshotLastCaptureShortcutEnabled"
     static let screenshotLastCaptureShortcut = "screenshotLastCaptureShortcut"
+    static let recentCapturesShortcutEnabled = "recentCapturesShortcutEnabled"
+    static let recentCapturesShortcut = "recentCapturesShortcut"
     static let screenshotClipboardShortcutEnabled = "screenshotClipboardShortcutEnabled"
     static let screenshotClipboardShortcut = "screenshotClipboardShortcut"
     static let screenshotFreeze = "screenshotFreeze"
@@ -845,6 +848,7 @@ enum Defaults {
         DefaultsKey.mouseButtonShortcuts: [String: String](),
         DefaultsKey.mouseSpacesGestureEnabled: false,
         DefaultsKey.mouseSpacesGestureButton: 0,
+        DefaultsKey.mouseSpacesGestureFollowsDrag: false,
         DefaultsKey.mouseClickDebounceEnabled: false,
         DefaultsKey.mouseClickDebounceWindowMs: defaultMouseClickDebounceWindowMs,
         DefaultsKey.superKeyEnabled: false,
@@ -1263,6 +1267,8 @@ enum Defaults {
         DefaultsKey.screenshotFullScreenShortcut: GlobalShortcut.screenshotFullScreenDefault.storageValue,
         DefaultsKey.screenshotLastCaptureShortcutEnabled: false,
         DefaultsKey.screenshotLastCaptureShortcut: GlobalShortcut.screenshotLastCaptureDefault.storageValue,
+        DefaultsKey.recentCapturesShortcutEnabled: false,
+        DefaultsKey.recentCapturesShortcut: GlobalShortcut.recentCapturesDefault.storageValue,
         DefaultsKey.screenshotClipboardShortcutEnabled: false,
         DefaultsKey.screenshotClipboardShortcut: GlobalShortcut.screenshotClipboardDefault.storageValue,
         DefaultsKey.screenshotFreeze: true,
