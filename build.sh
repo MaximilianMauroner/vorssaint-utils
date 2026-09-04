@@ -502,6 +502,8 @@ cp Resources/com.vorssaint.utils.fan-control.plist \
     "$STAGE/Contents/Library/LaunchDaemons/$FAN_HELPER_ID.plist"
 cp Resources/Info.plist "$STAGE/Contents/Info.plist"
 cp CHANGELOG.md "$STAGE/Contents/Resources/CHANGELOG.md"
+cp Resources/EmojiAnnotations.json "$STAGE/Contents/Resources/EmojiAnnotations.json"
+cp Resources/EmojiAnnotations.LICENSE "$STAGE/Contents/Resources/EmojiAnnotations.LICENSE"
 for lproj in Resources/*.lproj(N); do
     cp -R "$lproj" "$STAGE/Contents/Resources/"
 done
