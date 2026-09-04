@@ -824,8 +824,8 @@ enum CommandBarQueryHabits {
 
     /// Starts the only Keychain work used by query learning. Search and
     /// selection read the memory cache without waiting for this queue.
-    static func warmInstallationKey() {
-        installationKeyCache.warm()
+    static func warmInstallationKey(_ whenReady: (() -> Void)? = nil) {
+        installationKeyCache.warm(whenReady)
     }
 
     private static let installationKeyCache = CommandBarQueryHabitKeyCache {
@@ -964,6 +964,7 @@ final class CommandBarQueryHabitKeyCache {
     private let queue: DispatchQueue
     private let load: () -> Data?
     private var state = State.idle
+    private var readinessCallbacks: [() -> Void] = []
 
     init(queue: DispatchQueue = DispatchQueue(
             label: "org.vorssaint.command-bar-query-habit-key",
@@ -980,8 +981,14 @@ final class CommandBarQueryHabitKeyCache {
         return key
     }
 
-    func warm() {
+    func warm(_ whenReady: (() -> Void)? = nil) {
         lock.lock()
+        if case .ready = state {
+            lock.unlock()
+            whenReady?()
+            return
+        }
+        if let whenReady { readinessCallbacks.append(whenReady) }
         guard case .idle = state else {
             lock.unlock()
             return
@@ -992,12 +999,17 @@ final class CommandBarQueryHabitKeyCache {
         queue.async { [self] in
             let key = load()
             lock.lock()
+            let callbacks: [() -> Void]
             if let key, key.count == 32 {
                 state = .ready(key)
+                callbacks = readinessCallbacks
             } else {
                 state = .idle
+                callbacks = []
             }
+            readinessCallbacks = []
             lock.unlock()
+            callbacks.forEach { $0() }
         }
     }
 }

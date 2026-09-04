@@ -23787,14 +23787,14 @@ struct MetricsTests {
                 letLoadFinish.wait()
                 return persistedHabitKey
             }
-        cache.warm()
+        let keyReady = DispatchSemaphore(value: 0)
+        cache.warm { keyReady.signal() }
         expect(loadStarted.wait(timeout: .now() + 1) == .success && cache.cachedKey == nil,
                "query-key warm-up never waits on the typing path")
         letLoadFinish.signal()
-        let keyReadyDeadline = Date().addingTimeInterval(1)
-        while cache.cachedKey == nil && Date() < keyReadyDeadline { Thread.sleep(forTimeInterval: 0.001) }
-        expect(cache.cachedKey == persistedHabitKey,
-               "a background query-key load publishes a validated key")
+        expect(keyReady.wait(timeout: .now() + 1) == .success
+                && cache.cachedKey == persistedHabitKey,
+               "a background query-key load publishes a validated key and announces readiness")
 
         var retryCount = 0
         let retryCache = CommandBarQueryHabitKeyCache(
