@@ -263,7 +263,6 @@ final class CommandBarService: ObservableObject {
 
     private func show(promptingFor stableKey: String?) {
         guard AppFeature.commandBar.isAvailable else { return }
-        CommandBarQueryHabits.warmInstallationKey()
         let panel = ensurePanel()
         if AppFeature.textSnippets.isAvailable {
             TextSnippetService.shared.setCommandBarVisible(true)
@@ -273,6 +272,13 @@ final class CommandBarService: ObservableObject {
         reloadPreferenceCaches()
         query = ""
         refreshResults()
+        CommandBarQueryHabits.warmInstallationKey { [weak self] in
+            DispatchQueue.main.async {
+                guard let self, self.presentationID == id, self.isVisible else { return }
+                self.preparedHabitQuery.reset()
+                self.refreshResults()
+            }
+        }
         present(panel)
         // Ordering the prepared panel is the keystroke path. Home is filled on
         // the next main-loop turn, when a close or newer opening can supersede it.
