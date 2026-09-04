@@ -20135,9 +20135,11 @@ struct MetricsTests {
         ])
         expect(invalidFileSearchBackup?.isEmpty == true,
                "a backup cannot restore non-text file search preferences")
-        expect(CommandBarPreferences.rankBias(for: .files) < 0
-                && CommandBarPreferences.rankBias(for: .apps) == 0,
-               "a file leads only when it is a plainly better match than a command")
+        expect(CommandBarPreferences.rankBias(for: .files)
+                    < CommandBarPreferences.rankBias(for: .actions)
+                && CommandBarPreferences.rankBias(for: .apps)
+                    > CommandBarPreferences.rankBias(for: .actions),
+               "apps lead commands, while a file needs a plainly better match")
 
         // MARK: The Mac's own Settings panes
         let openablePane: [String: Any] = [
@@ -20384,15 +20386,46 @@ struct MetricsTests {
 
         // MARK: Command bar emoji
 
-        expect(CommandBarEmoji.emoji.count > 150, "the curated emoji set is there")
+        expect(CommandBarEmoji.emoji.count > 1_000, "the searchable Unicode emoji set is there")
         expect(CommandBarEmoji.emoji.allSatisfy { !$0.name.isEmpty && !$0.character.isEmpty },
                "every emoji carries the words that find it")
-        expect(CommandBarEmoji.emoji.contains { $0.character == "🔥" && $0.name.contains("fire") },
-               "the names come from Unicode itself")
+        expect(CommandBarEmoji.emoji.contains {
+            $0.character == "😂" && $0.name == "face with tears of joy"
+                && $0.keywords.contains("haha") && $0.keywords.contains("roflmao")
+        }, "CLDR chat vocabulary finds laughter the way mainstream pickers do")
+        expect(CommandBarEmoji.emoji.contains {
+            $0.character == "🤷" && $0.keywords.contains("idk")
+                && $0.keywords.contains("whatever")
+        }, "CLDR conversational aliases find common reactions")
+        expect(CommandBarEmoji.emoji.contains {
+            $0.character == "🙏" && $0.keywords.contains("appreciate")
+                && $0.keywords.contains("thx")
+        }, "CLDR finds chat shorthand and intent, not only literal gestures")
         expect(CommandBarEmoji.emoji.contains { $0.name.contains("heart") },
                "the ones people look for by feeling are findable")
-        expect(Set(CommandBarEmoji.emoji.map(\.character)).count == CommandBarEmoji.emoji.count,
+        expect(CommandBarEmoji.emoji.contains {
+            $0.character == "💀" && $0.name == "skull" && $0.keywords.contains("dead")
+        }, "common emoji answer to both Unicode names and human aliases")
+        let emojiCharacters = Set(CommandBarEmoji.emoji.map(\.character))
+        expect(["©️", "™️", "✂️"].allSatisfy(emojiCharacters.contains),
+               "text-default emoji get the selector that displays them as emoji")
+        expect(["🌤️", "🌧️", "⛈️", "🗺️", "🖥️", "🖱️", "🖨️", "🛠️"].allSatisfy {
+            emojiCharacters.contains($0) && $0.unicodeScalars.last?.value == 0xFE0F
+        }, "popular text-default emoji keep their emoji presentation selector")
+        expect(["#️", "*️", "0️", "9️", "🏻", "🇦", "🦰", "🦱", "🦲", "🦳"].allSatisfy {
+            !emojiCharacters.contains($0)
+        }, "incomplete emoji sequence components are not offered alone")
+        expect(CommandBarEmoji.emoji.first?.character == "😀",
+               "popular emoji keep a predictable lead over the Unicode long tail")
+        expect(emojiCharacters.count == CommandBarEmoji.emoji.count,
                "no emoji is offered twice")
+        expect(CommandBarSearch.emojiQuery(from: "fire") == nil,
+               "an ordinary search never opens the emoji index")
+        expect(CommandBarSearch.emojiQuery(from: ":fire") == "fire"
+                && CommandBarSearch.emojiQuery(from: "  : heart  ") == "heart",
+               "a leading colon scopes the search and stays out of the emoji query")
+        expect(CommandBarSearch.emojiQuery(from: ":") == "",
+               "a colon by itself opens the emoji index for browsing")
 
         // MARK: Command bar highlighting
 
@@ -20435,7 +20468,8 @@ struct MetricsTests {
         expect(pageVisible(.commandBar, available: [.commandBar])
                 && !pageVisible(.commandBar, available: []),
                "the command bar page follows its hub switch")
-        expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.commandBarUsage),
+        expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.commandBarUsage)
+                && !SettingsBackupSupport.exportKeys().contains(DefaultsKey.commandBarQueryHabits),
                "what the person runs most never travels in a backup")
         expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.commandBarShortcutEnabled)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.commandBarShortcut)
@@ -21666,8 +21700,12 @@ struct MetricsTests {
                "a dropped letter still finds the command")
         expect(CommandBarSearch.matches(title: "Brilho da tela", query: "birlho"),
                "two swapped letters still find the command")
+        expect(CommandBarSearch.matches(title: "Zen", query: "zne"),
+               "a swapped pair still finds a three-letter name")
         expect(!CommandBarSearch.matches(title: "Brilho da tela", query: "volume"),
                "an unrelated word stays out")
+        expect(!CommandBarSearch.matches(title: "Zen", query: "zip"),
+               "short substitutions do not make unrelated names match")
         expect(CommandBarSearch.matches(title: "Capturar tela", keywords: "screenshot print", query: "print"),
                "keywords match like the title does")
         expect(CommandBarSearch.matches(title: "Capturas recentes",
@@ -21705,6 +21743,10 @@ struct MetricsTests {
                 && CommandBarSearch.withinOneEdit("brilyo", "brilho")
                 && !CommandBarSearch.withinOneEdit("brolyo", "brilho"),
                "one edit means one swap, one gap or one wrong letter")
+        expect(CommandBarSearch.isAdjacentTransposition("zne", "zen")
+                && !CommandBarSearch.isAdjacentTransposition("zne", "zone")
+                && !CommandBarSearch.isAdjacentTransposition("zip", "zen"),
+               "short typo tolerance accepts one neighboring swap only")
 
         let barCandidates = [
             CommandBarCandidate(index: 0, title: "Capturar tela"),
@@ -21728,6 +21770,14 @@ struct MetricsTests {
                "a boost never resurrects a non-match")
         expect(CommandBarSearch.rankedIndexes(candidates: barCandidates, matching: " ").isEmpty,
                "a blank query ranks nothing; suggestions handle it")
+        let typoCandidates = [
+            CommandBarCandidate(index: 0, title: "Zebra"),
+            CommandBarCandidate(index: 1, title: "Zen"),
+            CommandBarCandidate(index: 2, title: "Zne Tools"),
+        ]
+        expect(CommandBarSearch.rankedIndexes(candidates: typoCandidates, matching: "zne")
+                == [2, 1],
+               "literal short matches rank above a transposition and unrelated names stay out")
 
         // One widely installed app carries a left-to-right mark in front of
         // its name, which made it stop being an exact match for the name it
@@ -21744,9 +21794,10 @@ struct MetricsTests {
                 == [1, 0],
                "the app named exactly what was typed leads, invisible mark and all")
         expect(CommandBarPreferences.rankBias(for: .menus) < 0
-                && CommandBarPreferences.rankBias(for: .apps) == 0
+                && CommandBarPreferences.rankBias(for: .apps)
+                    > CommandBarPreferences.rankBias(for: .actions)
                 && CommandBarPreferences.rankBias(for: .actions) == 0,
-               "a borrowed menu row sits under what this Mac owns")
+               "apps lead owned actions, and borrowed menu rows sit below both")
         let borrowed = [
             CommandBarCandidate(index: 0, title: "Tela cheia",
                                 boost: CommandBarPreferences.rankBias(for: .menus)),
@@ -21763,6 +21814,37 @@ struct MetricsTests {
         expect(CommandBarSearch.rankedIndexes(candidates: sharper, matching: "fechar aba")
                 .first == 0,
                "the step down never buries a menu command that is what was typed")
+        let appBeforeDiscovery = [
+            CommandBarCandidate(index: 0, title: "What's New",
+                                boost: CommandBarPreferences.rankBias(for: .settingsPages)),
+            CommandBarCandidate(index: 1, title: "WhatsApp",
+                                boost: CommandBarPreferences.rankBias(for: .apps)),
+        ]
+        expect(CommandBarSearch.rankedIndexes(candidates: appBeforeDiscovery, matching: "what")
+                .first == 1,
+               "an equally good app match leads a low-priority discovery page")
+        let learnedBeforeExact = [
+            CommandBarCandidate(index: 0, title: "Passwords"),
+            CommandBarCandidate(index: 1, title: "Proton Pass", priority: 1),
+        ]
+        expect(CommandBarSearch.rankedIndexes(candidates: learnedBeforeExact, matching: "pass")
+                .first == 1,
+               "a learned query choice outranks an unselected stronger text match")
+        let namedApp = [
+            CommandBarCandidate(index: 0, title: "Codex"),
+            CommandBarCandidate(index: 1, title: "Visual Studio Code",
+                                keywords: "codex", priority: 2_400),
+        ]
+        expect(CommandBarSearch.rankedIndexes(candidates: namedApp, matching: "codex")
+                .first == 1,
+               "a name deliberately given to an app still leads its ordinary title match")
+        let aliasBeforeLearning = [
+            CommandBarCandidate(index: 0, title: "Passwords", priority: 1_100),
+            CommandBarCandidate(index: 1, title: "Proton Pass", priority: 720),
+        ]
+        expect(CommandBarSearch.rankedIndexes(candidates: aliasBeforeLearning, matching: "pass")
+                .first == 0,
+               "an explicit alias remains stronger than learned query behavior")
 
         // Two rows with one id is undefined behaviour in a SwiftUI list, and
         // the list is stitched from six providers plus whatever was saved.
@@ -22141,6 +22223,255 @@ struct MetricsTests {
                "no habit outruns a literal text hit")
         expect(CommandBarUsage.boost(for: nil, now: barNow) == 0,
                "no usage, no boost")
+        let categoryOrder = CommandBarUsage.categoryIDs(
+            usage: [
+                "emoji.fire": CommandBarUse(count: 3, lastUsed: barNow),
+                "emoji.heart": CommandBarUse(count: 3, lastUsed: barNow + 10),
+                "emoji.wave": CommandBarUse(count: 1, lastUsed: barNow + 20),
+            ],
+            available: ["emoji.grin", "emoji.fire", "emoji.wave", "emoji.heart", "emoji.star"])
+        expect(categoryOrder == [
+            "emoji.heart", "emoji.fire", "emoji.wave", "emoji.grin", "emoji.star",
+        ], "empty categories lead with frequent and recent choices, then keep catalog order")
+        expect(CommandBarUsage.categoryIDs(usage: [:],
+                                           available: ["emoji.grin", "emoji.fire", "emoji.wave"])
+                == ["emoji.grin", "emoji.fire", "emoji.wave"],
+               "an unlearned category preserves its useful catalog order")
+
+        let habitKey = Data(repeating: 0x31, count: 32)
+        let otherHabitKey = Data(repeating: 0x72, count: 32)
+        let preparedWhat = CommandBarQueryHabits.prepare("what", key: habitKey)
+        let preparedWhatsApp = CommandBarQueryHabits.prepare("whatsapp", key: habitKey)
+        var queryHabits: CommandBarQueryHabits.Store = [:]
+        queryHabits = CommandBarQueryHabits.recording(
+            queryHabits, preparedQuery: preparedWhat,
+            resultID: "app./Applications/WhatsApp.app", now: barNow)
+        queryHabits = CommandBarQueryHabits.recording(
+            queryHabits, preparedQuery: preparedWhat,
+            resultID: "app./Applications/WhatsApp.app", now: barNow + 10)
+        let learnedExact = CommandBarQueryHabits.boost(
+            for: "app./Applications/WhatsApp.app", preparedQuery: preparedWhat,
+            store: queryHabits, now: barNow + 20)
+        let learnedRelated = CommandBarQueryHabits.boost(
+            for: "app./Applications/WhatsApp.app", preparedQuery: preparedWhatsApp,
+            store: queryHabits, now: barNow + 20)
+        expect(learnedExact > 0 && learnedRelated > 0,
+               "repeated choices teach the exact query and a longer related query")
+        expect(CommandBarQueryHabits.boost(
+                    for: "app./Applications/WhatsApp Beta.app", preparedQuery: preparedWhat,
+                    store: queryHabits,
+                    now: barNow + 20) == 0,
+               "a learned query lifts only the selected result")
+        let encodedQueryHabits = CommandBarQueryHabits.encode(queryHabits)
+        let hexadecimal = CharacterSet(charactersIn: "0123456789abcdef")
+        let otherPreparedWhat = CommandBarQueryHabits.prepare("what", key: otherHabitKey)
+        let otherKeyHabits = CommandBarQueryHabits.recording(
+            [:], preparedQuery: otherPreparedWhat, resultID: "app.test", now: barNow)
+        let encodedKeysAreDigests = queryHabits.keys.allSatisfy { key in
+            key.count == 24 && key.unicodeScalars.allSatisfy(hexadecimal.contains)
+        }
+        let keysAreInstallationSpecific = Set(queryHabits.keys)
+            .isDisjoint(with: Set(otherKeyHabits.keys))
+        let habitsRoundTrip = CommandBarQueryHabits.decode(encodedQueryHabits) == queryHabits
+        expect(encodedKeysAreDigests && preparedWhat.keyCount == 2
+                && keysAreInstallationSpecific && habitsRoundTrip,
+               "query habits round-trip as per-install keyed digests, prepared once per query")
+        expect(CommandBarQueryHabits.removing(
+                    resultID: "app./Applications/WhatsApp.app", from: queryHabits).isEmpty,
+               "forgetting a result removes its learned query choices")
+
+        var maximumHabitStore: CommandBarQueryHabits.Store = [:]
+        for queryIndex in 0..<CommandBarQueryHabits.storedQueryLimit {
+            let queryKey = String(format: "%024x", queryIndex)
+            var choices: [String: CommandBarUse] = [:]
+            for resultIndex in 0..<4 {
+                choices["app.\(resultIndex)"] = CommandBarUse(
+                    count: resultIndex + 1,
+                    lastUsed: barNow + Double(queryIndex * 4 + resultIndex))
+            }
+            maximumHabitStore[queryKey] = choices
+        }
+        let maximumHabitPayload = CommandBarQueryHabits.encode(maximumHabitStore)
+        var habitDecodeCount = 0
+        var habitStoreCache = CommandBarQueryHabitStoreCache()
+        habitStoreCache.reload(maximumHabitPayload) { raw in
+            habitDecodeCount += 1
+            return CommandBarQueryHabits.decode(raw)
+        }
+        for length in 3...24 {
+            let prepared = CommandBarQueryHabits.prepare(
+                String("abcdefghijklmnopqrstuvwx".prefix(length)), key: habitKey)
+            _ = CommandBarQueryHabits.boost(
+                for: "app.0", preparedQuery: prepared,
+                store: habitStoreCache.store, now: barNow)
+        }
+        expect(habitDecodeCount == 1 && habitStoreCache.store.count == 320,
+               "a maximum learned-query store is decoded once, not once per keystroke")
+
+        var digestCount = 0
+        var preparationCache = CommandBarQueryHabits.PreparationCache()
+        var lastPrepared = CommandBarQueryHabits.prepare("", key: habitKey)
+        for length in 3...24 {
+            lastPrepared = CommandBarQueryHabits.prepare(
+                String("abcdefghijklmnopqrstuvwx".prefix(length)),
+                key: habitKey,
+                cache: &preparationCache) { prefix, _ in
+                    digestCount += 1
+                    return String(repeating: "0", count: 24 - String(prefix.count).count)
+                        + String(prefix.count)
+                }
+        }
+        expect(digestCount == 22 && lastPrepared.keyCount == 22,
+               "extending a query hashes only each newly-added prefix")
+        _ = CommandBarQueryHabits.prepare(
+            "abcdefghijkl", key: habitKey, cache: &preparationCache) { _, _ in
+                digestCount += 1
+                return "unused"
+            }
+        expect(digestCount == 22,
+               "deleting from a prepared query reuses its matching prefix slice")
+
+        habitStoreCache.forgetAll()
+        expect(habitStoreCache.store.isEmpty,
+               "forgetting all learned choices clears the decoded store immediately")
+        habitStoreCache.record(preparedQuery: preparedWhat,
+                               resultID: "action.screenshot", now: barNow)
+        expect(!habitStoreCache.store.isEmpty,
+               "recording any durable result updates the decoded store immediately")
+        habitStoreCache.remove(resultID: "action.screenshot")
+        expect(habitStoreCache.store.isEmpty,
+               "forgetting one result updates the decoded store immediately")
+        habitStoreCache.reload(encodedQueryHabits)
+        expect(habitStoreCache.store == queryHabits,
+               "reloading preferences replaces the decoded store with persisted learning")
+
+        let persistedHabitKey = Data(repeating: 0x44, count: 32)
+        var keyReads: [(OSStatus, Data?)] = [(errSecSuccess, persistedHabitKey)]
+        var generatedKeyCount = 0
+        var addedKeyCount = 0
+        var updatedKeyCount = 0
+        func habitKeyStore() -> CommandBarQueryHabitKeyStore {
+            CommandBarQueryHabitKeyStore(
+                read: { keyReads.removeFirst() },
+                randomKey: {
+                    generatedKeyCount += 1
+                    return persistedHabitKey
+                },
+                add: { _ in addedKeyCount += 1; return errSecSuccess },
+                update: { _ in updatedKeyCount += 1; return errSecSuccess })
+        }
+        expect(CommandBarQueryHabits.loadInstallationKey(using: habitKeyStore())
+                == persistedHabitKey
+                && generatedKeyCount == 0 && addedKeyCount == 0 && updatedKeyCount == 0,
+               "a valid stored query key is used without mutation")
+
+        keyReads = [(errSecInteractionNotAllowed, nil)]
+        expect(CommandBarQueryHabits.loadInstallationKey(using: habitKeyStore()) == nil
+                && generatedKeyCount == 0,
+               "a transient Keychain read error never creates an ephemeral query key")
+
+        keyReads = [(errSecItemNotFound, nil), (errSecSuccess, persistedHabitKey)]
+        expect(CommandBarQueryHabits.loadInstallationKey(using: habitKeyStore())
+                == persistedHabitKey && generatedKeyCount == 1 && addedKeyCount == 1,
+               "a new query key is published only after successful read-back")
+
+        keyReads = [(errSecItemNotFound, nil), (errSecSuccess, persistedHabitKey)]
+        let duplicateStore = CommandBarQueryHabitKeyStore(
+            read: { keyReads.removeFirst() },
+            randomKey: { Data(repeating: 0x55, count: 32) },
+            add: { _ in errSecDuplicateItem },
+            update: { _ in errSecInternalError })
+        expect(CommandBarQueryHabits.loadInstallationKey(using: duplicateStore)
+                == persistedHabitKey,
+               "a duplicate-item race uses the other writer's persisted query key")
+
+        keyReads = [(errSecSuccess, Data([0x01]))]
+        let failedRepairStore = CommandBarQueryHabitKeyStore(
+            read: { keyReads.removeFirst() },
+            randomKey: { persistedHabitKey },
+            add: { _ in errSecInternalError },
+            update: { _ in errSecInteractionNotAllowed })
+        expect(CommandBarQueryHabits.loadInstallationKey(using: failedRepairStore) == nil,
+               "a malformed query key is not replaced or published when repair fails")
+
+        keyReads = [(errSecSuccess, Data([0x01])), (errSecSuccess, persistedHabitKey)]
+        let repairedStore = CommandBarQueryHabitKeyStore(
+            read: { keyReads.removeFirst() },
+            randomKey: { persistedHabitKey },
+            add: { _ in errSecInternalError },
+            update: { _ in errSecSuccess })
+        expect(CommandBarQueryHabits.loadInstallationKey(using: repairedStore)
+                == persistedHabitKey,
+               "a repaired query key is published only after successful read-back")
+
+        keyReads = [(errSecItemNotFound, nil)]
+        let randomFailureStore = CommandBarQueryHabitKeyStore(
+            read: { keyReads.removeFirst() },
+            randomKey: { nil },
+            add: { _ in errSecSuccess },
+            update: { _ in errSecSuccess })
+        expect(CommandBarQueryHabits.loadInstallationKey(using: randomFailureStore) == nil,
+               "random generation failure leaves query learning without a key")
+
+        keyReads = [(errSecItemNotFound, nil)]
+        let addFailureStore = CommandBarQueryHabitKeyStore(
+            read: { keyReads.removeFirst() },
+            randomKey: { persistedHabitKey },
+            add: { _ in errSecInteractionNotAllowed },
+            update: { _ in errSecSuccess })
+        expect(CommandBarQueryHabits.loadInstallationKey(using: addFailureStore) == nil,
+               "a failed query-key insert never publishes its random candidate")
+
+        let loadStarted = DispatchSemaphore(value: 0)
+        let letLoadFinish = DispatchSemaphore(value: 0)
+        let cache = CommandBarQueryHabitKeyCache(
+            queue: DispatchQueue(label: "org.vorssaint.tests.command-bar-query-key")) {
+                loadStarted.signal()
+                letLoadFinish.wait()
+                return persistedHabitKey
+            }
+        cache.warm()
+        expect(loadStarted.wait(timeout: .now() + 1) == .success && cache.cachedKey == nil,
+               "query-key warm-up never waits on the typing path")
+        letLoadFinish.signal()
+        let keyReadyDeadline = Date().addingTimeInterval(1)
+        while cache.cachedKey == nil && Date() < keyReadyDeadline { Thread.sleep(forTimeInterval: 0.001) }
+        expect(cache.cachedKey == persistedHabitKey,
+               "a background query-key load publishes a validated key")
+
+        var retryCount = 0
+        let retryCache = CommandBarQueryHabitKeyCache(
+            queue: DispatchQueue(label: "org.vorssaint.tests.command-bar-query-key-retry")) {
+                retryCount += 1
+                return retryCount == 1 ? nil : persistedHabitKey
+            }
+        retryCache.warm()
+        let secondRetryDeadline = Date().addingTimeInterval(1)
+        while retryCache.cachedKey == nil && Date() < secondRetryDeadline {
+            retryCache.warm()
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        expect(retryCount == 2 && retryCache.cachedKey == persistedHabitKey,
+               "a failed query-key warm-up remains retryable")
+        let learnedCompletion = CommandBarCompletion.queryForLearning(
+            current: "WhatsApp", beforeCompletion: "whts")
+        let retainedCompletion = CommandBarCompletion.retainedOriginal(
+            "whts", completedValue: "WhatsApp", afterChangingTo: "WhatsApp")
+        let editedCompletion = CommandBarCompletion.retainedOriginal(
+            "whts", completedValue: "WhatsApp", afterChangingTo: "WhatsApp b")
+        expect(learnedCompletion == "whts" && retainedCompletion == "whts"
+                && editedCompletion == nil,
+               "Tab remembers the fuzzy search unless the completed field is edited")
+
+        let learningDefaultsName = "com.vorssaint.tests.command-bar-learning"
+        let learningDefaults = UserDefaults(suiteName: learningDefaultsName)!
+        learningDefaults.set("usage", forKey: DefaultsKey.commandBarUsage)
+        learningDefaults.set("habits", forKey: DefaultsKey.commandBarQueryHabits)
+        CommandBarLearning.forgetAll(in: learningDefaults)
+        expect(learningDefaults.object(forKey: DefaultsKey.commandBarUsage) == nil
+                && learningDefaults.object(forKey: DefaultsKey.commandBarQueryHabits) == nil,
+               "forgetting all learned use clears usage and query choices together")
+        learningDefaults.removePersistentDomain(forName: learningDefaultsName)
 
         let barSuggestions = CommandBarUsage.suggestionIDs(
             usage: barUsage,
