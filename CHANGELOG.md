@@ -7,9 +7,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Summary
-Vorssaint adds edge snap controls and shortcuts for recent captures and keyboard brightness, and refines the radial menu. It adds capture menu and magnifier zoom choices and improves color picking, app icons, readability, localization, mouse reconnection, Command Bar responsiveness, system shortcut recovery and build checks.
+Vorssaint adds app-based Keep Awake automation, app exceptions for Super key, centered half-width windows, edge snap controls and shortcuts for recent captures and keyboard brightness. It refines the radial menu, adds capture menu and magnifier zoom choices, and improves color picking, app icons, readability, localization, mouse reconnection, Command Bar responsiveness, system shortcut recovery and build checks.
 
 ### Added
+- Keep Awake can start automatically while selected apps are open, including in the background. Thanks to @Borisserz.
+- Super key can pause while selected apps are open, restoring the chosen key’s normal behavior until they quit. Thanks to @Borisserz.
+- Window Layout can center a window at half the screen’s width, with an optional shortcut. Thanks to @Borisserz.
 - Each capture tool can hide the mode menu when opened with its keyboard shortcut. Thanks to @EugeneCarldotme.
 - The capture magnifier offers a remembered or chosen starting zoom and step-by-step wheel control. Thanks to @ruvelro.
 - Optional keyboard backlight shortcuts adjust brightness one step at a time, available in Keyboard shortcuts. Thanks to @EugeneCarldotme.
