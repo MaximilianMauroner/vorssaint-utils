@@ -784,7 +784,7 @@ enum CommandBarQueryHabits {
         let old = cache.normalizedQuery
         if normalized.hasPrefix(old) {
             var keys = cache.prepared.keys
-            let firstNewLength = max(3, Array(old).count + 1)
+            let firstNewLength = Array(old).count + 1
             if firstNewLength <= characters.count {
                 for length in firstNewLength...characters.count {
                     let prefix = String(characters.prefix(length))
@@ -805,8 +805,8 @@ enum CommandBarQueryHabits {
     private static func preparedKeys(_ characters: [Character],
                                      key: Data,
                                      digest: (String, Data) -> String) -> [(String, Int)] {
-        guard characters.count >= 3 else { return [] }
-        return (3...characters.count).map { length in
+        guard !characters.isEmpty else { return [] }
+        return (1...characters.count).map { length in
             (digest(String(characters.prefix(length)), key), length)
         }
     }
@@ -1022,6 +1022,12 @@ enum CommandBarLearning {
 }
 
 enum CommandBarCompletion {
+    static func completedQuery(current: String, title: String, matchTitle: String?) -> String {
+        CommandBarSearch.emojiQuery(from: current) != nil
+            ? ":" + (matchTitle ?? title)
+            : title
+    }
+
     static func queryForLearning(current: String, beforeCompletion: String?) -> String {
         beforeCompletion ?? current
     }

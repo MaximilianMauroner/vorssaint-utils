@@ -21679,6 +21679,12 @@ struct MetricsTests {
         expect(CommandBarEmoji.emoji.contains {
             $0.character == "💀" && $0.name == "skull" && $0.keywords.contains("dead")
         }, "common emoji answer to both Unicode names and human aliases")
+        expect(CommandBarEmoji.emoji.contains {
+            $0.character == "🖥️" && $0.identity == "🖥"
+        }, "emoji presentation does not change a popular row's stored identity")
+        expect(CommandBarEmoji.emoji.contains {
+            $0.character == "❤️" && $0.identity == "❤️"
+        }, "an existing selector remains part of its original row identity")
         let emojiCharacters = Set(CommandBarEmoji.emoji.map(\.character))
         expect(["©️", "™️", "✂️"].allSatisfy(emojiCharacters.contains),
                "text-default emoji get the selector that displays them as emoji")
@@ -23597,6 +23603,15 @@ struct MetricsTests {
 
         let habitKey = Data(repeating: 0x31, count: 32)
         let otherHabitKey = Data(repeating: 0x72, count: 32)
+        for shortQuery in ["w", "wa"] {
+            let prepared = CommandBarQueryHabits.prepare(shortQuery, key: habitKey)
+            let recorded = CommandBarQueryHabits.recording(
+                [:], preparedQuery: prepared, resultID: "app.whatsapp", now: barNow)
+            let restored = CommandBarQueryHabits.decode(CommandBarQueryHabits.encode(recorded))
+            expect(CommandBarQueryHabits.boost(
+                for: "app.whatsapp", preparedQuery: prepared, store: restored, now: barNow) > 0,
+                "one- and two-character choices survive a storage round trip")
+        }
         let preparedWhat = CommandBarQueryHabits.prepare("what", key: habitKey)
         let preparedWhatsApp = CommandBarQueryHabits.prepare("whatsapp", key: habitKey)
         var queryHabits: CommandBarQueryHabits.Store = [:]
@@ -23630,7 +23645,7 @@ struct MetricsTests {
         let keysAreInstallationSpecific = Set(queryHabits.keys)
             .isDisjoint(with: Set(otherKeyHabits.keys))
         let habitsRoundTrip = CommandBarQueryHabits.decode(encodedQueryHabits) == queryHabits
-        expect(encodedKeysAreDigests && preparedWhat.keyCount == 2
+        expect(encodedKeysAreDigests && preparedWhat.keyCount == 4
                 && keysAreInstallationSpecific && habitsRoundTrip,
                "query habits round-trip as per-install keyed digests, prepared once per query")
         expect(CommandBarQueryHabits.removing(
@@ -23678,14 +23693,14 @@ struct MetricsTests {
                         + String(prefix.count)
                 }
         }
-        expect(digestCount == 22 && lastPrepared.keyCount == 22,
+        expect(digestCount == 24 && lastPrepared.keyCount == 24,
                "extending a query hashes only each newly-added prefix")
         _ = CommandBarQueryHabits.prepare(
             "abcdefghijkl", key: habitKey, cache: &preparationCache) { _, _ in
                 digestCount += 1
                 return "unused"
             }
-        expect(digestCount == 22,
+        expect(digestCount == 24,
                "deleting from a prepared query reuses its matching prefix slice")
 
         habitStoreCache.forgetAll()
@@ -23810,6 +23825,14 @@ struct MetricsTests {
         }
         expect(retryCount == 2 && retryCache.cachedKey == persistedHabitKey,
                "a failed query-key warm-up remains retryable")
+        let completedEmoji = CommandBarCompletion.completedQuery(
+            current: ":fire", title: "🔥  fire", matchTitle: "fire")
+        expect(completedEmoji == ":fire"
+                && CommandBarSearch.emojiQuery(from: completedEmoji) == "fire",
+               "Tab completion retains emoji scope and the searchable name")
+        expect(CommandBarCompletion.completedQuery(
+            current: "whts", title: "WhatsApp", matchTitle: "WhatsApp") == "WhatsApp",
+               "ordinary Tab completion still uses the selected title")
         let learnedCompletion = CommandBarCompletion.queryForLearning(
             current: "WhatsApp", beforeCompletion: "whts")
         let retainedCompletion = CommandBarCompletion.retainedOriginal(

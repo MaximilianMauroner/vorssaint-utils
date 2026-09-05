@@ -1206,7 +1206,7 @@ enum CommandBarCatalog {
     static func emojiEntries(bar: CommandBarFeatureStrings) -> [CommandBarEntry] {
         CommandBarEmoji.emoji.map { emoji in
             CommandBarEntry(
-                id: "emoji.\(emoji.character)",
+                id: "emoji.\(emoji.identity)",
                 title: emoji.character + "  " + emoji.name,
                 subtitle: bar.kindEmoji,
                 keywords: emoji.name + " " + emoji.keywords + " " + bar.kindEmoji,

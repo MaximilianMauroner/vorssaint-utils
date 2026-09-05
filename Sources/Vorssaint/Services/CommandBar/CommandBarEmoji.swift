@@ -11,6 +11,7 @@ enum CommandBarEmoji {
     /// maintain and nothing to fall out of date.
     struct Emoji {
         let character: String
+        let identity: String
         let name: String
         let keywords: String
     }
@@ -87,6 +88,7 @@ enum CommandBarEmoji {
             guard seen.insert(canonical).inserted else { return nil }
             guard let name = unicodeName(of: character) else { return nil }
             return Emoji(character: character,
+                         identity: aliasCharacter ?? character,
                          name: name,
                          keywords: aliases[aliasCharacter ?? character] ?? "")
         }
