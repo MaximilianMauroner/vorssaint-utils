@@ -51,7 +51,21 @@ final class CommandBarService: ObservableObject {
     }
 
     @Published var query = "" {
-        didSet { if query != oldValue { refreshResults() } }
+        didSet {
+            guard query != oldValue else { return }
+            // The argument field is temporary. Keep the completed search and
+            // its original spelling intact until returning to search mode.
+            if case .argument = mode {
+                refreshResults()
+                return
+            }
+            queryBeforeCompletion = CommandBarCompletion.retainedOriginal(
+                queryBeforeCompletion,
+                completedValue: completedQuery,
+                afterChangingTo: query)
+            if queryBeforeCompletion == nil { completedQuery = nil }
+            refreshResults()
+        }
     }
     @Published private(set) var rows: [CommandBarEntry] = []
     @Published private(set) var isShowingSuggestions = false
@@ -153,6 +167,10 @@ final class CommandBarService: ObservableObject {
     private var finderAutomationDenied = false
     /// The query to restore when Esc leaves argument or confirm mode.
     private var savedQuery = ""
+    /// Tab replaces the field with a title, but the search that found that
+    /// title is what app-choice learning should remember.
+    private var queryBeforeCompletion: String?
+    private var completedQuery: String?
     /// The last thing typed, kept only in memory so reopening can offer it.
     private var lastQuery = ""
     /// Where the pointer sat when the bar opened. A row under a pointer that
@@ -165,6 +183,10 @@ final class CommandBarService: ObservableObject {
     /// What the ranking last ran on, to tell a keystroke apart from a list
     /// rebuilt underneath by a background load.
     private var lastRankedQuery: String?
+    /// Decoded once when preferences reload, never while a keystroke ranks
+    /// rows. The second cache keeps already-keyed prefixes for this opening.
+    private var queryHabitStore = CommandBarQueryHabitStoreCache()
+    private var preparedHabitQuery = CommandBarQueryHabits.PreparationCache()
     /// The system only shows its Accessibility prompt once; after that a
     /// refusal is a beep, the pattern the other quick tools follow.
     private var promptedForAccessibility = false
@@ -182,6 +204,7 @@ final class CommandBarService: ObservableObject {
 
     func syncWithPreferences() {
         let available = AppFeature.commandBar.isAvailable
+        if available { CommandBarQueryHabits.warmInstallationKey() }
         let enabled = available
             && UserDefaults.standard.bool(forKey: DefaultsKey.commandBarShortcutEnabled)
         let shortcut = GlobalShortcut.saved(for: DefaultsKey.commandBarShortcut,
@@ -255,6 +278,13 @@ final class CommandBarService: ObservableObject {
         reloadPreferenceCaches()
         query = ""
         refreshResults()
+        CommandBarQueryHabits.warmInstallationKey { [weak self] in
+            DispatchQueue.main.async {
+                guard let self, self.presentationID == id, self.isVisible else { return }
+                self.preparedHabitQuery.reset()
+                self.refreshResults()
+            }
+        }
         present(panel)
         // Ordering the prepared panel is the keystroke path. Home is filled on
         // the next main-loop turn, when a close or newer opening can supersede it.
@@ -281,6 +311,8 @@ final class CommandBarService: ObservableObject {
         sectionTitles = [:]
         mode = .search
         savedQuery = ""
+        queryBeforeCompletion = nil
+        completedQuery = nil
         queryWhenRun = ""
         selectionWhenRun = ""
         lastPointerLocation = NSEvent.mouseLocation
@@ -704,6 +736,8 @@ final class CommandBarService: ObservableObject {
             from: UserDefaults.standard.string(forKey: DefaultsKey.commandBarDisabledSources) ?? "")
         usageCache = CommandBarUsage.decode(
             UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage))
+        queryHabitStore.reload(
+            UserDefaults.standard.string(forKey: DefaultsKey.commandBarQueryHabits))
         shortcutCache = rowShortcuts
         compactMode = UserDefaults.standard.bool(forKey: DefaultsKey.commandBarCompactMode)
         hasCustomPosition = positionOffset != .zero
@@ -827,6 +861,9 @@ final class CommandBarService: ObservableObject {
         usage.removeValue(forKey: entry.id)
         UserDefaults.standard.set(CommandBarUsage.encode(usage), forKey: DefaultsKey.commandBarUsage)
         queryMemory.forget(id: entry.id)
+        queryHabitStore.remove(resultID: entry.id)
+        UserDefaults.standard.set(CommandBarQueryHabits.encode(queryHabitStore.store),
+                                  forKey: DefaultsKey.commandBarQueryHabits)
         refreshAfterPreferenceChange()
     }
 
@@ -834,8 +871,10 @@ final class CommandBarService: ObservableObject {
     /// What one session noticed about what was typed goes with it, or clearing
     /// the ranking would leave half of it standing.
     func forgetLearnedRanking() {
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.commandBarUsage)
+        CommandBarLearning.forgetAll()
         queryMemory.clear()
+        queryHabitStore.forgetAll()
+        preparedHabitQuery.reset()
         refreshAfterPreferenceChange()
     }
 
@@ -978,7 +1017,15 @@ final class CommandBarService: ObservableObject {
                 }
                 if let category = activeCategory {
                     let bar = FeatureStrings.commandBar(L10n.shared.language)
-                    rows = CommandBarService.uniqued(categoryContent(category, bar: bar))
+                    let content = CommandBarService.uniqued(categoryContent(category, bar: bar))
+                    let byID = Dictionary(content.map { ($0.id, $0) },
+                                          uniquingKeysWith: { first, _ in first })
+                    let usage = CommandBarUsage.decode(
+                        UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage))
+                    let durableUsage = usage.filter { byID[$0.key]?.countsUsage == true }
+                    rows = CommandBarUsage.categoryIDs(usage: durableUsage,
+                                                       available: content.map(\.id))
+                        .compactMap { byID[$0] }
                     sectionTitles = rows.isEmpty
                         ? [:]
                         : [0: categoryHeading(category, count: rows.count)]
@@ -1201,6 +1248,7 @@ final class CommandBarService: ObservableObject {
         // Inside a category, typing filters that category and nothing else:
         // no answer row, no caps per kind, just the ranking over one list.
         if let category = activeCategory {
+            scriptRunner.cancelPending()
             // A search inside one category is not a search for files, so any
             // pending one goes: it would land on a list that has no room for
             // it and refresh the bar for nothing.
@@ -1214,18 +1262,60 @@ final class CommandBarService: ObservableObject {
                 // filters it and searching inside the category must agree.
                 .filter { !hidden.contains($0.stableKey) }
                 : categoryContent(category, bar: bar)
+            let now = Date().timeIntervalSince1970
+            let habitQuery = pool.contains(where: \.countsUsage)
+                ? CommandBarQueryHabits.prepare(trimmed, cache: &preparedHabitQuery)
+                : nil
             let candidates = pool.enumerated().map { index, entry in
                 let folded = normalizedByID[entry.id]
+                let habitBoost = entry.countsUsage ? habitQuery.map {
+                    CommandBarQueryHabits.boost(for: entry.id,
+                                                preparedQuery: $0,
+                                                store: queryHabitStore.store,
+                                                now: now)
+                } ?? 0 : 0
                 return CommandBarCandidate(index: index,
                                            normalizedTitle: rankingTitle(for: entry, folded: folded,
                                                                          query: trimmed),
                                            normalizedKeywords: folded?.keywords
                                                ?? CommandBarSearch.normalized(entry.keywords),
-                                           boost: 0)
+                                           priority: habitBoost)
             }
             let ranked = CommandBarSearch.rankedIndexes(candidates: candidates, matching: trimmed)
             return ranked.prefix(40).map { pool[$0] }
         }
+
+        // Emoji are a catalog of more than a thousand rows, so they only join
+        // a search when the leading colon explicitly asks for them. Selecting
+        // the Emoji category takes the path above and remains colon-free.
+        if let emojiQuery = CommandBarSearch.emojiQuery(from: trimmed) {
+            scriptRunner.cancelPending()
+            fileSearch.cancelPending()
+            guard isEnabled(.emoji) else { return [] }
+            let pool = categoryContent(.emoji, bar: bar)
+            guard !emojiQuery.isEmpty else { return Array(pool.prefix(40)) }
+            let habitQuery = CommandBarQueryHabits.prepare(
+                emojiQuery, cache: &preparedHabitQuery)
+            let now = Date().timeIntervalSince1970
+            let candidates = pool.enumerated().map { index, entry in
+                let folded = normalizedByID[entry.id]
+                let habitPriority = CommandBarQueryHabits.boost(
+                    for: entry.id,
+                    preparedQuery: habitQuery,
+                    store: queryHabitStore.store,
+                    now: now)
+                return CommandBarCandidate(index: index,
+                                           normalizedTitle: folded?.title
+                                               ?? CommandBarSearch.normalized(entry.title),
+                                           normalizedKeywords: folded?.keywords
+                                               ?? CommandBarSearch.normalized(entry.keywords),
+                                           priority: habitPriority)
+            }
+            let ranked = CommandBarSearch.rankedIndexes(candidates: candidates,
+                                                         matching: emojiQuery)
+            return ranked.prefix(40).map { pool[$0] }
+        }
+
         // A sum is answered, not searched: the result leads and the rest of
         // the list carries on underneath. Its row carries no id prefix of its
         // own, so the switch has to be read here or it would do nothing.
@@ -1326,7 +1416,6 @@ final class CommandBarService: ObservableObject {
         // explicitly entered the Kill Process category (see categoryContent).
         if effectiveQuery.count >= 2 {
             pool.append(contentsOf: menuEntries)
-            pool.append(contentsOf: emojiEntries)
         }
         pool.append(contentsOf: clipboard)
         pool.append(contentsOf: fileRows)
@@ -1350,17 +1439,26 @@ final class CommandBarService: ObservableObject {
         // session remembers asks the same question of the same few letters,
         // and folding is four allocations a time.
         let foldedQuery = CommandBarSearch.normalized(effectiveQuery)
+        let habitQuery = CommandBarQueryHabits.prepare(
+            effectiveQuery, cache: &preparedHabitQuery)
         let candidates = pool.enumerated().map { index, entry in
             let folded = normalizedByID[entry.id]
             // A name the person gave outranks every title in the catalog:
             // that is the whole point of giving it.
             let aliasBoost = names[entry.stableKey]
                 .flatMap { CommandBarPreferences.aliasHit($0, normalizedQuery: foldedQuery)?.rawValue } ?? 0
+            let habitPriority = entry.countsUsage
+                ? CommandBarQueryHabits.boost(for: entry.id,
+                                              preparedQuery: habitQuery,
+                                              store: queryHabitStore.store,
+                                              now: now)
+                : 0
             return CommandBarCandidate(index: index,
                                 normalizedTitle: rankingTitle(for: entry, folded: folded,
                                                               query: effectiveQuery),
                                 normalizedKeywords: folded?.keywords
                                     ?? CommandBarSearch.normalized(entry.keywords),
+                                priority: max(aliasBoost, habitPriority),
                                 // A running app is likelier to be the one
                                 // wanted, but never enough to beat a better
                                 // name match.
@@ -1425,7 +1523,11 @@ final class CommandBarService: ObservableObject {
     /// does, so the next keystroke refines instead of starting over.
     func completeSelection() {
         guard case .search = mode, let entry = selectedEntry, !entry.isAnswer else { return }
-        query = entry.title
+        if queryBeforeCompletion == nil { queryBeforeCompletion = query }
+        let completion = CommandBarCompletion.completedQuery(
+            current: query, title: entry.title, matchTitle: entry.matchTitle)
+        completedQuery = completion
+        query = completion
     }
 
     func select(_ index: Int) {
@@ -1461,6 +1563,9 @@ final class CommandBarService: ObservableObject {
     func highlightOffsets(for entry: CommandBarEntry) -> Set<Int> {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard case .search = mode, !trimmed.isEmpty, !entry.isAnswer else { return [] }
+        if let emojiQuery = CommandBarSearch.emojiQuery(from: trimmed) {
+            return CommandBarSearch.highlightOffsets(title: entry.title, query: emojiQuery)
+        }
         let split = CommandBarSearch.splitTrailingNumber(trimmed)
         return CommandBarSearch.highlightOffsets(title: entry.title,
                                                  query: split.number != nil ? split.text : trimmed)
@@ -2010,19 +2115,41 @@ final class CommandBarService: ObservableObject {
     }
 
     private func finish(_ entry: CommandBarEntry, value: Int?) {
+        let now = Date().timeIntervalSince1970
+        let typedQuery: String
+        if case .argument = mode {
+            typedQuery = CommandBarCompletion.queryForLearning(
+                current: savedQuery, beforeCompletion: queryBeforeCompletion)
+        } else {
+            typedQuery = CommandBarCompletion.queryForLearning(
+                current: query, beforeCompletion: queryBeforeCompletion)
+        }
+        let trimmedQuery = typedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let learningQuery = CommandBarSearch.emojiQuery(from: trimmedQuery) ?? trimmedQuery
         if entry.countsUsage, isVisible {
             // Only what is on screen teaches anything: a row run from its own
             // combination was never typed for.
             queryMemoryStep &+= 1
-            queryMemory.record(query: query, id: entry.id, step: queryMemoryStep)
+            queryMemory.record(query: learningQuery, id: entry.id, step: queryMemoryStep)
         }
         if entry.countsUsage {
             let stored = UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage)
             let next = CommandBarUsage.recording(CommandBarUsage.decode(stored),
                                                  id: entry.id,
-                                                 now: Date().timeIntervalSince1970)
+                                                 now: now)
             UserDefaults.standard.set(CommandBarUsage.encode(next), forKey: DefaultsKey.commandBarUsage)
             usageCache = next
+        }
+        if entry.countsUsage, !learningQuery.isEmpty {
+            let prepared = CommandBarQueryHabits.prepare(
+                learningQuery, cache: &preparedHabitQuery)
+            if !prepared.isEmpty {
+                queryHabitStore.record(preparedQuery: prepared,
+                                       resultID: entry.id,
+                                       now: now)
+                UserDefaults.standard.set(CommandBarQueryHabits.encode(queryHabitStore.store),
+                                          forKey: DefaultsKey.commandBarQueryHabits)
+            }
         }
         // Handed over before hiding, which wipes the field and the selection.
         queryWhenRun = query
