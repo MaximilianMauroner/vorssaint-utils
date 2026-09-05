@@ -577,23 +577,11 @@ final class CommandBarService: ObservableObject {
     }
 
     func setCategory(_ source: CommandBarSource?) {
-        changeCategory(to: source, clearingQuery: false)
-    }
-
-    func enterCategory(_ source: CommandBarSource) {
-        changeCategory(to: source, clearingQuery: true)
-    }
-
-    private func changeCategory(to source: CommandBarSource?, clearingQuery: Bool) {
-        guard activeCategory != source || (clearingQuery && !query.isEmpty) else { return }
+        guard activeCategory != source else { return }
         activeCategory = source
         selectedID = nil
         lastRankedQuery = nil
-        if clearingQuery, !query.isEmpty {
-            query = ""
-        } else {
-            refreshResults()
-        }
+        refreshResults()
     }
     /// Whether a category is worth a chip.
     ///
@@ -892,8 +880,7 @@ final class CommandBarService: ObservableObject {
 
     private func rebuildCatalog(index: Bool = true) {
         catalog = CommandBarCatalog.build(automationDenied: finderAutomationDenied)
-        emojiEntries = CommandBarCatalog.emojiEntries(
-            bar: FeatureStrings.commandBar(L10n.shared.language))
+        emojiEntries = CommandBarCatalog.emojiEntries(bar: FeatureStrings.commandBar(L10n.shared.language))
         builtLanguage = L10n.shared.language
         if index { indexEntries() }
     }
@@ -1254,6 +1241,7 @@ final class CommandBarService: ObservableObject {
         // Inside a category, typing filters that category and nothing else:
         // no answer row, no caps per kind, just the ranking over one list.
         if let category = activeCategory {
+            scriptRunner.cancelPending()
             // A search inside one category is not a search for files, so any
             // pending one goes: it would land on a list that has no room for
             // it and refresh the bar for nothing.
@@ -1294,6 +1282,8 @@ final class CommandBarService: ObservableObject {
         // a search when the leading colon explicitly asks for them. Selecting
         // the Emoji category takes the path above and remains colon-free.
         if let emojiQuery = CommandBarSearch.emojiQuery(from: trimmed) {
+            scriptRunner.cancelPending()
+            fileSearch.cancelPending()
             guard isEnabled(.emoji) else { return [] }
             let pool = categoryContent(.emoji, bar: bar)
             guard !emojiQuery.isEmpty else { return Array(pool.prefix(40)) }
@@ -1527,8 +1517,10 @@ final class CommandBarService: ObservableObject {
     func completeSelection() {
         guard case .search = mode, let entry = selectedEntry, !entry.isAnswer else { return }
         if queryBeforeCompletion == nil { queryBeforeCompletion = query }
-        completedQuery = entry.title
-        query = entry.title
+        let completion = CommandBarCompletion.completedQuery(
+            current: query, title: entry.title, matchTitle: entry.matchTitle)
+        completedQuery = completion
+        query = completion
     }
 
     func select(_ index: Int) {
@@ -2060,7 +2052,8 @@ final class CommandBarService: ObservableObject {
             } else if entry.numericIsOptional {
                 finish(entry, value: nil)
             } else {
-                savedQuery = query
+                savedQuery = CommandBarCompletion.queryForLearning(
+                    current: query, beforeCompletion: queryBeforeCompletion)
                 mode = .argument(entryID: entry.id)
                 query = ""
                 refreshPanelLayout()
@@ -2117,11 +2110,20 @@ final class CommandBarService: ObservableObject {
 
     private func finish(_ entry: CommandBarEntry, value: Int?) {
         let now = Date().timeIntervalSince1970
+        let typedQuery: String
+        if case .argument = mode {
+            typedQuery = savedQuery
+        } else {
+            typedQuery = CommandBarCompletion.queryForLearning(
+                current: query, beforeCompletion: queryBeforeCompletion)
+        }
+        let trimmedQuery = typedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let learningQuery = CommandBarSearch.emojiQuery(from: trimmedQuery) ?? trimmedQuery
         if entry.countsUsage, isVisible {
             // Only what is on screen teaches anything: a row run from its own
             // combination was never typed for.
             queryMemoryStep &+= 1
-            queryMemory.record(query: query, id: entry.id, step: queryMemoryStep)
+            queryMemory.record(query: learningQuery, id: entry.id, step: queryMemoryStep)
         }
         if entry.countsUsage {
             let stored = UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage)
@@ -2131,11 +2133,6 @@ final class CommandBarService: ObservableObject {
             UserDefaults.standard.set(CommandBarUsage.encode(next), forKey: DefaultsKey.commandBarUsage)
             usageCache = next
         }
-        let typedQuery = CommandBarCompletion.queryForLearning(
-            current: query,
-            beforeCompletion: queryBeforeCompletion)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let learningQuery = CommandBarSearch.emojiQuery(from: typedQuery) ?? typedQuery
         if entry.countsUsage, !learningQuery.isEmpty {
             let prepared = CommandBarQueryHabits.prepare(
                 learningQuery, cache: &preparedHabitQuery)
