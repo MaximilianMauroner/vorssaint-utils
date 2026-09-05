@@ -19139,6 +19139,17 @@ struct MetricsTests {
         let commandBarCatalogLines = ((try? String(
             contentsOfFile: "Sources/Vorssaint/Services/CommandBar/CommandBarCatalog.swift",
             encoding: .utf8)) ?? "").components(separatedBy: "\n")
+        for constructor in ["killProcessEntries", "windowEntries"] {
+            let constructorCode = commandBarCatalogLines.firstIndex {
+                isCodeLine($0) && $0.contains("static func \(constructor)(")
+            }.map {
+                commandBarCatalogLines[($0 + 1)...]
+                    .prefix { !$0.contains("static func ") }
+                    .filter(isCodeLine).joined(separator: "\n")
+            } ?? ""
+            expect(constructorCode.contains("countsUsage: false"),
+                   "\(constructor) excludes recycled process and window IDs from learning")
+        }
         let mouseButtonToggleCode = commandBarCatalogLines.firstIndex {
             isCodeLine($0) && $0.contains("if feature == .mouseButtonShortcuts {")
         }.map {
@@ -23811,6 +23822,33 @@ struct MetricsTests {
                 && cache.cachedKey == persistedHabitKey,
                "a background query-key load publishes a validated key and announces readiness")
 
+        let removalQueue = DispatchQueue(label: "org.vorssaint.tests.query-key-removal")
+        let removalLoadStarted = DispatchSemaphore(value: 0)
+        let finishRemovalLoad = DispatchSemaphore(value: 0)
+        let removedKeyReady = DispatchSemaphore(value: 0)
+        var keyLifecycle: [String] = []
+        let removalCache = CommandBarQueryHabitKeyCache(queue: removalQueue) {
+            keyLifecycle.append("load started")
+            removalLoadStarted.signal()
+            finishRemovalLoad.wait()
+            keyLifecycle.append("load finished")
+            return persistedHabitKey
+        }
+        removalCache.warm { removedKeyReady.signal() }
+        expect(removalLoadStarted.wait(timeout: .now() + 1) == .success,
+               "the uninstall race starts with a key load in flight")
+        let keyRemoval = removalCache.stopAndRemove { keyLifecycle.append("removed") }
+        removalCache.warm { removedKeyReady.signal() }
+        finishRemovalLoad.signal()
+        expect(keyRemoval.wait(timeout: .now() + 1) == .success,
+               "uninstall waits for key deletion after the pending load")
+        removalCache.warm { removedKeyReady.signal() }
+        removalQueue.sync {}
+        expect(keyLifecycle == ["load started", "load finished", "removed"]
+                && removalCache.cachedKey == nil
+                && removedKeyReady.wait(timeout: .now()) == .timedOut,
+               "uninstall suppresses readiness and later warm-ups without recreating the key")
+
         var retryCount = 0
         let retryCache = CommandBarQueryHabitKeyCache(
             queue: DispatchQueue(label: "org.vorssaint.tests.command-bar-query-key-retry")) {
@@ -23830,8 +23868,18 @@ struct MetricsTests {
         expect(completedEmoji == ":fire"
                 && CommandBarSearch.emojiQuery(from: completedEmoji) == "fire",
                "Tab completion retains emoji scope and the searchable name")
+        for categoryQuery in ["fir", ""] {
+            let completedCategoryEmoji = CommandBarCompletion.completedQuery(
+                current: categoryQuery, title: "🔥  fire", matchTitle: "fire")
+            expect(completedCategoryEmoji == "fire"
+                    && CommandBarSearch.emojiQuery(from: completedCategoryEmoji) == nil
+                    && CommandBarSearch.rankedIndexes(
+                        candidates: [CommandBarCandidate(index: 0, title: "fire")],
+                        matching: completedCategoryEmoji) == [0],
+                   "Tab keeps a selected Emoji category result searchable from a query or browse")
+        }
         expect(CommandBarCompletion.completedQuery(
-            current: "whts", title: "WhatsApp", matchTitle: "WhatsApp") == "WhatsApp",
+            current: "whts", title: "WhatsApp", matchTitle: nil) == "WhatsApp",
                "ordinary Tab completion still uses the selected title")
         let learnedCompletion = CommandBarCompletion.queryForLearning(
             current: "WhatsApp", beforeCompletion: "whts")
@@ -24311,6 +24359,20 @@ struct MetricsTests {
                                                 encoding: .utf8)) ?? ""
         expect(!selfUninstallSource.isEmpty && !uninstallScriptSource.isEmpty,
                "uninstall sources read back for uninstallation alignment check")
+        let queryHabitSupportSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/CommandBar/CommandBarSupport.swift",
+            encoding: .utf8)) ?? ""
+        expect(selfUninstallSource.contains("CommandBarQueryHabits.removeInstallationKey()")
+                && queryHabitSupportSource.contains("installationKeyCache.stopAndRemove {")
+                && queryHabitSupportSource.contains("SecItemDelete([")
+                && queryHabitSupportSource.contains("kSecClass: kSecClassGenericPassword")
+                && queryHabitSupportSource.contains("kSecAttrService: keyService")
+                && queryHabitSupportSource.contains("kSecAttrAccount: keyAccount")
+                && queryHabitSupportSource.contains("keyService = \"org.vorssaint.command-bar-query-habits\"")
+                && queryHabitSupportSource.contains("keyAccount = \"hmac-key\"")
+                && uninstallScriptSource.contains("/usr/bin/security delete-generic-password")
+                && uninstallScriptSource.contains("-s \"org.vorssaint.command-bar-query-habits\" -a \"hmac-key\""),
+               "both uninstall paths remove only the query-learning Keychain item")
         let requiredSubpaths = ["Library/Application Support", "Library/Caches", "Library/HTTPStorages"]
         for subpath in requiredSubpaths {
             expect(selfUninstallSource.contains(subpath) && uninstallScriptSource.contains(subpath),

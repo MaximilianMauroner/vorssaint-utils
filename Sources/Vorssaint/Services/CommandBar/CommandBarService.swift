@@ -1016,7 +1016,8 @@ final class CommandBarService: ObservableObject {
                                           uniquingKeysWith: { first, _ in first })
                     let usage = CommandBarUsage.decode(
                         UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage))
-                    rows = CommandBarUsage.categoryIDs(usage: usage,
+                    let durableUsage = usage.filter { byID[$0.key]?.countsUsage == true }
+                    rows = CommandBarUsage.categoryIDs(usage: durableUsage,
                                                        available: content.map(\.id))
                         .compactMap { byID[$0] }
                     sectionTitles = rows.isEmpty

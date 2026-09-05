@@ -50,6 +50,7 @@ struct CommandBarEntry: Identifiable {
     let answerValue: String?
     /// The calculator's row: pinned above everything and styled as a result.
     let isAnswer: Bool
+    /// Only durable identities may retain habits; window IDs and PIDs are reused.
     let countsUsage: Bool
     /// The text the ranking reads instead of the title, for the rows whose
     /// title carries something that is not a word. An emoji row shows the
@@ -1031,6 +1032,7 @@ enum CommandBarCatalog {
                 keywords: process.path,
                 icon: process.bundleURL.map { .appIcon(path: $0.path) } ?? .symbol("xmark.octagon"),
                 confirmationPrompt: String(format: killStrings.confirmKillFormat, process.name),
+                countsUsage: false,
                 run: { _ in
                     KillProcessService.shared.kill(process, force: false)
                 })
@@ -1058,6 +1060,7 @@ enum CommandBarCatalog {
                 keywords: bar.kindWindow + " " + appName,
                 icon: NSRunningApplication(processIdentifier: pid)?.bundleURL
                     .map { .appIcon(path: $0.path) } ?? .symbol("macwindow"),
+                countsUsage: false,
                 run: { _ in
                     afterBeat(0.1) {
                         WindowActivator.activate(pid: pid, windowID: windowID, appName: appName)

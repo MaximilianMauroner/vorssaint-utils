@@ -828,6 +828,19 @@ enum CommandBarQueryHabits {
         installationKeyCache.warm(whenReady)
     }
 
+    static func removeInstallationKey() {
+        installationKeyCache.stopAndRemove {
+            _ = SecItemDelete([
+                kSecClass: kSecClassGenericPassword,
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
+            ] as CFDictionary)
+        }.wait()
+    }
+
+    private static let keyService = "org.vorssaint.command-bar-query-habits"
+    private static let keyAccount = "hmac-key"
+
     private static let installationKeyCache = CommandBarQueryHabitKeyCache {
         loadInstallationKey(using: liveKeyStore)
     }
@@ -882,8 +895,8 @@ enum CommandBarQueryHabits {
         read: {
             let lookup: [CFString: Any] = [
                 kSecClass: kSecClassGenericPassword,
-                kSecAttrService: "org.vorssaint.command-bar-query-habits",
-                kSecAttrAccount: "hmac-key",
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
                 kSecReturnData: true,
                 kSecMatchLimit: kSecMatchLimitOne,
             ]
@@ -900,8 +913,8 @@ enum CommandBarQueryHabits {
         add: { data in
             SecItemAdd([
                 kSecClass: kSecClassGenericPassword,
-                kSecAttrService: "org.vorssaint.command-bar-query-habits",
-                kSecAttrAccount: "hmac-key",
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
                 kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
                 kSecValueData: data,
             ] as CFDictionary, nil)
@@ -909,8 +922,8 @@ enum CommandBarQueryHabits {
         update: { data in
             let identity: [CFString: Any] = [
                 kSecClass: kSecClassGenericPassword,
-                kSecAttrService: "org.vorssaint.command-bar-query-habits",
-                kSecAttrAccount: "hmac-key",
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
             ]
             return SecItemUpdate(identity as CFDictionary,
                                  [kSecValueData: data] as CFDictionary)
@@ -958,6 +971,7 @@ final class CommandBarQueryHabitKeyCache {
         case idle
         case loading
         case ready(Data)
+        case stopped
     }
 
     private let lock = NSLock()
@@ -983,6 +997,10 @@ final class CommandBarQueryHabitKeyCache {
 
     func warm(_ whenReady: (() -> Void)? = nil) {
         lock.lock()
+        if case .stopped = state {
+            lock.unlock()
+            return
+        }
         if case .ready = state {
             lock.unlock()
             whenReady?()
@@ -994,11 +1012,14 @@ final class CommandBarQueryHabitKeyCache {
             return
         }
         state = .loading
-        lock.unlock()
 
         queue.async { [self] in
             let key = load()
             lock.lock()
+            guard case .loading = state else {
+                lock.unlock()
+                return
+            }
             let callbacks: [() -> Void]
             if let key, key.count == 32 {
                 state = .ready(key)
@@ -1011,6 +1032,19 @@ final class CommandBarQueryHabitKeyCache {
             lock.unlock()
             callbacks.forEach { $0() }
         }
+        lock.unlock()
+    }
+
+    /// Stop before enqueueing deletion, so an in-flight load cannot restore
+    /// the key or notify callers after uninstall has removed it.
+    func stopAndRemove(_ remove: @escaping () -> Void) -> DispatchWorkItem {
+        lock.lock()
+        state = .stopped
+        readinessCallbacks = []
+        let removal = DispatchWorkItem(block: remove)
+        queue.async(execute: removal)
+        lock.unlock()
+        return removal
     }
 }
 
@@ -1025,7 +1059,7 @@ enum CommandBarCompletion {
     static func completedQuery(current: String, title: String, matchTitle: String?) -> String {
         CommandBarSearch.emojiQuery(from: current) != nil
             ? ":" + (matchTitle ?? title)
-            : title
+            : (matchTitle ?? title)
     }
 
     static func queryForLearning(current: String, beforeCompletion: String?) -> String {
