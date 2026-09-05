@@ -53,6 +53,12 @@ final class CommandBarService: ObservableObject {
     @Published var query = "" {
         didSet {
             guard query != oldValue else { return }
+            // The argument field is temporary. Keep the completed search and
+            // its original spelling intact until returning to search mode.
+            if case .argument = mode {
+                refreshResults()
+                return
+            }
             queryBeforeCompletion = CommandBarCompletion.retainedOriginal(
                 queryBeforeCompletion,
                 completedValue: completedQuery,
@@ -2053,8 +2059,7 @@ final class CommandBarService: ObservableObject {
             } else if entry.numericIsOptional {
                 finish(entry, value: nil)
             } else {
-                savedQuery = CommandBarCompletion.queryForLearning(
-                    current: query, beforeCompletion: queryBeforeCompletion)
+                savedQuery = query
                 mode = .argument(entryID: entry.id)
                 query = ""
                 refreshPanelLayout()
@@ -2113,7 +2118,8 @@ final class CommandBarService: ObservableObject {
         let now = Date().timeIntervalSince1970
         let typedQuery: String
         if case .argument = mode {
-            typedQuery = savedQuery
+            typedQuery = CommandBarCompletion.queryForLearning(
+                current: savedQuery, beforeCompletion: queryBeforeCompletion)
         } else {
             typedQuery = CommandBarCompletion.queryForLearning(
                 current: query, beforeCompletion: queryBeforeCompletion)

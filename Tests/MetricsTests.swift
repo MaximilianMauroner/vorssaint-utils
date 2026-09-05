@@ -23195,7 +23195,7 @@ struct MetricsTests {
         let appBeforeDiscovery = [
             CommandBarCandidate(index: 0, title: "What's New",
                                 boost: CommandBarPreferences.rankBias(for: .settingsPages)),
-            CommandBarCandidate(index: 1, title: "WhatsApp",
+            CommandBarCandidate(index: 1, title: "Whatever",
                                 boost: CommandBarPreferences.rankBias(for: .apps)),
         ]
         expect(CommandBarSearch.rankedIndexes(candidates: appBeforeDiscovery, matching: "what")
@@ -23203,22 +23203,22 @@ struct MetricsTests {
                "an equally good app match leads a low-priority discovery page")
         let learnedBeforeExact = [
             CommandBarCandidate(index: 0, title: "Passwords"),
-            CommandBarCandidate(index: 1, title: "Proton Pass", priority: 1),
+            CommandBarCandidate(index: 1, title: "Secure Pass", priority: 1),
         ]
         expect(CommandBarSearch.rankedIndexes(candidates: learnedBeforeExact, matching: "pass")
                 .first == 1,
                "a learned query choice outranks an unselected stronger text match")
         let namedApp = [
-            CommandBarCandidate(index: 0, title: "Codex"),
-            CommandBarCandidate(index: 1, title: "Visual Studio Code",
-                                keywords: "codex", priority: 2_400),
+            CommandBarCandidate(index: 0, title: "Editor"),
+            CommandBarCandidate(index: 1, title: "Source Studio",
+                                keywords: "editor", priority: 2_400),
         ]
-        expect(CommandBarSearch.rankedIndexes(candidates: namedApp, matching: "codex")
+        expect(CommandBarSearch.rankedIndexes(candidates: namedApp, matching: "editor")
                 .first == 1,
                "a name deliberately given to an app still leads its ordinary title match")
         let aliasBeforeLearning = [
             CommandBarCandidate(index: 0, title: "Passwords", priority: 1_100),
-            CommandBarCandidate(index: 1, title: "Proton Pass", priority: 720),
+            CommandBarCandidate(index: 1, title: "Secure Pass", priority: 720),
         ]
         expect(CommandBarSearch.rankedIndexes(candidates: aliasBeforeLearning, matching: "pass")
                 .first == 0,
@@ -23616,36 +23616,44 @@ struct MetricsTests {
                 == ["emoji.grin", "emoji.fire", "emoji.wave"],
                "an unlearned category preserves its useful catalog order")
 
+        let officialHabitService = CommandBarQueryHabits.installationKeyService(
+            bundleID: "com.vorssaint.utils")
+        let developerHabitService = CommandBarQueryHabits.installationKeyService(
+            bundleID: "com.vorssaint.utils.dev")
+        expect(officialHabitService == "com.vorssaint.utils.command-bar-query-habits"
+                && officialHabitService != developerHabitService,
+               "uninstalling one app variant cannot target the other variant's query key")
+
         let habitKey = Data(repeating: 0x31, count: 32)
         let otherHabitKey = Data(repeating: 0x72, count: 32)
         for shortQuery in ["w", "wa"] {
             let prepared = CommandBarQueryHabits.prepare(shortQuery, key: habitKey)
             let recorded = CommandBarQueryHabits.recording(
-                [:], preparedQuery: prepared, resultID: "app.whatsapp", now: barNow)
+                [:], preparedQuery: prepared, resultID: "app.whatever", now: barNow)
             let restored = CommandBarQueryHabits.decode(CommandBarQueryHabits.encode(recorded))
             expect(CommandBarQueryHabits.boost(
-                for: "app.whatsapp", preparedQuery: prepared, store: restored, now: barNow) > 0,
+                for: "app.whatever", preparedQuery: prepared, store: restored, now: barNow) > 0,
                 "one- and two-character choices survive a storage round trip")
         }
         let preparedWhat = CommandBarQueryHabits.prepare("what", key: habitKey)
-        let preparedWhatsApp = CommandBarQueryHabits.prepare("whatsapp", key: habitKey)
+        let preparedWhatever = CommandBarQueryHabits.prepare("whatever", key: habitKey)
         var queryHabits: CommandBarQueryHabits.Store = [:]
         queryHabits = CommandBarQueryHabits.recording(
             queryHabits, preparedQuery: preparedWhat,
-            resultID: "app./Applications/WhatsApp.app", now: barNow)
+            resultID: "app./Applications/Whatever.app", now: barNow)
         queryHabits = CommandBarQueryHabits.recording(
             queryHabits, preparedQuery: preparedWhat,
-            resultID: "app./Applications/WhatsApp.app", now: barNow + 10)
+            resultID: "app./Applications/Whatever.app", now: barNow + 10)
         let learnedExact = CommandBarQueryHabits.boost(
-            for: "app./Applications/WhatsApp.app", preparedQuery: preparedWhat,
+            for: "app./Applications/Whatever.app", preparedQuery: preparedWhat,
             store: queryHabits, now: barNow + 20)
         let learnedRelated = CommandBarQueryHabits.boost(
-            for: "app./Applications/WhatsApp.app", preparedQuery: preparedWhatsApp,
+            for: "app./Applications/Whatever.app", preparedQuery: preparedWhatever,
             store: queryHabits, now: barNow + 20)
         expect(learnedExact > 0 && learnedRelated > 0,
                "repeated choices teach the exact query and a longer related query")
         expect(CommandBarQueryHabits.boost(
-                    for: "app./Applications/WhatsApp Beta.app", preparedQuery: preparedWhat,
+                    for: "app./Applications/Whatever Beta.app", preparedQuery: preparedWhat,
                     store: queryHabits,
                     now: barNow + 20) == 0,
                "a learned query lifts only the selected result")
@@ -23664,7 +23672,7 @@ struct MetricsTests {
                 && keysAreInstallationSpecific && habitsRoundTrip,
                "query habits round-trip as per-install keyed digests, prepared once per query")
         expect(CommandBarQueryHabits.removing(
-                    resultID: "app./Applications/WhatsApp.app", from: queryHabits).isEmpty,
+                    resultID: "app./Applications/Whatever.app", from: queryHabits).isEmpty,
                "forgetting a result removes its learned query choices")
 
         var maximumHabitStore: CommandBarQueryHabits.Store = [:]
@@ -23883,14 +23891,14 @@ struct MetricsTests {
                    "Tab keeps a selected Emoji category result searchable from a query or browse")
         }
         expect(CommandBarCompletion.completedQuery(
-            current: "whts", title: "WhatsApp", matchTitle: nil) == "WhatsApp",
+            current: "whts", title: "Whatever", matchTitle: nil) == "Whatever",
                "ordinary Tab completion still uses the selected title")
         let learnedCompletion = CommandBarCompletion.queryForLearning(
-            current: "WhatsApp", beforeCompletion: "whts")
+            current: "Whatever", beforeCompletion: "whts")
         let retainedCompletion = CommandBarCompletion.retainedOriginal(
-            "whts", completedValue: "WhatsApp", afterChangingTo: "WhatsApp")
+            "whts", completedValue: "Whatever", afterChangingTo: "Whatever")
         let editedCompletion = CommandBarCompletion.retainedOriginal(
-            "whts", completedValue: "WhatsApp", afterChangingTo: "WhatsApp b")
+            "whts", completedValue: "Whatever", afterChangingTo: "Whatever b")
         expect(learnedCompletion == "whts" && retainedCompletion == "whts"
                 && editedCompletion == nil,
                "Tab remembers the fuzzy search unless the completed field is edited")
@@ -24372,10 +24380,10 @@ struct MetricsTests {
                 && queryHabitSupportSource.contains("kSecClass: kSecClassGenericPassword")
                 && queryHabitSupportSource.contains("kSecAttrService: keyService")
                 && queryHabitSupportSource.contains("kSecAttrAccount: keyAccount")
-                && queryHabitSupportSource.contains("keyService = \"org.vorssaint.command-bar-query-habits\"")
+                && queryHabitSupportSource.contains("keyService = installationKeyService(")
                 && queryHabitSupportSource.contains("keyAccount = \"hmac-key\"")
                 && uninstallScriptSource.contains("/usr/bin/security delete-generic-password")
-                && uninstallScriptSource.contains("-s \"org.vorssaint.command-bar-query-habits\" -a \"hmac-key\""),
+                && uninstallScriptSource.contains("-s \"$BUNDLE.command-bar-query-habits\" -a \"hmac-key\""),
                "both uninstall paths remove only the query-learning Keychain item")
         let requiredSubpaths = ["Library/Application Support", "Library/Caches", "Library/HTTPStorages"]
         for subpath in requiredSubpaths {

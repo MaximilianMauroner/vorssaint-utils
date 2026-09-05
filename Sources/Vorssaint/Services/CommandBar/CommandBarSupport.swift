@@ -838,7 +838,14 @@ enum CommandBarQueryHabits {
         }.wait()
     }
 
-    private static let keyService = "org.vorssaint.command-bar-query-habits"
+    // Developer and official installations must never share or delete each
+    // other's key; their learned choices already live in separate preferences.
+    static func installationKeyService(bundleID: String) -> String {
+        bundleID + ".command-bar-query-habits"
+    }
+
+    private static let keyService = installationKeyService(
+        bundleID: Bundle.main.bundleIdentifier ?? "com.vorssaint.utils")
     private static let keyAccount = "hmac-key"
 
     private static let installationKeyCache = CommandBarQueryHabitKeyCache {
