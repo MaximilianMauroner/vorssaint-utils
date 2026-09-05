@@ -14824,7 +14824,7 @@ struct MetricsTests {
                    "every mixer feature string is set for \(language.rawValue)")
             expect(FeatureStrings.backup(language).description.contains(
                 FeatureStrings.scratchpad(language).pageTitle),
-                   "every backup description discloses its Scratchpad note content (\(language.rawValue))")
+                   "every backup description accounts for the Scratchpad text (\(language.rawValue))")
             let guideValues = Mirror(reflecting: FeatureStrings.permissionGuide(language)).children
                 .compactMap { $0.value as? String }
             expect(!guideValues.isEmpty && guideValues.allSatisfy { !$0.isEmpty },
@@ -18723,15 +18723,8 @@ struct MetricsTests {
             key == DefaultsKey.scratchpadDocument ? scratchpadDocumentData : nil
         }
         let restoredScratchpadSettings = SettingsBackupSupport.sanitizedSettings(from: scratchpadBackup)
-        let restoredScratchpads = ScratchpadDocument.decoded(
-            restoredScratchpadSettings?[DefaultsKey.scratchpadDocument] as? Data,
-            defaultName: "Scratchpad")
-        expect(restoredScratchpads == renamedPad
-                && scratchpadDocumentData.map {
-                    SettingsBackupSupport.valueLooksRight(DefaultsKey.scratchpadDocument, $0)
-                } == true
-                && !SettingsBackupSupport.valueLooksRight(DefaultsKey.scratchpadDocument, "broken"),
-               "settings backup restores the complete scratchpad document and rejects wrong types")
+        expect(restoredScratchpadSettings?[DefaultsKey.scratchpadDocument] == nil,
+               "the scratchpad's own text stays out of a settings backup people copy around")
         let safeScratchpadExportName = ScratchpadSupport.exportFileName(
             title: "Work/Ideas: 1", date: scratchpadNow)
         expect(safeScratchpadExportName.hasPrefix("Work-Ideas- 1 ")
@@ -20248,9 +20241,11 @@ struct MetricsTests {
                 && backupKeys.contains(DefaultsKey.scratchpadRetention)
                 && backupKeys.contains(DefaultsKey.scratchpadCloseOnClickOutside)
                 && backupKeys.contains(DefaultsKey.scratchpadBackgroundOpacity)
-                && backupKeys.contains(DefaultsKey.scratchpadDocument)
-                && backupKeys.contains(DefaultsKey.panelUtilityScratchpad),
-               "scratchpad preferences and named tabs travel with the settings backup")
+                && backupKeys.contains(DefaultsKey.panelUtilityScratchpad)
+                // The pad's own text is the user's material, kept in the app's
+                // private container instead (issue #1197).
+                && !backupKeys.contains(DefaultsKey.scratchpadDocument),
+               "scratchpad preferences travel with the settings backup, its text does not")
         expect(backupKeys.contains(DefaultsKey.radialMenuEnabled)
                 && backupKeys.contains(DefaultsKey.radialMenuShortcut)
                 && backupKeys.contains(DefaultsKey.radialMenuAtPointer)
