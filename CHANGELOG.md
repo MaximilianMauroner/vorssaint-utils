@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Summary
-Vorssaint adds app-based Keep Awake automation, app exceptions for Super key, centered half-width windows, edge snap controls and shortcuts for recent captures and keyboard brightness. It refines the radial menu, adds capture menu and magnifier zoom choices, and improves color picking, app icons, readability, localization, mouse reconnection, Command Bar responsiveness, system shortcut recovery and build checks.
+Vorssaint adds app-based Keep Awake automation, app exceptions for Super key, centered half-width windows, edge snap controls and shortcuts for recent captures and keyboard brightness. It refines the radial menu, adds capture menu and magnifier zoom choices, and improves color picking, app icons, readability, localization, mouse reconnection, Command Bar responsiveness, system shortcut recovery, Scratchpad privacy and build checks.
 
 ### Added
 - Keep Awake can start automatically while selected apps are open, including in the background. Thanks to @Borisserz.
@@ -21,6 +21,9 @@ Vorssaint adds app-based Keep Awake automation, app exceptions for Super key, ce
 - Window Layout has a visual map for turning each edge and corner snap area on or off, thanks to @levelupimprovement.
 
 ### Changed
+- Scratchpad notes stay in the app's private storage instead of the preferences, so a settings export no longer carries what you typed. Thanks to @CSkjolden.
+- Build checks read the keycap your keyboard layout shows, where they expected the US one. Thanks to @mugurc.
+- Build checks stop expecting one macOS wording for feet and inches. Thanks to @iva-zhu.
 - Build checks adapt to Macs with larger thread pools. Thanks to @mugurc.
 - The radial menu throws its actions out of the center one after another when it opens and gathers them back in when it closes.
 - The radial menu's highlight sweeps to the pointed slice, and its actions sit on the glass as raised buttons with guides between them.
