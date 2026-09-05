@@ -1002,6 +1002,7 @@ enum CommandBarCatalog {
                 keywords: name,
                 icon: app.bundleURL.map { .appIcon(path: $0.path) } ?? .symbol("xmark.circle"),
                 confirmationPrompt: String(format: bar.quitConfirmFormat, name),
+                countsUsage: app.bundleIdentifier != nil,
                 run: { _ in
                     guard let running = NSRunningApplication(processIdentifier: pid),
                           !running.isTerminated else {

@@ -19139,7 +19139,11 @@ struct MetricsTests {
         let commandBarCatalogLines = ((try? String(
             contentsOfFile: "Sources/Vorssaint/Services/CommandBar/CommandBarCatalog.swift",
             encoding: .utf8)) ?? "").components(separatedBy: "\n")
-        for constructor in ["killProcessEntries", "windowEntries"] {
+        for (constructor, eligibility) in [
+            ("killProcessEntries", "false"),
+            ("windowEntries", "false"),
+            ("quitEntries", "app.bundleIdentifier != nil"),
+        ] {
             let constructorCode = commandBarCatalogLines.firstIndex {
                 isCodeLine($0) && $0.contains("static func \(constructor)(")
             }.map {
@@ -19147,7 +19151,7 @@ struct MetricsTests {
                     .prefix { !$0.contains("static func ") }
                     .filter(isCodeLine).joined(separator: "\n")
             } ?? ""
-            expect(constructorCode.contains("countsUsage: false"),
+            expect(constructorCode.contains("countsUsage: \(eligibility)"),
                    "\(constructor) excludes recycled process and window IDs from learning")
         }
         let mouseButtonToggleCode = commandBarCatalogLines.firstIndex {
