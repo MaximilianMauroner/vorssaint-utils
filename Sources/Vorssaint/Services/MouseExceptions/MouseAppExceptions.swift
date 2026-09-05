@@ -32,6 +32,7 @@ final class MouseAppExceptions: ObservableObject {
 
     /// The stored lists, as bundle identifiers per feature.
     @Published private(set) var lists: [MouseExceptionScope: [String]] = [:]
+    @Published private(set) var runningScopes = Set<MouseExceptionScope>()
 
     /// The same lists as sets, for the lookups the taps make. Under `lock`.
     private var lookups: [MouseExceptionScope: Set<String>] = [:]
@@ -179,6 +180,7 @@ final class MouseAppExceptions: ObservableObject {
         runningApplicationsObservation?.invalidate()
         runningApplicationsObservation = nil
         lock.withLock { sourceProcessIDs.removeAll(keepingCapacity: false) }
+        if !runningScopes.isEmpty { runningScopes.removeAll() }
     }
 
     private func rebuildSourceProcesses(_ applications: [NSRunningApplication]) {
@@ -195,6 +197,10 @@ final class MouseAppExceptions: ObservableObject {
             }
         }
         lock.withLock { sourceProcessIDs = rebuilt }
+        let updatedScopes = Set(rebuilt.keys)
+        Self.onMain {
+            if runningScopes != updatedScopes { runningScopes = updatedScopes }
+        }
     }
 
     /// Helpers bundled inside a selected app inherit its exception. This uses
