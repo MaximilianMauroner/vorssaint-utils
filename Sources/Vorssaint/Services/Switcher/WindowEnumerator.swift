@@ -180,6 +180,7 @@ enum WindowEnumerator {
                                     snapshot: Snapshot,
                                     isCancelled: @escaping () -> Bool = { false }) -> [SwitcherItem] {
         guard !isCancelled() else { return [] }
+        let historyRevision = WindowUseTracker.shared.historyRevision
         let raw = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
 
         let ownPid = ProcessInfo.processInfo.processIdentifier
@@ -210,7 +211,7 @@ enum WindowEnumerator {
         WindowUseTracker.shared.reconcile(
             existingWindows: Set(raw.compactMap { $0[kCGWindowNumber as String] as? CGWindowID }),
             frontToBack: frontToBack,
-            running: Set(runningApps.map(\.pid)))
+            running: Set(runningApps.map(\.pid)), revision: historyRevision)
         var regularApps: [pid_t: String] = [:]
         var regularBundlePaths: [pid_t: String] = [:]
         for app in runningApps where app.isRegular {
@@ -931,10 +932,7 @@ enum WindowEnumerator {
                                    frontToBack: WindowUseTracker.FrontToBack) -> [SwitcherItem] {
         let tracker = WindowUseTracker.shared
         let entries = windows.map { WindowUseOrder.Entry(windowID: $0.windowID, pid: $0.pid) }
-        return WindowUseOrder.order(entries,
-                                    windowHistory: tracker.windows,
-                                    appHistory: tracker.apps,
-                                    frontToBack: frontToBack.windows)
+        return tracker.order(entries, frontToBack: frontToBack.windows)
             .map { windows[$0] }
     }
 

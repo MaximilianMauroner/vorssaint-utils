@@ -411,6 +411,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Cleaner/CleanerSchedule.swift \
         Sources/Vorssaint/Services/Uninstall/UninstallerSupport.swift \
         Sources/Vorssaint/Services/ManagedDownloads/WhatsAppDownloadSupport.swift \
+        Tests/WindowFocusHistoryTests.swift \
         Tests/MetricsTests.swift \
         Tests/SpeedTestTests.swift \
         -o build/metrics-tests
