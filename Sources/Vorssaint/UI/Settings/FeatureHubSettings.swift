@@ -15,19 +15,32 @@ struct FeatureHubSettings: View {
     @State private var tab: Tab = .features
     @State private var confirmingPreset: FeaturePreset?
 
-    private enum Tab { case features, permissions }
+    private enum Tab { case features, permissions, plugins }
 
     private var hub: FeatureHubStrings { FeatureStrings.hub(l10n.language) }
 
     var body: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $tab) {
+                Text(hub.tabFeatures).tag(Tab.features)
+                Text(hub.tabPermissions).tag(Tab.permissions)
+                Text(PluginStrings.title).tag(Tab.plugins)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            if tab == .plugins {
+                PluginSettings()
+            } else {
+                content
+            }
+        }
+    }
+
+    private var content: some View {
         Form {
             Section {
-                Picker("", selection: $tab) {
-                    Text(hub.tabFeatures).tag(Tab.features)
-                    Text(hub.tabPermissions).tag(Tab.permissions)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
                 Text(tab == .features ? hub.intro : hub.permissionsIntro)
                     .font(.caption)
                     .foregroundStyle(.secondary)

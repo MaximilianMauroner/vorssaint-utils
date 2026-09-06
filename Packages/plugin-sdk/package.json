@@ -1,0 +1,1 @@
+{"name":"@vorssaint/plugin-sdk","version":"0.1.0","type":"module","exports":{".":{"types":"./index.d.ts","default":"./index.js"}},"files":["index.js","index.d.ts","LICENSE"],"license":"GPL-3.0-or-later"}

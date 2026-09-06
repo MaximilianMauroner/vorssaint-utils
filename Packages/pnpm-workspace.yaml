@@ -1,0 +1,4 @@
+packages:
+  - plugin-sdk
+  - plugin-cli
+  - examples/*

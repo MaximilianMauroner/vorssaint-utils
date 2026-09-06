@@ -23,6 +23,7 @@ enum CommandBarSource: String, CaseIterable, Identifiable {
     case selection
     /// The links, folders and searches the person saved themselves.
     case links
+    case plugins
 
     var id: String { rawValue }
 
@@ -46,6 +47,7 @@ enum CommandBarSource: String, CaseIterable, Identifiable {
         case .calculator: return "equal.square"
         case .selection: return "text.cursor"
         case .links: return "bookmark"
+        case .plugins: return "puzzlepiece.extension"
         }
     }
 
@@ -66,6 +68,7 @@ enum CommandBarSource: String, CaseIterable, Identifiable {
         case .calculator: return nil
         case .selection: return "selection."
         case .links: return "link."
+        case .plugins: return "plugin:"
         }
     }
 }
@@ -119,7 +122,7 @@ enum CommandBarPreferences {
         case .apps: return 80
         case .settingsPages: return -40
         case .actions, .windows, .quitApps, .snippets, .clipboard,
-             .emoji, .folders, .answers, .calculator, .selection, .links:
+             .emoji, .folders, .answers, .calculator, .selection, .links, .plugins:
             return 0
         }
     }
@@ -148,6 +151,7 @@ enum CommandBarPreferences {
     /// pinned to one would silently point somewhere else tomorrow.
     static func acceptsAlias(rowID: String) -> Bool {
         switch source(ofRowID: rowID) {
+        case .plugins: return rowID.hasSuffix(":command")
         case .menus, .windows, .clipboard, .selection: return false
         case .actions, .apps, .quitApps, .settingsPages, .snippets, .emoji, .folders,
              .answers, .calculator, .links:
@@ -216,6 +220,7 @@ enum CommandBarPreferences {
     /// again, which reads as the pin being broken.
     static func acceptsPin(rowID: String) -> Bool {
         switch source(ofRowID: rowID) {
+        case .plugins: return rowID.hasSuffix(":command")
         case .menus, .quitApps, .clipboard, .emoji, .selection: return false
         case .actions, .apps, .windows, .settingsPages, .snippets, .folders, .links,
              .answers, .calculator:
@@ -257,6 +262,14 @@ enum CommandBarPreferences {
     /// there is no ranking to respect yet.
     static func leadingPins(_ pins: [String], available: Set<String>) -> [String] {
         pins.filter { available.contains($0) }
+    }
+
+    /// Settings lists the same pins the empty bar would, except an app or
+    /// folder that is not on this Mac right now still appears so it can be
+    /// taken off. A hub feature that was uninstalled does not: its row is
+    /// gone, and leaving the id behind reads as a broken pin.
+    static func listedPins(_ pins: [String], present: Set<String>) -> [String] {
+        pins.filter { present.contains($0) || source(ofRowID: $0) != .plugins }
     }
 
     // MARK: - Rows the person never wants to see

@@ -11332,8 +11332,15 @@ struct MetricsTests {
         expect(CommandBarSource.allCases.map(\.rawValue) == [
             "actions", "apps", "menus", "windows", "quitApps", "settingsPages",
             "snippets", "clipboard", "emoji", "folders", "answers", "calculator",
-            "selection", "links",
+            "selection", "links", "plugins",
         ], "source ids are stable (they persist inside the disabled list)")
+        expect(CommandBarPreferences.source(ofRowID: "plugin:com.example.text:upper:command") == .plugins,
+               "plugin commands have their own disableable source")
+        expect(CommandBarPreferences.acceptsAlias(rowID: "plugin:com.example.text:upper:command")
+                && !CommandBarPreferences.acceptsAlias(rowID: "plugin:com.example.search:search:item:0"),
+               "only durable plugin commands can retain aliases and shortcuts")
+        expect(CommandBarPreferences.listedPins(["plugin:com.example.text:upper:command"], present: []).isEmpty,
+               "disabled or removed plugin commands cannot leave visible pins")
         expect(CommandBarSource.actions.isAlwaysOn
                 && CommandBarSource.allCases.filter(\.isAlwaysOn).count == 1,
                "only the app's own actions cannot be switched off")

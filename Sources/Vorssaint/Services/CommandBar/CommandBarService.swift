@@ -102,6 +102,7 @@ final class CommandBarService: ObservableObject {
     private var activationObserver: NSObjectProtocol?
 
     private var catalog: [CommandBarEntry] = []
+    private let plugins = CommandBarPlugins()
     private var entriesByID: [String: CommandBarEntry] = [:]
     private var normalizedByID: [String: (title: String, keywords: String)] = [:]
     private var entriesByStableKey: [String: CommandBarEntry] = [:]
@@ -167,6 +168,29 @@ final class CommandBarService: ObservableObject {
 
     private init() {
         hotkey.onPress = { [weak self] in self?.toggle() }
+        plugins.argumentQuery = { [weak self] id, title in
+            guard let self else { return "" }
+            let query = self.queryWhenRun.trimmingCharacters(in: .whitespacesAndNewlines)
+            for name in [self.aliasCache[id], title].compactMap({ $0 }) {
+                if query.caseInsensitiveCompare(name) == .orderedSame { return "" }
+                if query.lowercased().hasPrefix(name.lowercased() + " ") {
+                    return String(query.dropFirst(name.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+            return query
+        }
+        plugins.onChooseProvider = { [weak self] in self?.prefill($0) }
+        plugins.onChange = { [weak self] in
+            guard let self, AppFeature.commandBar.isAvailable else { return }
+            self.rebuildCatalog()
+            if self.isVisible { self.refreshResults() }
+        }
+        plugins.onRegistryChange = { [weak self] in
+            guard let self, AppFeature.commandBar.isAvailable else { return }
+            self.rebuildCatalog()
+            self.syncRowHotkeys()
+            if self.isVisible { self.refreshResults() }
+        }
     }
 
     // MARK: - Lifecycle
@@ -191,6 +215,7 @@ final class CommandBarService: ObservableObject {
             }
         }
         if !available {
+            PluginManager.shared.shutdown()
             hide()
             panel = nil
             // Uninstalled means uninstalled: the catalog, the app scan and the
@@ -341,6 +366,7 @@ final class CommandBarService: ObservableObject {
     }
 
     func hide() {
+        plugins.reset()
         deferredRowShortcut.cancel()
         // Closing while listening for a combination must give every global key
         // back, or the whole app would go quiet until the next relaunch.
@@ -449,6 +475,8 @@ final class CommandBarService: ObservableObject {
         var refused: Set<String> = []
         for (key, shortcut) in wanted.sorted(by: { $0.key < $1.key })
         where CommandBarRowShortcuts.isUsable(shortcut) {
+            if key.hasPrefix("plugin:"),
+               (!isEnabled(.plugins) || !plugins.commandKeys.contains(key)) { continue }
             let hotkey = QuickToolHotkey(id: 200 + index)
             hotkey.onPress = { [weak self] in self?.runRow(withStableKey: key) }
             // A combination another app already holds is refused by the system.
@@ -509,7 +537,7 @@ final class CommandBarService: ObservableObject {
     /// The chip order. Fixed, so the row never reshuffles under a pointer.
     private static let chipOrder: [CommandBarSource] = [
         .actions, .apps, .clipboard, .windows, .menus, .settingsPages,
-        .snippets, .emoji, .folders, .links,
+        .snippets, .emoji, .folders, .links, .plugins,
     ]
 
     /// Walks the chips with the arrow keys. Only while the field is empty:
@@ -590,7 +618,7 @@ final class CommandBarService: ObservableObject {
         case .emoji:
             let hidden = hiddenKeys
             return emojiEntries.contains { !hidden.contains($0.stableKey) }
-        case .actions, .settingsPages, .snippets, .folders, .links:
+        case .actions, .settingsPages, .snippets, .folders, .links, .plugins:
             // Asked once per chip on every pass with an empty field, so it
             // stops at the first row that qualifies instead of building a copy
             // of the catalog five times over.
@@ -618,7 +646,7 @@ final class CommandBarService: ObservableObject {
         case .windows: rows = windowEntries
         case .menus: rows = menuEntries
         case .emoji: rows = emojiEntries
-        case .settingsPages, .snippets, .folders, .links:
+        case .settingsPages, .snippets, .folders, .links, .plugins:
             rows = catalog.filter { CommandBarPreferences.source(ofRowID: $0.id) == source }
         case .clipboard:
             rows = CommandBarCatalog.clipboardBrowseEntries(limit: limit, bar: bar) { [weak self] entry in
@@ -657,6 +685,7 @@ final class CommandBarService: ObservableObject {
         case .calculator: return bar.sourceCalculator
         case .selection: return bar.sourceSelection
         case .links: return bar.linksTitle
+        case .plugins: return PluginStrings.title
         }
     }
 
@@ -686,6 +715,12 @@ final class CommandBarService: ObservableObject {
     /// Emoji has prepared only its own.
     func entryTitle(forStableKey key: String) -> String? {
         freshFullEntry(forStableKey: key)?.title
+    }
+
+    /// Settings uses this to remove pins for commands from plugins that are
+    /// no longer installed. Other missing durable pins remain visible.
+    var presentStableKeys: Set<String> {
+        plugins.commandKeys
     }
 
     func alias(for entry: CommandBarEntry) -> String? {
@@ -753,6 +788,7 @@ final class CommandBarService: ObservableObject {
 
     private func rebuildCatalog(index: Bool = true) {
         catalog = CommandBarCatalog.build(automationDenied: finderAutomationDenied)
+            + (AppFeature.commandBar.isAvailable ? plugins.catalog() : [])
         prepareEmojiEntriesIfNeeded()
         builtLanguage = L10n.shared.language
         if index { indexEntries() }
@@ -872,6 +908,8 @@ final class CommandBarService: ObservableObject {
         }
         switch mode {
         case .search:
+            plugins.update(query: query, enabled: isVisible && isEnabled(.plugins)
+                           && (activeCategory == nil || activeCategory == .plugins))
             let trimmed = query.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty {
                 if presentationLifecycle.usesEmojiIndex {
@@ -1101,6 +1139,7 @@ final class CommandBarService: ObservableObject {
     }
 
     private func searchRows(for trimmed: String) -> [CommandBarEntry] {
+        if isEnabled(.plugins), let results = plugins.results() { return results }
         let bar = FeatureStrings.commandBar(L10n.shared.language)
         // Inside a category, typing filters that category and nothing else:
         // no answer row, no caps per kind, just the ranking over one list.

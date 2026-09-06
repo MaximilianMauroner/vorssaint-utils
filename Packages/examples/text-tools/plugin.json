@@ -1,0 +1,1 @@
+{"id":"com.example.text-tools","name":"Text tools","version":"0.1.0","apiVersion":1,"main":"dist/index.js","commands":[{"id":"uppercase","title":"Uppercase text","input":"text"}],"capabilities":["clipboard.write"]}

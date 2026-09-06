@@ -27,6 +27,9 @@ jobs:
       - name: Selftest
         run: ./build/Vorssaint --selftest
 
+      - name: Native plugins and signed runtime
+        run: ./Tools/test-plugins.sh
+
       - name: Package DMG
         run: ./Tools/make-dmg.sh
 
@@ -36,3 +39,25 @@ jobs:
           name: Vorssaint-dmg
           path: dist/*.dmg
           if-no-files-found: error
+
+  plugin-tools:
+    name: Plugin SDK and package tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.13.1
+      - name: Install plugin tooling
+        run: |
+          npm install --global pnpm@10.28.2 --ignore-scripts
+          pnpm --dir Packages install --frozen-lockfile --ignore-scripts
+      - name: Check SDK and examples
+        run: pnpm --dir Packages check
+      - name: Test packages and real plugin processes
+        run: pnpm --dir Packages test
+      - name: Build examples
+        run: pnpm --dir Packages build:examples

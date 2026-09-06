@@ -1,0 +1,1 @@
+{"name":"vorssaint-example-text-tools","private":true,"type":"module","dependencies":{"@vorssaint/plugin-sdk":"workspace:*"},"vorssaint":{"source":"src/index.ts","assets":[]}}

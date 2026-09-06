@@ -46,6 +46,22 @@ developer_id_identity() {
         | sed -E 's/.*"(.*)".*/\1/' || true
 }
 
+# V8 needs JIT on the dedicated runtime executable, not the application.
+codesign_plugin_runtime() {
+    local bundle="$1"
+    local identity="$2"
+    local runtime="$bundle/Contents/Helpers/plugin-node"
+    [[ -f "$runtime" ]] || return 0
+    if [[ "$identity" != "-" && "$identity" != "$LEGACY_IDENTITY" ]]; then
+        /usr/bin/codesign --force --strip-disallowed-xattrs --options runtime \
+            --timestamp --entitlements Resources/PluginRuntime.entitlements --sign "$identity" "$runtime"
+    else
+        /usr/bin/codesign --force --strip-disallowed-xattrs --options runtime \
+            --entitlements Resources/PluginRuntime.entitlements --sign "$identity" "$runtime"
+    fi
+    /usr/bin/codesign --verify --strict "$runtime"
+}
+
 finalize_installed_bundle_after_child() {
     local bundle="$1"
     local helper="$bundle/Contents/Library/LaunchServices/$FAN_HELPER_ID"
@@ -55,15 +71,18 @@ finalize_installed_bundle_after_child() {
     echo "▸ Finalizing installed signature…"
     sleep 3
     if [[ -n "$devid" ]]; then
+        codesign_plugin_runtime "$bundle" "$devid"
         [[ -f "$helper" ]] && /usr/bin/codesign --force --strip-disallowed-xattrs \
             --options runtime --timestamp --identifier "$FAN_HELPER_ID" --sign "$devid" "$helper"
         /usr/bin/codesign --force --strip-disallowed-xattrs --options runtime --timestamp \
             --entitlements "$ENTITLEMENTS" --sign "$devid" "$bundle"
     elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
+        codesign_plugin_runtime "$bundle" "$LEGACY_IDENTITY"
         [[ -f "$helper" ]] && /usr/bin/codesign --force --strip-disallowed-xattrs \
             --identifier "$FAN_HELPER_ID" --sign "$LEGACY_IDENTITY" "$helper"
         /usr/bin/codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$bundle"
     else
+        codesign_plugin_runtime "$bundle" "-"
         [[ -f "$helper" ]] && /usr/bin/codesign --force --strip-disallowed-xattrs \
             --identifier "$FAN_HELPER_ID" --sign - "$helper"
         /usr/bin/codesign --force --strip-disallowed-xattrs --sign - "$bundle"
@@ -265,6 +284,7 @@ cp Resources/com.vorssaint.utils.fan-control.plist \
     "$STAGE/Contents/Library/LaunchDaemons/$FAN_HELPER_ID.plist"
 cp Resources/Info.plist "$STAGE/Contents/Info.plist"
 cp CHANGELOG.md "$STAGE/Contents/Resources/CHANGELOG.md"
+./Tools/bundle-plugin-runtime.sh "$STAGE/Contents"
 for lproj in Resources/*.lproj(N); do
     cp -R "$lproj" "$STAGE/Contents/Resources/"
 done
@@ -344,6 +364,16 @@ codesign_fan_helper() {
     fi
 }
 
+plugin_signing_identity() {
+    if [[ -n "$DEVID" ]]; then
+        print -r -- "$DEVID"
+    elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
+        print -r -- "$LEGACY_IDENTITY"
+    else
+        print -r -- "-"
+    fi
+}
+
 sign_bundle() {
     local bundle="$1"
     local executable="$bundle/Contents/MacOS/$EXECUTABLE"
@@ -356,6 +386,7 @@ sign_bundle() {
     else
         echo "  signing ad-hoc (no identity installed — run Tools/setup-signing.sh)"
     fi
+    codesign_plugin_runtime "$bundle" "$(plugin_signing_identity)"
     [[ -f "$helper" ]] && codesign_fan_helper "$helper"
     codesign_app "$bundle"
 
@@ -364,6 +395,7 @@ sign_bundle() {
     if ! codesign --verify --deep --strict "$bundle" >/dev/null 2>&1; then
         echo "  re-signing after filesystem metadata settled"
         xattr -c -r "$bundle" 2>/dev/null || true
+        codesign_plugin_runtime "$bundle" "$(plugin_signing_identity)"
         [[ -f "$helper" ]] && codesign_fan_helper "$helper"
         codesign_app "$bundle"
     fi

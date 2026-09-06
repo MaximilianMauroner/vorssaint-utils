@@ -1,0 +1,1 @@
+{"id":"com.example.web-search","name":"Wikipedia search","version":"0.1.0","apiVersion":1,"main":"dist/index.js","searchProviders":[{"id":"wikipedia","title":"Search Wikipedia","keyword":"wiki"}],"capabilities":["url.open"]}

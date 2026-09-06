@@ -1,0 +1,6 @@
+{
+  "name": "vorssaint-plugin-tools", "private": true, "type": "module",
+  "scripts": {"test": "node --test tests/*.test.mjs", "check": "tsc --noEmit", "build:examples": "node plugin-cli/cli.mjs build examples/text-tools && node plugin-cli/cli.mjs build examples/web-search && node plugin-cli/cli.mjs build examples/alpha-test"},
+  "devDependencies": {"esbuild": "0.25.12", "typescript": "5.9.3", "@types/node": "24.10.1"},
+  "engines": {"node": ">=24"}
+}

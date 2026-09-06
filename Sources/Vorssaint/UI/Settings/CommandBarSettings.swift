@@ -291,7 +291,9 @@ struct CommandBarSettings: View {
     }
 
     private var pinned: [NamedRow] {
-        CommandBarPreferences.decodePins(pinsRaw)
+        CommandBarPreferences.listedPins(
+            CommandBarPreferences.decodePins(pinsRaw),
+            present: service.presentStableKeys)
             .map { NamedRow(key: $0, title: title(forKey: $0), alias: "") }
     }
 
@@ -327,6 +329,7 @@ struct CommandBarSettings: View {
         case .calculator: return text.sourceCalculator
         case .selection: return text.sourceSelection
         case .links: return text.linksTitle
+        case .plugins: return PluginStrings.title
         }
     }
 

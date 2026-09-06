@@ -1,0 +1,1 @@
+{"name":"@vorssaint/plugin-cli","version":"0.1.0","private":true,"type":"module","bin":{"vorssaint-plugin":"cli.mjs"},"dependencies":{"esbuild":"0.25.12"},"engines":{"node":">=24"}}

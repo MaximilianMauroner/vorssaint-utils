@@ -199,6 +199,8 @@ The [troubleshooting guide](docs/TROUBLESHOOTING.md) walks through the common ca
 
 ## Documentation
 
+- [External plugins](docs/PLUGINS.md): install plugins or build commands and searches with TypeScript and JavaScript.
+
 - [Privacy](docs/PRIVACY.md), what does and does not leave your Mac
 - [Permissions](docs/PERMISSIONS.md), every macOS permission in plain words
 - [Troubleshooting](docs/TROUBLESHOOTING.md), the common fixes

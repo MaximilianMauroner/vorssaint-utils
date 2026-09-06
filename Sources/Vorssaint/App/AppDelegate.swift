@@ -213,6 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+        PluginManager.shared.shutdown()
         // Quitting properly means the start worked, whenever it happened.
         endStartupWatch()
         if AppFeature.brightness.isAvailable {

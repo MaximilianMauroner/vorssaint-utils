@@ -1,0 +1,12 @@
+{
+  "name": "vorssaint-alpha-test-plugin",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vorssaint/plugin-sdk": "workspace:*"
+  },
+  "vorssaint": {
+    "source": "src/index.ts",
+    "assets": ["TESTING.md"]
+  }
+}

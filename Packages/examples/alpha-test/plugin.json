@@ -1,0 +1,33 @@
+{
+  "id": "com.vorssaint.alpha-test",
+  "name": "Vorssaint Plugin Alpha Test",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "minimumHostVersion": "0.0.0",
+  "main": "dist/index.js",
+  "commands": [
+    { "id": "run-all", "title": "Plugin Test: Run All", "input": "text" },
+    { "id": "copy", "title": "Plugin Test: Copy", "input": "text" },
+    { "id": "open-docs", "title": "Plugin Test: Open Docs", "input": "none" },
+    { "id": "show-status", "title": "Plugin Test: Show Status", "input": "none" },
+    { "id": "storage", "title": "Plugin Test: Storage", "input": "text" },
+    { "id": "no-message", "title": "Plugin Test: No Message", "input": "none" },
+    { "id": "expected-error", "title": "Plugin Test: Expected Error", "input": "none" }
+  ],
+  "searchProviders": [
+    { "id": "all-options", "title": "Plugin Test Search", "keyword": "plugtest" }
+  ],
+  "settings": [
+    { "key": "label", "title": "Test label", "type": "string", "default": "alpha" },
+    { "key": "enabled", "title": "Test enabled value", "type": "boolean", "default": true },
+    { "key": "count", "title": "Test number", "type": "number", "default": 3 }
+  ],
+  "capabilities": [
+    "clipboard.write",
+    "url.open",
+    "settings.read",
+    "storage.read",
+    "storage.write",
+    "status.show"
+  ]
+}
