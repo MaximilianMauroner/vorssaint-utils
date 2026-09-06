@@ -212,8 +212,16 @@ struct PanelClipboardView: View {
                 .controlSize(.mini)
                 .help(entry.isPinned ? text.unpin : text.pin)
                 Button {
-                    history.copy(entry)
-                    copiedID = entry.id
+                    // The tick means "it is on the clipboard", so it waits for
+                    // the write instead of announcing one still queued behind
+                    // a stalled pasteboard provider.
+                    history.copy(entry) { copied in
+                        if copied {
+                            copiedID = entry.id
+                        } else {
+                            NSSound.beep()
+                        }
+                    }
                 } label: {
                     Label(copiedID == entry.id ? text.copied : text.copy,
                           systemImage: copiedID == entry.id ? "checkmark" : "doc.on.doc")
