@@ -44,18 +44,29 @@ struct ClipboardHistoryWriteTests {
             expect(result?.succeeded == true, "successful \(name) reports success")
         }
 
-        // Expire at each boundary, including after a call that mutates the
-        // clipboard. No later optional write or count read may then run.
-        for write in [ClipboardHistoryWrite.image(png: png, tiff: tiff),
-                      ClipboardHistoryWrite.rich(rich, plain: "fallback")] {
-            for allowedCalls in 0...4 {
+        // Expire before clear, after each mutation, and during the final
+        // count read. Timed-out mutations still need history bookkeeping.
+        for (name, write, requiredOperation) in writes {
+            var mutations = ["clear", requiredOperation]
+            if name == "PNG" { mutations.append("tiff") }
+            if name == "rich" { mutations.append("string") }
+            for allowedCalls in 0...(mutations.count + 1) {
                 let pasteboard = FakeHistoryPasteboard()
                 let result = write.write(to: pasteboard) {
                     pasteboard.operations.count >= allowedCalls
                 }
-                expect(result == nil, "expired write does not report success after \(allowedCalls) calls")
-                expect(pasteboard.operations.count == allowedCalls,
-                       "expired write stops pasteboard calls at boundary \(allowedCalls)")
+                if allowedCalls == 0 {
+                    expect(result == nil && pasteboard.operations.isEmpty,
+                           "expired \(name) leaves clipboard untouched before clear")
+                } else {
+                    let expectedMutations = Array(mutations.prefix(allowedCalls))
+                    expect(result?.succeeded == false,
+                           "expired \(name) reports failure at boundary \(allowedCalls)")
+                    expect(result?.changeCount == 10 + expectedMutations.count,
+                           "expired \(name) retains final change count at boundary \(allowedCalls)")
+                    expect(pasteboard.operations == expectedMutations + ["count"],
+                           "expired \(name) only reads count after boundary \(allowedCalls)")
+                }
             }
         }
 
