@@ -414,6 +414,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/ManagedDownloads/WhatsAppDownloadSupport.swift \
         Tests/ClipboardHistoryWriteTests.swift \
         Tests/ClipboardHistoryAccessTests.swift \
+        Tests/WindowFocusHistoryTests.swift \
         Tests/MetricsTests.swift \
         Tests/SpeedTestTests.swift \
         -o build/metrics-tests
