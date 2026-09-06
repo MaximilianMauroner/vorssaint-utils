@@ -24,37 +24,36 @@ enum ClipboardHistoryWrite {
     case files([NSURL])
     case rich(NSAttributedString, plain: String)
 
-    /// Expiry stops subsequent calls. A pasteboard call already in progress
-    /// cannot be cancelled, and clearing or a partial write cannot be undone.
+    /// Expiry stops subsequent writes. Once cleared, always read the final
+    /// change count so history can exclude our mutation, even after timeout.
+    /// A call in progress cannot be cancelled or a partial write undone.
     func write(to pasteboard: any ClipboardHistoryPasteboard,
                isExpired: () -> Bool) -> ClipboardHistoryWriteResult? {
         guard !isExpired() else { return nil }
         _ = pasteboard.clearContents()
-        guard !isExpired() else { return nil }
 
-        let succeeded: Bool
-        switch self {
-        case let .text(text):
-            succeeded = pasteboard.setString(text, forType: .string)
-        case let .image(png, tiff):
-            succeeded = pasteboard.setData(png, forType: .png)
-            if succeeded, let tiff {
-                guard !isExpired() else { return nil }
-                _ = pasteboard.setData(tiff, forType: .tiff)
-            }
-        case let .files(urls):
-            succeeded = pasteboard.writeObjects(urls)
-        case let .rich(rich, plain):
-            succeeded = pasteboard.writeObjects([rich])
-            if succeeded, !plain.isEmpty {
-                guard !isExpired() else { return nil }
-                _ = pasteboard.setString(plain, forType: .string)
+        var succeeded = false
+        if !isExpired() {
+            switch self {
+            case let .text(text):
+                succeeded = pasteboard.setString(text, forType: .string)
+            case let .image(png, tiff):
+                succeeded = pasteboard.setData(png, forType: .png)
+                if succeeded, let tiff, !isExpired() {
+                    _ = pasteboard.setData(tiff, forType: .tiff)
+                }
+            case let .files(urls):
+                succeeded = pasteboard.writeObjects(urls)
+            case let .rich(rich, plain):
+                succeeded = pasteboard.writeObjects([rich])
+                if succeeded, !plain.isEmpty, !isExpired() {
+                    _ = pasteboard.setString(plain, forType: .string)
+                }
             }
         }
 
-        guard !isExpired() else { return nil }
         let changeCount = pasteboard.changeCount
-        guard !isExpired() else { return nil }
-        return ClipboardHistoryWriteResult(succeeded: succeeded, changeCount: changeCount)
+        return ClipboardHistoryWriteResult(succeeded: !isExpired() && succeeded,
+                                           changeCount: changeCount)
     }
 }

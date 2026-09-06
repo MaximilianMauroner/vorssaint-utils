@@ -39,6 +39,7 @@ struct ClipboardHistoryAccessTests {
         var completions = 0
         var finishes = 0
         var answer: Int?
+        var finishedValue: Int?
         var answerOnMain = false
         lane.async(timeout: 0.03, { _ -> Int? in
             entered.signal()
@@ -48,7 +49,10 @@ struct ClipboardHistoryAccessTests {
             completions += 1
             answer = value
             answerOnMain = Thread.isMainThread
-        }, didFinish: { _ in finishes += 1 })
+        }, didFinish: { value in
+            finishedValue = value
+            finishes += 1
+        })
         expect(entered.wait(timeout: .now() + 1) == .success, "read starts on lane")
         pump { completions == 1 }
         expect(answer == nil && answerOnMain, "timeout returns nil on main")
@@ -57,6 +61,8 @@ struct ClipboardHistoryAccessTests {
         pump { finishes == 1 }
         expect(finishes == 1 && completions == 1 && answer == nil,
                "late completion releases admission without delivering stale success")
+        expect(finishedValue == 42,
+               "expired result retains bookkeeping for the actual operation completion")
 
         // A queued user action must expire without ever running its write.
         let releaseQueue = DispatchSemaphore(value: 0)
