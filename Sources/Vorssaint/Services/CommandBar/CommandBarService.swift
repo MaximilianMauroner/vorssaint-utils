@@ -1754,8 +1754,9 @@ final class CommandBarService: ObservableObject {
     /// clipboard, wait for a clean keyboard and press ⌘V for the person.
     private func paste(_ entry: ClipboardHistoryEntry) {
         hide()
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier
-            == ProcessInfo.processInfo.processIdentifier {
+        guard let target = NSWorkspace.shared.frontmostApplication,
+              !target.isTerminated,
+              target.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
             NSSound.beep()
             return
         }
@@ -1777,7 +1778,7 @@ final class CommandBarService: ObservableObject {
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                Self.postPasteWhenModifiersReleased(attempt: 0)
+                Self.postPasteWhenModifiersReleased(attempt: 0, target: target)
             }
         }
     }
@@ -1786,7 +1787,16 @@ final class CommandBarService: ObservableObject {
     /// merges with those modifiers and stops being a paste in the target
     /// app, so wait for a clean keyboard first (15 ms polls, ~1.5 s cap,
     /// then a settle beat). Secure input means a password field; leave it be.
-    private static func postPasteWhenModifiersReleased(attempt: Int) {
+    private static func postPasteWhenModifiersReleased(attempt: Int,
+                                                       target: NSRunningApplication) {
+        // Copy and modifier waits can outlive the user's focus. Never send
+        // the saved text to an app they switched to while waiting.
+        guard !target.isTerminated,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier,
+              AXIsProcessTrusted() else {
+            NSSound.beep()
+            return
+        }
         let held = CGEventSource.flagsState(.combinedSessionState)
             .intersection([.maskCommand, .maskAlternate, .maskShift, .maskControl])
         if attempt >= 100 {
@@ -1795,12 +1805,14 @@ final class CommandBarService: ObservableObject {
         }
         guard held.isEmpty else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.015) {
-                postPasteWhenModifiersReleased(attempt: attempt + 1)
+                postPasteWhenModifiersReleased(attempt: attempt + 1, target: target)
             }
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-            guard !IsSecureEventInputEnabled() else {
+            guard !target.isTerminated,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier,
+                  AXIsProcessTrusted(), !IsSecureEventInputEnabled() else {
                 NSSound.beep()
                 return
             }
