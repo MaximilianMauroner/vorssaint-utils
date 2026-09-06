@@ -306,6 +306,7 @@ if (( TEST )); then
         Sources/Vorssaint/Core/ReleaseNotes.swift \
         Sources/Vorssaint/Core/URLCleaning.swift \
         Sources/Vorssaint/Services/GeneralPasteboardAccess.swift \
+        Sources/Vorssaint/Services/Clipboard/ClipboardHistoryWrite.swift \
         Sources/Vorssaint/Services/Audio/MixerRoutingSupport.swift \
         Sources/Vorssaint/Services/Audio/MusicLaunchSupport.swift \
         Sources/Vorssaint/Services/Bluetooth/BluetoothSleepSupport.swift \
@@ -411,6 +412,8 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Cleaner/CleanerSchedule.swift \
         Sources/Vorssaint/Services/Uninstall/UninstallerSupport.swift \
         Sources/Vorssaint/Services/ManagedDownloads/WhatsAppDownloadSupport.swift \
+        Tests/ClipboardHistoryWriteTests.swift \
+        Tests/ClipboardHistoryAccessTests.swift \
         Tests/MetricsTests.swift \
         Tests/SpeedTestTests.swift \
         -o build/metrics-tests
