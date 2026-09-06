@@ -11,6 +11,16 @@ enum FocusFollowsMouseSupport {
     static func sanitizedDelay(_ milliseconds: Int) -> Int {
         min(max(milliseconds, delayRange.lowerBound), delayRange.upperBound)
     }
+
+    static func shouldActivate(targetWindowID: CGWindowID,
+                               focusedWindowID: CGWindowID?,
+                               targetAppIsFrontmost: Bool) -> Bool {
+        guard targetAppIsFrontmost else { return true }
+        // Games may not expose focus through Accessibility. Reasserting it can
+        // release their captured pointer, so require a known different window.
+        guard let focusedWindowID else { return false }
+        return focusedWindowID != targetWindowID
+    }
 }
 
 struct FocusFollowsMouseEvaluation: Equatable {
@@ -23,6 +33,10 @@ struct FocusFollowsMouseState: Equatable {
     private(set) var movedAt: TimeInterval = 0
     private(set) var generation: UInt64 = 0
     private var evaluatedGeneration: UInt64?
+
+    var hasPendingEvaluation: Bool {
+        point != nil && evaluatedGeneration != generation
+    }
 
     mutating func recordMovement(to point: CGPoint, at time: TimeInterval) {
         self.point = point
@@ -40,7 +54,7 @@ struct FocusFollowsMouseState: Equatable {
     mutating func nextEvaluation(at time: TimeInterval,
                                  delayMilliseconds: Int) -> FocusFollowsMouseEvaluation? {
         guard let point,
-              evaluatedGeneration != generation,
+              hasPendingEvaluation,
               time - movedAt >= Double(FocusFollowsMouseSupport.sanitizedDelay(delayMilliseconds)) / 1_000
         else { return nil }
         evaluatedGeneration = generation

@@ -11,6 +11,7 @@ enum CommandBarEmoji {
     /// maintain and nothing to fall out of date.
     struct Emoji {
         let character: String
+        let identity: String
         let name: String
         let keywords: String
     }
@@ -72,8 +73,8 @@ enum CommandBarEmoji {
     /// deliberately compact: names cover literal searches, aliases cover the
     /// common intent words people actually type into an emoji picker.
     private static let aliases: [String: String] = [
-        "😂": "lol laugh laughing tears funny",
-        "🤣": "lol rofl laugh laughing funny",
+        "😂": "haha lol roflmao laugh laughing tears funny",
+        "🤣": "haha lol rofl roflmao laugh laughing funny",
         "😊": "happy smile blush",
         "🥰": "love affection hearts",
         "😘": "kiss love",
@@ -84,9 +85,10 @@ enum CommandBarEmoji {
         "🥺": "please pleading puppy eyes",
         "😡": "angry mad rage",
         "🤬": "swear cursing angry",
+        "🤷": "idk shrug whatever",
         "💀": "dead death dying skeleton halloween",
         "☠️": "dead death danger poison pirate",
-        "🙏": "please thanks thank you pray prayer high five",
+        "🙏": "appreciate please thanks thank thx you pray prayer high five",
         "👍": "yes good approve like okay",
         "👎": "no bad disapprove dislike",
         "👌": "okay perfect good",
@@ -117,6 +119,7 @@ enum CommandBarEmoji {
             let annotation = annotationResource?.annotations[canonical]
             guard let name = annotation?.name ?? unicodeName(of: character) else { return nil }
             return Emoji(character: character,
+                         identity: aliasCharacter ?? character,
                          name: name,
                          keywords: combinedKeywords(
                             annotation?.keywords,

@@ -11,6 +11,18 @@ enum CommandBarClipboardAccess {
     }
 }
 
+enum CommandBarMenuPath {
+    /// The trail to a menu command, from the app name down. Every Mac app
+    /// carries a menu named after itself, which made those rows read
+    /// "Notes \u{203A} Notes", so a name is never repeated right after itself.
+    static func crumb(appName: String, path: [String]) -> String {
+        ([appName] + path).reduce(into: [String]()) { trail, name in
+            guard !name.isEmpty, trail.last != name else { return }
+            trail.append(name)
+        }.joined(separator: " \u{203A} ")
+    }
+}
+
 /// What an empty field shows. Pure, because the ranking, the panel and the
 /// tests all need the same answer.
 enum CommandBarHome {
@@ -772,7 +784,7 @@ enum CommandBarQueryHabits {
         let old = cache.normalizedQuery
         if normalized.hasPrefix(old) {
             var keys = cache.prepared.keys
-            let firstNewLength = max(3, Array(old).count + 1)
+            let firstNewLength = Array(old).count + 1
             if firstNewLength <= characters.count {
                 for length in firstNewLength...characters.count {
                     let prefix = String(characters.prefix(length))
@@ -793,8 +805,8 @@ enum CommandBarQueryHabits {
     private static func preparedKeys(_ characters: [Character],
                                      key: Data,
                                      digest: (String, Data) -> String) -> [(String, Int)] {
-        guard characters.count >= 3 else { return [] }
-        return (3...characters.count).map { length in
+        guard !characters.isEmpty else { return [] }
+        return (1...characters.count).map { length in
             (digest(String(characters.prefix(length)), key), length)
         }
     }
@@ -812,9 +824,29 @@ enum CommandBarQueryHabits {
 
     /// Starts the only Keychain work used by query learning. Search and
     /// selection read the memory cache without waiting for this queue.
-    static func warmInstallationKey() {
-        installationKeyCache.warm()
+    static func warmInstallationKey(_ whenReady: (() -> Void)? = nil) {
+        installationKeyCache.warm(whenReady)
     }
+
+    static func removeInstallationKey() {
+        installationKeyCache.stopAndRemove {
+            _ = SecItemDelete([
+                kSecClass: kSecClassGenericPassword,
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
+            ] as CFDictionary)
+        }.wait()
+    }
+
+    // Developer and official installations must never share or delete each
+    // other's key; their learned choices already live in separate preferences.
+    static func installationKeyService(bundleID: String) -> String {
+        bundleID + ".command-bar-query-habits"
+    }
+
+    private static let keyService = installationKeyService(
+        bundleID: Bundle.main.bundleIdentifier ?? "com.vorssaint.utils")
+    private static let keyAccount = "hmac-key"
 
     private static let installationKeyCache = CommandBarQueryHabitKeyCache {
         loadInstallationKey(using: liveKeyStore)
@@ -870,8 +902,8 @@ enum CommandBarQueryHabits {
         read: {
             let lookup: [CFString: Any] = [
                 kSecClass: kSecClassGenericPassword,
-                kSecAttrService: "org.vorssaint.command-bar-query-habits",
-                kSecAttrAccount: "hmac-key",
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
                 kSecReturnData: true,
                 kSecMatchLimit: kSecMatchLimitOne,
             ]
@@ -888,8 +920,8 @@ enum CommandBarQueryHabits {
         add: { data in
             SecItemAdd([
                 kSecClass: kSecClassGenericPassword,
-                kSecAttrService: "org.vorssaint.command-bar-query-habits",
-                kSecAttrAccount: "hmac-key",
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
                 kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
                 kSecValueData: data,
             ] as CFDictionary, nil)
@@ -897,8 +929,8 @@ enum CommandBarQueryHabits {
         update: { data in
             let identity: [CFString: Any] = [
                 kSecClass: kSecClassGenericPassword,
-                kSecAttrService: "org.vorssaint.command-bar-query-habits",
-                kSecAttrAccount: "hmac-key",
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
             ]
             return SecItemUpdate(identity as CFDictionary,
                                  [kSecValueData: data] as CFDictionary)
@@ -946,12 +978,14 @@ final class CommandBarQueryHabitKeyCache {
         case idle
         case loading
         case ready(Data)
+        case stopped
     }
 
     private let lock = NSLock()
     private let queue: DispatchQueue
     private let load: () -> Data?
     private var state = State.idle
+    private var readinessCallbacks: [() -> Void] = []
 
     init(queue: DispatchQueue = DispatchQueue(
             label: "org.vorssaint.command-bar-query-habit-key",
@@ -968,25 +1002,56 @@ final class CommandBarQueryHabitKeyCache {
         return key
     }
 
-    func warm() {
+    func warm(_ whenReady: (() -> Void)? = nil) {
         lock.lock()
+        if case .stopped = state {
+            lock.unlock()
+            return
+        }
+        if case .ready = state {
+            lock.unlock()
+            whenReady?()
+            return
+        }
+        if let whenReady { readinessCallbacks.append(whenReady) }
         guard case .idle = state else {
             lock.unlock()
             return
         }
         state = .loading
-        lock.unlock()
 
         queue.async { [self] in
             let key = load()
             lock.lock()
+            guard case .loading = state else {
+                lock.unlock()
+                return
+            }
+            let callbacks: [() -> Void]
             if let key, key.count == 32 {
                 state = .ready(key)
+                callbacks = readinessCallbacks
             } else {
                 state = .idle
+                callbacks = []
             }
+            readinessCallbacks = []
             lock.unlock()
+            callbacks.forEach { $0() }
         }
+        lock.unlock()
+    }
+
+    /// Stop before enqueueing deletion, so an in-flight load cannot restore
+    /// the key or notify callers after uninstall has removed it.
+    func stopAndRemove(_ remove: @escaping () -> Void) -> DispatchWorkItem {
+        lock.lock()
+        state = .stopped
+        readinessCallbacks = []
+        let removal = DispatchWorkItem(block: remove)
+        queue.async(execute: removal)
+        lock.unlock()
+        return removal
     }
 }
 
@@ -998,6 +1063,12 @@ enum CommandBarLearning {
 }
 
 enum CommandBarCompletion {
+    static func completedQuery(current: String, title: String, matchTitle: String?) -> String {
+        CommandBarSearch.emojiQuery(from: current) != nil
+            ? ":" + (matchTitle ?? title)
+            : (matchTitle ?? title)
+    }
+
     static func queryForLearning(current: String, beforeCompletion: String?) -> String {
         beforeCompletion ?? current
     }
