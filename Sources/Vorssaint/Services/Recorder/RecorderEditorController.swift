@@ -11,6 +11,18 @@ import UniformTypeIdentifiers
 /// What the editor view watches. Holds the document, the player and the
 /// filmstrip; every change goes through here so undo has one thing to record.
 final class RecorderEditorModel: ObservableObject, BackdropEditing {
+    enum ExportPhase: Equatable {
+        case saving
+        case compressing
+        case uploading
+    }
+
+    enum ShareFailure: Error {
+        case tooLarge
+        case failed
+        case cancelled
+    }
+
     let take: RecorderTakeStore.Take
     let player: AVPlayer
 
@@ -20,6 +32,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
     @Published private(set) var thumbnails: [CGImage] = []
     @Published private(set) var isExporting = false
     @Published private(set) var exportProgress: Double = 0
+    @Published private(set) var exportPhase: ExportPhase = .saving
     /// The last file this recording produced. Kept so the editor can hand it
     /// over: a HUD naming a folder is not the same as giving somebody the file.
     @Published private(set) var lastExportedURL: URL?
@@ -41,6 +54,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
 
     private var timeObserver: Any?
     private var thumbnailTask: Task<Void, Never>?
+    private var waveformTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     private var compositionTask: Task<Void, Never>?
     private lazy var sourceAsset = AVURLAsset(url: take.videoURL)
@@ -83,7 +97,8 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
                 gifSize: RecorderSupport.sanitizedGIFSize(
                     defaults.string(forKey: DefaultsKey.recorderGIFSize)).rawValue,
                 gifFrameRate: RecorderSupport.sanitizedGIFFrameRate(
-                    defaults.integer(forKey: DefaultsKey.recorderGIFFrameRate)))
+                    defaults.integer(forKey: DefaultsKey.recorderGIFFrameRate)),
+                zoomEnabled: defaults.bool(forKey: DefaultsKey.recorderAutomaticZoom))
         }
         player.isMuted = false
         pointerTrack = RecorderPointerTrack.decoded(try? Data(contentsOf: take.pointerURL))
@@ -99,6 +114,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
             player.removeTimeObserver(timeObserver)
         }
         thumbnailTask?.cancel()
+        waveformTask?.cancel()
         previewTask?.cancel()
         compositionTask?.cancel()
     }
@@ -112,7 +128,11 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
             else { return }
             self.duration = max(0, CMTimeGetSeconds(seconds))
             if let track = try? await self.sourceAsset.loadTracks(withMediaType: .video).first {
-                self.sourceSize = (try? await track.load(.naturalSize)) ?? .zero
+                let naturalSize = (try? await track.load(.naturalSize)) ?? .zero
+                let preferredTransform = (try? await track.load(.preferredTransform)) ?? .identity
+                self.sourceSize = RecorderSupport.videoGeometry(
+                    naturalSize: naturalSize,
+                    preferredTransform: preferredTransform).size
                 let rate = (try? await track.load(.nominalFrameRate)) ?? 60
                 self.sourceFrameRate = RecorderSupport.sanitizedFrameRate(Int(rate.rounded()))
             }
@@ -146,16 +166,16 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
                                                          document: self.document)
             self.player.replaceCurrentItem(with: item)
             self.player.isMuted = false
-            self.outputDuration = CMTimeGetSeconds(
-                (try? await result.asset.load(.duration)) ?? .zero)
+            self.outputDuration = CMTimeGetSeconds(result.duration)
             self.rebuildPreview()
         }
     }
 
     private func loadAudioWaveforms(_ tracks: [RecorderAudioSource: AVAssetTrack]) {
+        waveformTask?.cancel()
         let duration = duration
         let asset = sourceAsset
-        Task.detached(priority: .utility) { [weak self] in
+        waveformTask = Task.detached(priority: .utility) { [weak self] in
             var waveforms: [RecorderAudioSource: [Float]] = [:]
             for source in RecorderAudioSource.allCases {
                 guard let track = tracks[source], !Task.isCancelled else { continue }
@@ -349,7 +369,9 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
     /// Rebuilt after a beat so dragging a slider does not thrash it.
     fileprivate func rebuildPreview() {
         previewTask?.cancel()
-        guard duration > 0, sourceSize.width > 0 else { return }
+        // While an area is being drawn the stage shows the recording as
+        // captured; whatever changed meanwhile is drawn when the drawing ends.
+        guard duration > 0, sourceSize.width > 0, !isPickingBlurArea else { return }
         let document = document
         let track = pointerTrack
         let sourceSize = sourceSize
@@ -475,7 +497,8 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
         let padding = style.kind == .none ? 0 : style.padding * 0.18
         let canvas = RecorderSupport.canvasSize(source: sourceSize,
                                                 padding: padding,
-                                                aspect: document.resolvedAspect)
+                                                aspect: document.resolvedAspect,
+                                                cropsToAspect: style.kind == .none)
         return RecorderSupport.outputSize(source: canvas, quality: document.resolvedQuality)
     }
 
@@ -599,12 +622,9 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
     /// including the edit of having deleted them all.
     private func generateZoomsIfNeeded() {
         guard !document.zoomsGenerated, duration > 0 else { return }
-        var next = document
-        next.zoomSegments = RecorderTimeline.generatedSegments(
-            clicks: pointerTrack.clicks,
-            typingTimes: typingTimes,
-            duration: duration,
-            amount: RecorderSupport.sanitizedZoomAmount(document.zoomAmount))
+        var next = document.restoringAutomaticZooms(clicks: pointerTrack.clicks,
+                                                    typingTimes: typingTimes,
+                                                    duration: duration)
         next.zoomsGenerated = true
         suppressUndo = true
         document = next
@@ -628,7 +648,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
         next.zoomEnabled = true
         next.zoomsGenerated = true
         applyDuringInteraction(next)
-        selectedZoomID = segment.id
+        selectLaneItem(.zoom, id: segment.id)
         commitZoomEdit()
     }
 
@@ -730,19 +750,12 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
     /// 0...1 space so a later change of shape or quality cannot invalidate it.
     func aim(at location: CGPoint, in viewSize: CGSize) {
         defer { isAimingZoom = false }
-        guard sourceSize.width > 0, sourceSize.height > 0,
-              viewSize.width > 0, viewSize.height > 0
+        guard let point = RecorderSupport.unitPoint(at: location,
+                                                    in: viewSize,
+                                                    sourceSize: sourceSize),
+              point.x >= 0, point.x <= 1, point.y >= 0, point.y <= 1
         else { return }
-        // The picture is letterboxed inside the stage, so the empty bands on
-        // either side have to come off before the click means anything.
-        let fit = min(viewSize.width / sourceSize.width, viewSize.height / sourceSize.height)
-        let shown = CGSize(width: sourceSize.width * fit, height: sourceSize.height * fit)
-        let originX = (viewSize.width - shown.width) / 2
-        let originY = (viewSize.height - shown.height) / 2
-        let u = (location.x - originX) / shown.width
-        let v = (location.y - originY) / shown.height
-        guard u >= 0, u <= 1, v >= 0, v <= 1 else { return }
-        setSelectedZoomFocus(CGPoint(x: u, y: v))
+        setSelectedZoomFocus(point)
     }
 
     private func beginInteraction() {
@@ -770,13 +783,25 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
 
     // MARK: - Lanes
 
-    /// Both lanes speak the same language to the view, so there is one set of
+    /// Every lane speaks the same language to the view, so there is one set of
     /// gestures to learn and one implementation to keep right.
     @Published var selectedTextID: UUID?
+    @Published var selectedImageID: UUID?
+    @Published var selectedBlurID: UUID?
 
     var selectedText: RecorderTextOverlay? {
         guard let selectedTextID else { return nil }
         return document.texts.first { $0.id == selectedTextID }
+    }
+
+    var selectedImage: RecorderImageOverlay? {
+        guard let selectedImageID else { return nil }
+        return document.images.first { $0.id == selectedImageID }
+    }
+
+    var selectedBlur: RecorderBlurRegion? {
+        guard let selectedBlurID else { return nil }
+        return document.blurs.first { $0.id == selectedBlurID }
     }
 
     func laneItems(_ kind: RecorderZoomLane.Kind) -> [RecorderZoomLane.Item] {
@@ -786,7 +811,8 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
                 RecorderZoomLane.Item(id: $0.id,
                                       start: $0.start,
                                       end: $0.end,
-                                      label: String(format: "%.1fx", $0.amount),
+                                      label: String(format: "%.1f×", locale: MetricFormat.locale,
+                                                    $0.amount),
                                       glyph: $0.followsPointer ? "\u{2197}" : "\u{25C9}")
             }
         case .text:
@@ -797,50 +823,96 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
                                       label: String($0.text.prefix(18)),
                                       glyph: "T")
             }
+        case .image:
+            return document.images.map {
+                RecorderZoomLane.Item(id: $0.id,
+                                      start: $0.start,
+                                      end: $0.end,
+                                      label: String(URL(fileURLWithPath: $0.path)
+                                        .deletingPathExtension().lastPathComponent.prefix(18)),
+                                      glyph: "\u{25A3}")
+            }
+        case .blur:
+            let label = FeatureStrings.recorder(L10n.shared.language).blurLaneLabel
+            return document.blurs.map {
+                RecorderZoomLane.Item(id: $0.id,
+                                      start: $0.start,
+                                      end: $0.end,
+                                      label: label,
+                                      glyph: "\u{25A6}")
+            }
         }
     }
 
     func laneSelection(_ kind: RecorderZoomLane.Kind) -> UUID? {
-        kind == .zoom ? selectedZoomID : selectedTextID
+        switch kind {
+        case .zoom: return selectedZoomID
+        case .text: return selectedTextID
+        case .image: return selectedImageID
+        case .blur: return selectedBlurID
+        }
     }
 
     func selectLaneItem(_ kind: RecorderZoomLane.Kind, id: UUID?) {
         switch kind {
         case .zoom:
             selectedZoomID = id
-            if id != nil { selectedTextID = nil }
         case .text:
             selectedTextID = id
-            if id != nil { selectedZoomID = nil }
+        case .image:
+            selectedImageID = id
+        case .blur:
+            selectedBlurID = id
         }
+        if id != nil {
+            cutSelection = nil
+            if kind != .zoom { selectedZoomID = nil }
+            if kind != .text { selectedTextID = nil }
+            if kind != .image { selectedImageID = nil }
+            if kind != .blur { selectedBlurID = nil }
+        }
+        // Drawing an area belongs to the blur that was selected; once that
+        // selection is gone, so is the drawing.
+        if selectedBlurID == nil { endPickingBlurArea() }
     }
 
     func addLaneItem(_ kind: RecorderZoomLane.Kind, at time: Double) {
         switch kind {
         case .zoom: addZoom(at: time)
         case .text: addText(at: time)
+        case .image: addImage(at: time)
+        case .blur: addBlur(at: time)
         }
     }
 
     func moveLaneItem(_ kind: RecorderZoomLane.Kind, id: UUID, to start: Double) {
         switch kind {
-        case .zoom:
-            moveZoom(id, to: start)
-        case .text:
-            guard let overlay = document.texts.first(where: { $0.id == id }) else { return }
-            beginInteraction()
-            var next = document
-            let span = overlay.duration
-            let clamped = max(0, min(start, duration - span))
-            next.texts = next.texts.map { item -> RecorderTextOverlay in
-                guard item.id == id else { return item }
-                var copy = item
-                copy.start = clamped
-                copy.end = clamped + span
-                return copy
-            }
-            applyDuringInteraction(next)
+        case .zoom: moveZoom(id, to: start)
+        case .text: moveBlock(\.texts, id: id, to: start)
+        case .image: moveBlock(\.images, id: id, to: start)
+        case .blur: moveBlock(\.blurs, id: id, to: start)
         }
+    }
+
+    /// A block keeps its length wherever it is dropped, and never hangs off
+    /// the end of the recording.
+    private func moveBlock<Block: RecorderTimelineBlock>(
+        _ blocks: WritableKeyPath<RecorderEditDocument, [Block]>,
+        id: UUID,
+        to start: Double) {
+        guard let block = document[keyPath: blocks].first(where: { $0.id == id }) else { return }
+        beginInteraction()
+        let span = block.duration
+        let clamped = max(0, min(start, duration - span))
+        var next = document
+        next[keyPath: blocks] = next[keyPath: blocks].map { item -> Block in
+            guard item.id == id else { return item }
+            var copy = item
+            copy.start = clamped
+            copy.end = clamped + span
+            return copy
+        }
+        applyDuringInteraction(next)
     }
 
     func resizeLaneItem(_ kind: RecorderZoomLane.Kind,
@@ -848,29 +920,41 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
                         edge: RecorderTimeline.Edge,
                         to time: Double) {
         switch kind {
-        case .zoom:
-            resizeZoom(id, edge: edge, to: time)
-        case .text:
-            guard let overlay = document.texts.first(where: { $0.id == id }) else { return }
-            beginInteraction()
-            var next = document
-            next.texts = next.texts.map { item -> RecorderTextOverlay in
-                guard item.id == id else { return item }
-                var copy = item
-                switch edge {
-                case .start: copy.start = max(0, min(time, overlay.end - 0.4))
-                case .end: copy.end = min(duration, max(time, overlay.start + 0.4))
-                }
-                return copy
-            }
-            applyDuringInteraction(next)
+        case .zoom: resizeZoom(id, edge: edge, to: time)
+        case .text: resizeBlock(\.texts, id: id, edge: edge, to: time)
+        case .image: resizeBlock(\.images, id: id, edge: edge, to: time)
+        case .blur: resizeBlock(\.blurs, id: id, edge: edge, to: time)
         }
+    }
+
+    /// Either end can be dragged past the other only until the block would
+    /// stop being a block, which is what keeps a lane grabbable.
+    private func resizeBlock<Block: RecorderTimelineBlock>(
+        _ blocks: WritableKeyPath<RecorderEditDocument, [Block]>,
+        id: UUID,
+        edge: RecorderTimeline.Edge,
+        to time: Double) {
+        guard let block = document[keyPath: blocks].first(where: { $0.id == id }) else { return }
+        beginInteraction()
+        var next = document
+        next[keyPath: blocks] = next[keyPath: blocks].map { item -> Block in
+            guard item.id == id else { return item }
+            var copy = item
+            switch edge {
+            case .start: copy.start = max(0, min(time, block.end - 0.4))
+            case .end: copy.end = min(duration, max(time, block.start + 0.4))
+            }
+            return copy
+        }
+        applyDuringInteraction(next)
     }
 
     func removeSelectedLaneItem(_ kind: RecorderZoomLane.Kind) {
         switch kind {
         case .zoom: removeSelectedZoom()
         case .text: removeSelectedText()
+        case .image: removeSelectedImage()
+        case .blur: removeSelectedBlur()
         }
     }
 
@@ -911,6 +995,149 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
         next.texts.removeAll { $0.id == id }
         applyDuringInteraction(next)
         selectedTextID = nil
+        commitZoomEdit()
+    }
+
+    // MARK: - Image
+
+    /// A picture is picked straight away: an empty block on a lane would say
+    /// nothing, and choosing the file is the first thing anyone does anyway.
+    ///
+    /// It runs to the end of the recording the way a blur does, because a mark
+    /// of your own is normally meant to stay on the whole video.
+    func addImage(at time: Double) {
+        guard duration > 0, let url = Self.chooseImage() else { return }
+        let take = take
+        Task { @MainActor [weak self] in
+            let imported = await Task.detached(priority: .userInitiated) {
+                RecorderTakeStore.shared.importImage(at: url, into: take)
+            }.value
+            guard let self else {
+                if let imported {
+                    try? FileManager.default.removeItem(at: imported.deletingLastPathComponent())
+                }
+                return
+            }
+            guard let imported else {
+                QuickToolHUD.show(icon: "photo",
+                                 message: FeatureStrings.recorder(L10n.shared.language).imageImportFailed)
+                return
+            }
+            self.beginInteraction()
+            let start = max(0, min(time, max(0, self.duration - 0.4)))
+            let overlay = RecorderImageOverlay(path: imported.path, start: start, end: self.duration)
+            var next = self.document
+            next.images.append(overlay)
+            self.applyDuringInteraction(next)
+            self.selectLaneItem(.image, id: overlay.id)
+            self.commitZoomEdit()
+        }
+    }
+
+    /// Only a file the person picked themselves, and only one the system can
+    /// copy into the recording. Decoding happens with the import off the UI thread.
+    private static func chooseImage() -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url
+        else { return nil }
+        return url
+    }
+
+    func updateSelectedImage(_ change: (inout RecorderImageOverlay) -> Void) {
+        guard let id = selectedImageID else { return }
+        beginInteraction()
+        var next = document
+        next.images = next.images.map { item -> RecorderImageOverlay in
+            guard item.id == id else { return item }
+            var copy = item
+            change(&copy)
+            return copy
+        }
+        applyDuringInteraction(next)
+    }
+
+    func removeSelectedImage() {
+        guard let id = selectedImageID else { return }
+        beginInteraction()
+        var next = document
+        next.images.removeAll { $0.id == id }
+        applyDuringInteraction(next)
+        selectedImageID = nil
+        commitZoomEdit()
+    }
+
+    // MARK: - Blur
+
+    /// True while a drag on the picture draws the selected blur's area,
+    /// instead of playing or pausing.
+    @Published var isPickingBlurArea = false
+
+    /// A new blur runs to the end of the recording: a name on screen at this
+    /// moment is usually still there later, and a hidden thing that comes
+    /// back is worse than a blur that stayed a beat too long.
+    func addBlur(at time: Double) {
+        guard duration > 0 else { return }
+        beginInteraction()
+        let start = max(0, min(time, max(0, duration - 0.4)))
+        let region = RecorderBlurRegion(start: start, end: duration)
+        var next = document
+        next.blurs.append(region)
+        applyDuringInteraction(next)
+        selectLaneItem(.blur, id: region.id)
+        commitZoomEdit()
+        beginPickingBlurArea()
+    }
+
+    /// Drawing the area happens over the recording as it was captured: no
+    /// zoom, no background, nothing between the drag and the pixels it is
+    /// meant to cover.
+    func beginPickingBlurArea() {
+        guard selectedBlurID != nil else { return }
+        pause()
+        previewTask?.cancel()
+        player.currentItem?.videoComposition = nil
+        isPickingBlurArea = true
+    }
+
+    func endPickingBlurArea() {
+        guard isPickingBlurArea else { return }
+        isPickingBlurArea = false
+        rebuildPreview()
+    }
+
+    /// The two corners of a drag on the stage, turned into the recorded
+    /// picture's own space. A drag that leaves the picture is clamped to its
+    /// edge; one too small to be an area leaves the blur where it was.
+    func pickBlurArea(from first: CGPoint, to second: CGPoint, in viewSize: CGSize) {
+        defer { endPickingBlurArea() }
+        guard let id = selectedBlurID,
+              let start = RecorderSupport.unitPoint(at: first, in: viewSize,
+                                                    sourceSize: sourceSize),
+              let end = RecorderSupport.unitPoint(at: second, in: viewSize,
+                                                  sourceSize: sourceSize),
+              let rect = RecorderBlurRegion.normalizedRect(from: start, to: end)
+        else { return }
+        beginInteraction()
+        var next = document
+        next.blurs = next.blurs.map { item -> RecorderBlurRegion in
+            guard item.id == id else { return item }
+            return RecorderBlurRegion(id: item.id, start: item.start, end: item.end, rect: rect)
+        }
+        applyDuringInteraction(next)
+        commitZoomEdit()
+    }
+
+    func removeSelectedBlur() {
+        guard let id = selectedBlurID else { return }
+        isPickingBlurArea = false
+        beginInteraction()
+        var next = document
+        next.blurs.removeAll { $0.id == id }
+        applyDuringInteraction(next)
+        selectedBlurID = nil
         commitZoomEdit()
     }
 
@@ -971,6 +1198,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
     // MARK: - Export
 
     private var exporter: RecorderExporter?
+    private var shareTask: Task<Void, Never>?
 
     func export(_ output: RecorderExporter.Output,
                 to destination: URL,
@@ -980,6 +1208,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
         pause()
         isExporting = true
         exportProgress = 0
+        exportPhase = .saving
         let exporter = RecorderExporter()
         self.exporter = exporter
         let document = document
@@ -1001,8 +1230,76 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
         }
     }
 
+    func share(_ duration: RecordingShareDuration,
+               completion: @escaping (Result<RecordingShareRecord, ShareFailure>) -> Void) {
+        guard !isExporting else { return }
+        pause()
+        isExporting = true
+        exportProgress = 0
+        exportPhase = .compressing
+        let exporter = RecorderExporter()
+        self.exporter = exporter
+        let document = document
+        let take = take
+        shareTask = Task { @MainActor [weak self] in
+            let result = await exporter.exportForSharing(
+                take: take,
+                document: document) { value in
+                    DispatchQueue.main.async { [weak self] in
+                        self?.exportProgress = value
+                    }
+                }
+            guard let self else {
+                result.artifact?.discard()
+                return
+            }
+            if let failure = result.failure {
+                self.finishSharing()
+                switch failure {
+                case .cancelled:
+                    completion(.failure(.cancelled))
+                case .tooLargeForSharing:
+                    completion(.failure(.tooLarge))
+                default:
+                    completion(.failure(.failed))
+                }
+                return
+            }
+            guard let artifact = result.artifact else {
+                self.finishSharing()
+                completion(.failure(.failed))
+                return
+            }
+            if Task.isCancelled {
+                artifact.discard()
+                self.finishSharing()
+                completion(.failure(.cancelled))
+                return
+            }
+            self.exportPhase = .uploading
+            self.exportProgress = 1
+            do {
+                let record = try await RecordingShareService.shared.createLink(
+                    artifact: artifact,
+                    duration: duration)
+                self.finishSharing()
+                completion(.success(record))
+            } catch {
+                self.finishSharing()
+                completion(.failure(Task.isCancelled ? .cancelled : .failed))
+            }
+        }
+    }
+
+    private func finishSharing() {
+        isExporting = false
+        exporter = nil
+        shareTask = nil
+    }
+
     func cancelExport() {
         exporter?.cancel()
+        shareTask?.cancel()
     }
 }
 
@@ -1025,6 +1322,10 @@ final class RecorderEditorController: NSObject, NSWindowDelegate {
 
     private var strings: RecorderFeatureStrings {
         FeatureStrings.recorder(L10n.shared.language)
+    }
+
+    private var shareStrings: RecorderShareStrings {
+        FeatureStrings.recorderShare(L10n.shared.language)
     }
 
     init(take: RecorderTakeStore.Take) {
@@ -1115,6 +1416,25 @@ final class RecorderEditorController: NSObject, NSWindowDelegate {
         copyVideoAndDelete(true)
     }
 
+    func share(_ duration: RecordingShareDuration,
+               completion: @escaping (RecordingShareRecord) -> Void) {
+        model.share(duration) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case let .success(record):
+                completion(record)
+            case .failure(.cancelled):
+                break
+            case .failure(.tooLarge):
+                NSSound.beep()
+                QuickToolHUD.show(icon: "link", message: self.shareStrings.tooLarge)
+            case .failure(.failed):
+                NSSound.beep()
+                QuickToolHUD.show(icon: "link", message: self.shareStrings.failed)
+            }
+        }
+    }
+
     private func copyVideoAndDelete(_ deletesRecording: Bool) {
         guard let destination = copyDestination() else {
             QuickToolHUD.show(icon: "record.circle", message: strings.exportFailed)
@@ -1190,6 +1510,7 @@ final class RecorderEditorController: NSObject, NSWindowDelegate {
                 // The window stays: exports are slow and plural, and a person
                 // who just made a video often wants the GIF of it too.
                 self.exported = true
+                RecentCaptureService.shared.recordRecording(at: destination)
                 if let onSuccess {
                     onSuccess(destination)
                 } else {
@@ -1325,6 +1646,18 @@ final class RecorderEditorController: NSObject, NSWindowDelegate {
                     self.model.removeSelectedZoom()
                     return nil
                 }
+                if self.model.selectedTextID != nil {
+                    self.model.removeSelectedText()
+                    return nil
+                }
+                if self.model.selectedImageID != nil {
+                    self.model.removeSelectedImage()
+                    return nil
+                }
+                if self.model.selectedBlurID != nil {
+                    self.model.removeSelectedBlur()
+                    return nil
+                }
                 self.discard()
                 return nil
             case kVK_Escape:
@@ -1336,8 +1669,24 @@ final class RecorderEditorController: NSObject, NSWindowDelegate {
                     self.model.isAimingZoom = false
                     return nil
                 }
+                if self.model.isPickingBlurArea {
+                    self.model.endPickingBlurArea()
+                    return nil
+                }
                 if self.model.selectedZoomID != nil {
                     self.model.selectZoom(nil)
+                    return nil
+                }
+                if self.model.selectedTextID != nil {
+                    self.model.selectLaneItem(.text, id: nil)
+                    return nil
+                }
+                if self.model.selectedImageID != nil {
+                    self.model.selectLaneItem(.image, id: nil)
+                    return nil
+                }
+                if self.model.selectedBlurID != nil {
+                    self.model.selectLaneItem(.blur, id: nil)
                     return nil
                 }
                 return event

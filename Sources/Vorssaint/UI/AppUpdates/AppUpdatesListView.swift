@@ -10,11 +10,23 @@ struct AppUpdatesListView: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var updates = AppUpdatesService.shared
     @ObservedObject private var homebrew = HomebrewManager.shared
+    @AppStorage(DefaultsKey.appUpdatesIncludeOnlineCatalog)
+    private var includeOnlineCatalog = true
+    @AppStorage(DefaultsKey.appUpdatesIncludeAppStore)
+    private var includeAppStore = true
     @State private var showOperationDetails = false
     var compact = false
 
     private var text: AppUpdateStrings { FeatureStrings.appUpdates(l10n.language) }
     private var isBusy: Bool { updates.isChecking || homebrew.operation != nil }
+    private var storeCoverageIncomplete: Bool {
+        includeAppStore && !updates.appStoreAvailable
+    }
+    private var coverageIncomplete: Bool {
+        updates.hasCheckedThisSession
+            && !updates.isChecking
+            && (storeCoverageIncomplete || (includeOnlineCatalog && !updates.onlineCatalogAvailable))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 8 : 12) {
@@ -22,9 +34,12 @@ struct AppUpdatesListView: View {
             if updates.items.isEmpty {
                 emptyState
             } else {
-                selectionBar
+                if updates.selectableCount > 0 { selectionBar }
                 list
-                updateButton
+                if updates.selectableCount > 0 { updateButton }
+            }
+            if coverageIncomplete {
+                incompleteCheck
             }
             if let status = homebrew.operationStatus {
                 HomebrewOperationStatusView(status: status,
@@ -94,7 +109,7 @@ struct AppUpdatesListView: View {
     @ViewBuilder
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if updates.hasCheckedThisSession, !updates.isChecking {
+            if updates.hasCheckedThisSession, !updates.isChecking, !coverageIncomplete {
                 Label(text.upToDate, systemImage: "checkmark.circle.fill")
                     .font(.system(size: compact ? 11 : 12, weight: .medium))
                     .foregroundStyle(.green)
@@ -113,12 +128,29 @@ struct AppUpdatesListView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var incompleteCheck: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label(text.incompleteCheck, systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: compact ? 10.5 : 11.5, weight: .medium))
+                .foregroundStyle(.orange)
+            Text(text.onlineUnavailable)
+                .font(.system(size: compact ? 9.5 : 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if storeCoverageIncomplete {
+                Button(text.openAppStore) { updates.openAppStoreUpdates() }
+                    .buttonStyle(.link)
+                    .font(.system(size: compact ? 10 : 11))
+            }
+        }
+    }
+
     // MARK: - Selection
 
     private var selectionBar: some View {
         HStack(spacing: 8) {
             Button(text.selectAll) { updates.selectAll() }
-                .disabled(updates.selectedCount == updates.items.count)
+                .disabled(updates.selectedCount == updates.selectableCount)
             Button(text.clearSelection) { updates.selectNone() }
                 .disabled(updates.selectedCount == 0)
             Spacer(minLength: 0)
@@ -158,13 +190,19 @@ struct AppUpdatesListView: View {
 
     private func row(_ item: AppUpdatesSupport.Item) -> some View {
         HStack(spacing: 9) {
-            Toggle(isOn: Binding(get: { updates.selection.contains(item.id) },
-                                 set: { _ in updates.toggle(item) })) {
-                EmptyView()
+            if item.isSelectable {
+                Toggle(isOn: Binding(get: { updates.selection.contains(item.id) },
+                                     set: { _ in updates.toggle(item) })) {
+                    EmptyView()
+                }
+                .labelsHidden()
+                .toggleStyle(.checkbox)
+                .accessibilityLabel(item.name)
+            } else {
+                Color.clear
+                    .frame(width: 14, height: 14)
+                    .accessibilityHidden(true)
             }
-            .labelsHidden()
-            .toggleStyle(.checkbox)
-            .accessibilityLabel(item.name)
 
             Image(nsImage: icon(for: item))
                 .resizable()
@@ -176,14 +214,12 @@ struct AppUpdatesListView: View {
                         .font(.system(size: compact ? 11.5 : 12.5, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    if item.source == .appStore {
-                        Text(text.appStoreBadge)
-                            .font(.system(size: 8.5, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(Color.accentColor.opacity(0.12)))
-                    }
+                    Text(sourceBadge(for: item))
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.12)))
                 }
                 Text(item.versionSummary)
                     .font(.system(size: compact ? 9.5 : 10.5))
@@ -195,13 +231,13 @@ struct AppUpdatesListView: View {
             Button {
                 updates.update(item)
             } label: {
-                Text(item.canInstallInPlace ? text.updateOne : text.appStoreBadge)
+                Text(actionTitle(for: item))
                     .font(.system(size: compact ? 10 : 11, weight: .medium))
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(isBusy)
-            .help(item.canInstallInPlace ? text.updateOne : text.storeHint)
+            .help(actionHint(for: item))
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 5)
@@ -217,6 +253,30 @@ struct AppUpdatesListView: View {
             return NSWorkspace.shared.icon(for: .applicationBundle)
         }
         return NSWorkspace.shared.icon(forFile: path)
+    }
+
+    private func sourceBadge(for item: AppUpdatesSupport.Item) -> String {
+        switch item.source {
+        case .packageManager: return text.homebrewBadge
+        case .appStore: return text.appStoreBadge
+        case .onlineCatalog: return text.onlineBadge
+        }
+    }
+
+    private func actionTitle(for item: AppUpdatesSupport.Item) -> String {
+        switch item.source {
+        case .packageManager: return text.updateOne
+        case .appStore: return text.appStoreBadge
+        case .onlineCatalog: return text.openApp
+        }
+    }
+
+    private func actionHint(for item: AppUpdatesSupport.Item) -> String {
+        switch item.source {
+        case .packageManager: return text.updateOne
+        case .appStore: return text.storeHint
+        case .onlineCatalog: return text.openAppHint
+        }
     }
 
     // MARK: - Primary action

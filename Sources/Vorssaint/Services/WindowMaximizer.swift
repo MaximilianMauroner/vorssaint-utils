@@ -25,12 +25,16 @@ final class WindowMaximizer: ObservableObject {
     private let frameTolerance: CGFloat = 4
     private let zoomAnimationDuration: TimeInterval = 0.22
 
-    private init() {}
+    private init() {
+        SessionActivity.shared.onChange { [weak self] _ in self?.syncWithPreferences() }
+    }
 
     func syncWithPreferences() {
         let wanted = AppFeature.windowMaximizer.isAvailable
             && UserDefaults.standard.bool(forKey: DefaultsKey.windowMaximizeEnabled)
-        if wanted, Permissions.shared.accessibility {
+        if SessionActivitySupport.tapShouldRun(featureWanted: wanted,
+                                               accessibilityGranted: AXIsProcessTrusted(),
+                                               sessionIsActive: SessionActivity.shared.isActive) {
             start()
         } else {
             stop()
@@ -42,6 +46,7 @@ final class WindowMaximizer: ObservableObject {
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
+        if let tap { CFMachPortInvalidate(tap) }
         tap = nil
         runLoopSource = nil
         pendingClick = nil
@@ -87,7 +92,11 @@ final class WindowMaximizer: ObservableObject {
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            if SessionActivity.shared.isActive, AXIsProcessTrusted(), let tap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            } else {
+                DispatchQueue.main.async { [weak self] in self?.syncWithPreferences() }
+            }
             return Unmanaged.passUnretained(event)
         }
 
@@ -239,10 +248,8 @@ final class WindowMaximizer: ObservableObject {
 
     private func elementAt(point: CGPoint) -> AXUIElement? {
         let system = AXUIElementCreateSystemWide()
-        // Bounded AX inside the mouse tap: a hung app under the cursor must
-        // not stall the main thread (and with it every event tap) for the
-        // 6 second default timeout.
-        AXUIElementSetMessagingTimeout(system, 0.35)
+        // No cap here: on the system-wide element a timeout is the default for
+        // every question this process asks, whoever asks it (#938).
         var element: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success,
               let element
@@ -251,7 +258,23 @@ final class WindowMaximizer: ObservableObject {
         return element
     }
 
+
+    /// An application element answers a role query by switching a Chromium app's
+    /// renderers into full accessibility mode for the rest of the process's life
+    /// (issue #953), so it must never be asked for one. Its own pid names it:
+    /// the element built from that pid is the same element, since Accessibility
+    /// compares by value rather than by identity. Asking each element for its
+    /// own pid also keeps this right where a parent chain crosses processes,
+    /// which a sentinel built once from the starting element would miss.
+    private func isApplicationElement(_ element: AXUIElement) -> Bool {
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        guard pid != 0 else { return false }
+        return CFEqual(element, AXUIElementCreateApplication(pid))
+    }
+
     private func topLevelWindow(from element: AXUIElement) -> AXUIElement? {
+        guard !isApplicationElement(element) else { return nil }
         if role(of: element) == (kAXWindowRole as String) { return element }
 
         if let window = elementAttribute(element, kAXWindowAttribute as String) {
@@ -263,9 +286,16 @@ final class WindowMaximizer: ObservableObject {
             if role(of: window) == (kAXWindowRole as String) { return window }
         }
 
+        // The chain above a window is the application element itself, so an
+        // element that never yields a window — a menu bar item, a detached
+        // palette — walks onto it. Asking that element for a role is what puts
+        // a Chromium app's renderers into full accessibility mode for the rest
+        // of the process's life (issue #953), so stop there instead: the walk
+        // already ends with no window in that case.
         var current = element
         for _ in 0..<8 {
             guard let parent = elementAttribute(current, kAXParentAttribute as String) else { return nil }
+            if isApplicationElement(parent) { return nil }
             if role(of: parent) == (kAXWindowRole as String) { return parent }
             current = parent
         }

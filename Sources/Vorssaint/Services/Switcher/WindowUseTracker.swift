@@ -36,7 +36,6 @@ final class WindowUseTracker {
     private let stateLock = NSLock()
     private var windowHistory: [CGWindowID] = []
     private var appHistory: [pid_t] = []
-    private var windowChangeHandler: (() -> Void)?
     /// False from the moment the feature is switched off. The watcher thread is
     /// stopped from the outside and never joined, so without this a callback
     /// already in flight could write a window back into a history that was
@@ -103,18 +102,10 @@ final class WindowUseTracker {
     }
 
     private func promote(window windowID: CGWindowID) {
-        let handler = stateLock.withLock { () -> (() -> Void)? in
-            guard recording else { return nil }
+        stateLock.withLock {
+            guard recording else { return }
             windowHistory = WindowUseOrder.promoting(windowID, in: windowHistory)
-            return windowChangeHandler
         }
-        handler?()
-    }
-
-    /// Lets the switcher warm a new AX-derived list when the foreground app
-    /// changes windows without an application lifecycle notification.
-    func setWindowChangeHandler(_ handler: (() -> Void)?) {
-        stateLock.withLock { windowChangeHandler = handler }
     }
 
     private func promote(app pid: pid_t) {
@@ -176,11 +167,16 @@ final class WindowUseTracker {
     @objc private func appActivated(_ note: Notification) {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
         let pid = app.processIdentifier
+        // Our own activation during a handoff is `ActivationHandoff`
+        // self-activating on the way out; ranking it would put Vorssaint ahead
+        // of the app the user left. Every other activation of Vorssaint, the
+        // Dock icon and its own windows included, is a real use and is kept.
+        let own = pid == ProcessInfo.processInfo.processIdentifier && ActivationHandoff.isHandingOff
         // The application half is exact and free, so it lands right away; the
         // window half needs Accessibility and happens on the watcher thread.
-        promote(app: pid)
+        if !own { promote(app: pid) }
         lifecycleLock.withLock { requestedPID = pid }
-        performOnWatcher { [weak self] in self?.retargetObserver() }
+        performOnWatcher { [weak self] in self?.retargetObserver(filingFocusedWindow: !own) }
     }
 
     @objc private func appTerminated(_ note: Notification) {
@@ -288,11 +284,11 @@ final class WindowUseTracker {
     /// activation being posted solely inside the application that already has
     /// the keyboard, so one observer at a time covers every case the
     /// activation notifications miss — for the cost of a single one.
-    private func retargetObserver() {
+    private func retargetObserver(filingFocusedWindow: Bool = true) {
         guard !lifecycleLock.withLock({ shouldStopWatcher }) else { return }
         guard let pid = lifecycleLock.withLock({ requestedPID }) else { return }
         guard pid != observedPID else {
-            readFocusedWindow(of: pid)
+            if filingFocusedWindow { readFocusedWindow(of: pid) }
             return
         }
         detachObserver()
@@ -305,9 +301,7 @@ final class WindowUseTracker {
         // full default timeout, on this thread, once per switch.
         AXUIElementSetMessagingTimeout(application, Self.messagingTimeout)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
-        for notification in [kAXFocusedWindowChangedNotification,
-                             kAXMainWindowChangedNotification,
-                             kAXWindowCreatedNotification] {
+        for notification in [kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification] {
             _ = AXObserverAddNotification(created, application, notification as CFString, refcon)
         }
         CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(created), .defaultMode)
@@ -317,7 +311,7 @@ final class WindowUseTracker {
         // Activation itself posts no focus change, so the window the app came
         // back to has to be asked for once. Any change that races this arrives
         // through the observer, which is already installed.
-        readFocusedWindow(of: pid)
+        if filingFocusedWindow { readFocusedWindow(of: pid) }
     }
 
     private func detachObserver() {
@@ -326,9 +320,7 @@ final class WindowUseTracker {
         if let observedPID {
             let application = AXUIElementCreateApplication(observedPID)
             AXUIElementSetMessagingTimeout(application, Self.messagingTimeout)
-            for notification in [kAXFocusedWindowChangedNotification,
-                                 kAXMainWindowChangedNotification,
-                                 kAXWindowCreatedNotification] {
+            for notification in [kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification] {
                 _ = AXObserverRemoveNotification(observer, application, notification as CFString)
             }
         }

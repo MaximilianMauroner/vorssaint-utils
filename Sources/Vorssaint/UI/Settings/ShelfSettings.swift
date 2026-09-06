@@ -10,8 +10,10 @@ struct ShelfSettings: View {
     @AppStorage(DefaultsKey.shelfShortcutEnabled) private var shortcutEnabled = true
     @AppStorage(DefaultsKey.shelfShakeToOpen) private var shake = true
     @AppStorage(DefaultsKey.shelfDropZoneEnabled) private var dropZone = true
+    @AppStorage(DefaultsKey.shelfEdgeDragEnabled) private var edgeDrag = false
     @AppStorage(DefaultsKey.shelfCloseAfterDrop) private var closeAfterDrop = false
     @AppStorage(DefaultsKey.shelfRemoveAfterDrop) private var removeAfterDrop = true
+    @AppStorage(DefaultsKey.shelfClearOnClose) private var clearOnClose = false
     @State private var showingAppPicker = false
 
     var body: some View {
@@ -67,6 +69,15 @@ struct ShelfSettings: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Toggle(l10n.s.shelfEdgeToggle, isOn: $edgeDrag)
+                            .onChange(of: edgeDrag) { _, _ in
+                                ShelfService.shared.syncDragMonitor()
+                            }
+                        Text(l10n.s.shelfEdgeCaption)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Button {
                         ShelfService.shared.summon()
                     } label: {
@@ -84,6 +95,12 @@ struct ShelfSettings: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Toggle(l10n.s.shelfRemoveAfterDrop, isOn: $removeAfterDrop)
                         Text(l10n.s.shelfRemoveAfterDropCaption)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Toggle(l10n.s.shelfClearOnClose, isOn: $clearOnClose)
+                        Text(l10n.s.shelfClearOnCloseCaption)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

@@ -12,11 +12,12 @@ import UniformTypeIdentifiers
 /// nothing runs at rest and edits remain available between openings. It steps
 /// aside on a click outside, and an option keeps it floating over other apps
 /// instead.
-final class ScratchpadService: ObservableObject {
+final class ScratchpadService: NSObject, ObservableObject, NSWindowDelegate {
     static let shared = ScratchpadService()
 
     @Published private(set) var shortcutRegistrationFailed = false
     @Published private(set) var isPinned = false
+    @Published private(set) var isPreviewing = false
     @Published private(set) var pads: [ScratchpadPad] = []
     @Published private(set) var selectedPadID: UUID?
     @Published var text = "" {
@@ -42,7 +43,8 @@ final class ScratchpadService: ObservableObject {
     private var isReplacingText = false
     private var modalInteractionActive = false
 
-    private init() {
+    private override init() {
+        super.init()
         hotkey.onPress = { [weak self] in self?.toggle() }
     }
 
@@ -87,6 +89,7 @@ final class ScratchpadService: ObservableObject {
             focusText()
             return
         }
+        isPreviewing = false
         isPinned = !closesOnClickOutside
         loadApplyingRetention()
         let panel = ensurePanel()
@@ -111,6 +114,7 @@ final class ScratchpadService: ObservableObject {
         removeMonitors()
         panel?.orderOut(nil)
         isPinned = false
+        isPreviewing = false
         modalInteractionActive = false
     }
 
@@ -119,12 +123,14 @@ final class ScratchpadService: ObservableObject {
     /// The former single-buffer file is read once and removed only after the
     /// replacement document has been written and read back successfully.
     private static var legacyStoreURL: URL? {
-        guard let base = FileManager.default.urls(for: .applicationSupportDirectory,
-                                                  in: .userDomainMask).first,
-              let bundleID = Bundle.main.bundleIdentifier else { return nil }
-        return base
-            .appendingPathComponent(bundleID, isDirectory: true)
-            .appendingPathComponent("Scratchpad.txt")
+        PrivateFileStore.containerURL?.appendingPathComponent("Scratchpad.txt")
+    }
+
+    /// The pad holds whatever the user typed, so it belongs with the clipboard
+    /// and the shelf in the app's own container, not in the preferences people
+    /// copy between Macs and commit to dotfiles (issue #1197).
+    private static var storeURL: URL? {
+        PrivateFileStore.containerURL?.appendingPathComponent("Scratchpad.json")
     }
 
     private func loadApplyingRetention() {
@@ -138,16 +144,24 @@ final class ScratchpadService: ObservableObject {
         let retention = ScratchpadRetention.sanitized(
             defaults.string(forKey: DefaultsKey.scratchpadRetention))
 
-        if let stored = defaults.object(forKey: DefaultsKey.scratchpadDocument) {
-            let data = stored as? Data
-            let decoded = data.flatMap { try? JSONDecoder().decode(ScratchpadDocument.self, from: $0) }
+        let storedData = Self.storeURL.flatMap { try? Data(contentsOf: $0) }
+        let preferenceData = defaults.data(forKey: DefaultsKey.scratchpadDocument)
+        if let data = storedData ?? preferenceData {
+            let decoded = try? JSONDecoder().decode(ScratchpadDocument.self, from: data)
             var loaded = decoded?.sanitized(defaultName: defaultName)
                 ?? .initial(defaultName: defaultName)
             loaded.applyRetention(retention, now: Date())
-            if loaded == decoded {
+            let alreadyOnDisk = storedData != nil && loaded == decoded
+            if alreadyOnDisk {
                 lastSavedDocument = loaded
             } else {
                 _ = persist(loaded)
+            }
+            // A pad written by an earlier version leaves the preferences only
+            // once it exists in the container, so it is never cleared from one
+            // place before it is safe in the other.
+            if preferenceData != nil, lastSavedDocument == loaded {
+                defaults.removeObject(forKey: DefaultsKey.scratchpadDocument)
             }
             apply(loaded)
             return
@@ -165,8 +179,11 @@ final class ScratchpadService: ObservableObject {
             defaultName: defaultName,
             retention: retention,
             now: Date())
-        if persist(migrated), let legacyURL {
-            try? manager.removeItem(at: legacyURL)
+        if persist(migrated) {
+            // Clears a preference holding something that never decoded, so no
+            // shape of this key is left behind in the plist.
+            defaults.removeObject(forKey: DefaultsKey.scratchpadDocument)
+            if let legacyURL { try? manager.removeItem(at: legacyURL) }
         }
         apply(migrated)
     }
@@ -188,10 +205,11 @@ final class ScratchpadService: ObservableObject {
     @discardableResult
     private func persist(_ document: ScratchpadDocument) -> Bool {
         if document == lastSavedDocument { return true }
-        guard let data = document.encoded() else { return false }
-        let defaults = UserDefaults.standard
-        defaults.set(data, forKey: DefaultsKey.scratchpadDocument)
-        guard defaults.data(forKey: DefaultsKey.scratchpadDocument) == data else { return false }
+        guard let data = document.encoded(),
+              let url = Self.storeURL,
+              PrivateFileStore.createDirectory(at: url.deletingLastPathComponent()),
+              PrivateFileStore.write(data, to: url)
+        else { return false }
         lastSavedDocument = document
         return true
     }
@@ -204,6 +222,7 @@ final class ScratchpadService: ObservableObject {
         isReplacingText = true
         text = selectedText
         isReplacingText = false
+        if text.isEmpty { isPreviewing = false }
         if focus { focusText() }
     }
 
@@ -282,7 +301,21 @@ final class ScratchpadService: ObservableObject {
         } else {
             text = ""
         }
+        if isPreviewing {
+            isPreviewing = false
+            focusText()
+        }
         flushSave()
+    }
+
+    func togglePreview() {
+        guard !text.isEmpty else { return }
+        isPreviewing.toggle()
+        if isPreviewing {
+            panel?.makeFirstResponder(nil)
+        } else {
+            focusText()
+        }
     }
 
     func togglePin() {
@@ -313,7 +346,15 @@ final class ScratchpadService: ObservableObject {
             let response = savePanel.runModal()
             self?.modalInteractionActive = false
             if response == .OK, let url = savePanel.url {
-                try? content.write(to: url, atomically: true, encoding: .utf8)
+                do {
+                    try content.write(to: url, atomically: true, encoding: .utf8)
+                } catch {
+                    // A read-only volume or a full disk used to end here in
+                    // silence, with the save panel closed and nothing written.
+                    QuickToolHUD.show(
+                        icon: "exclamationmark.triangle",
+                        message: FeatureStrings.scratchpad(L10n.shared.language).exportFailed)
+                }
             }
             guard let self, let panel = self.panel, panel.isVisible else { return }
             panel.makeKey()
@@ -367,6 +408,8 @@ final class ScratchpadService: ObservableObject {
         panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.contentMinSize = NSSize(width: 280, height: 220)
+        panel.minSize = NSSize(width: 280, height: 220)
+        panel.delegate = self
         let host = NSHostingController(rootView: ScratchpadView())
         // No preferred-size tracking: the pad is user-resizable and the view
         // fills whatever frame the panel has.
@@ -378,6 +421,10 @@ final class ScratchpadService: ObservableObject {
         center(panel)
         self.panel = panel
         return panel
+    }
+
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        NSSize(width: max(280, frameSize.width), height: max(220, frameSize.height))
     }
 
     private func center(_ panel: NSPanel) {

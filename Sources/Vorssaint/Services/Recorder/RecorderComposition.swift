@@ -62,6 +62,7 @@ enum RecorderComposition {
     struct Result {
         let asset: AVMutableComposition
         let audioTrackIDs: [RecorderAudioSource: CMPersistentTrackID]
+        let duration: CMTime
     }
 
     static func audioMix(trackIDs: [RecorderAudioSource: CMPersistentTrackID],
@@ -98,6 +99,7 @@ enum RecorderComposition {
               let video = composition.addMutableTrack(withMediaType: .video,
                                                       preferredTrackID: kCMPersistentTrackID_Invalid)
         else { return nil }
+        video.preferredTransform = (try? await sourceVideo.load(.preferredTransform)) ?? .identity
 
         let sourceAudio = includesAudio ? await RecorderAudioSource.tracks(in: asset) : [:]
         var audio: [(source: RecorderAudioSource, from: AVAssetTrack,
@@ -141,7 +143,8 @@ enum RecorderComposition {
         return Result(asset: composition,
                       audioTrackIDs: Dictionary(uniqueKeysWithValues: audio.map {
                           ($0.source, $0.to.trackID)
-                      }))
+                      }),
+                      duration: cursor)
     }
 }
 
@@ -168,6 +171,10 @@ enum RecorderAudioWaveform {
 
         var peaks = Array(repeating: Float.zero, count: count)
         while let sample = output.copyNextSampleBuffer() {
+            if Task.isCancelled {
+                reader.cancelReading()
+                return []
+            }
             guard let block = CMSampleBufferGetDataBuffer(sample),
                   let format = CMSampleBufferGetFormatDescription(sample),
                   let description = CMAudioFormatDescriptionGetStreamBasicDescription(format)

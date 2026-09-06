@@ -65,11 +65,13 @@ struct ClipboardHistoryEntry: Codable, Equatable, Identifiable {
     var preview: String {
         switch kind {
         case .text:
-            let collapsed = text
+            let prefix = text.prefix(ClipboardHistoryEditing.previewCharacters)
+            let collapsed = prefix
                 .replacingOccurrences(of: "\n", with: " ")
                 .replacingOccurrences(of: "\t", with: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return collapsed.isEmpty ? text : collapsed
+            let visible = collapsed.isEmpty ? String(prefix) : collapsed
+            return prefix.endIndex == text.endIndex ? visible : visible + "…"
         case .image:
             return imageDimensionsLabel
         case .files:
@@ -94,7 +96,10 @@ struct ClipboardHistoryEntry: Codable, Equatable, Identifiable {
         switch kind {
         case .text: return text
         case .image: return "\(imageLabel) png \(imageDimensionsLabel)"
-        case .files: return fileNames.joined(separator: " ")
+        case .files:
+            let names = fileNames.joined(separator: " ")
+            let hasImage = filePaths.contains { ClipboardHistoryImageSupport.isImageFileName($0) }
+            return hasImage ? "\(imageLabel) \(names)" : names
         }
     }
 
@@ -119,7 +124,20 @@ struct ClipboardHistoryEntry: Codable, Equatable, Identifiable {
 }
 
 enum ClipboardHistoryEditing {
-    static let maxCharacters = 20_000
+    /// A copied document should stay available, while a pathological
+    /// pasteboard payload still has a firm in-memory and on-disk bound.
+    static let maxCharacters = 1_000_000
+    static let maxStoredTextUTF8Bytes = 64 * 1_024 * 1_024
+    static let maxEncodedHistoryBytes = 96 * 1_024 * 1_024
+    /// Rows only need enough text to fill their three visible lines. Keeping
+    /// this bounded prevents a very large saved document from being copied
+    /// again merely to draw its list preview.
+    static let previewCharacters = 2_000
+
+    struct EncodedHistory {
+        let entries: [ClipboardHistoryEntry]
+        let data: Data
+    }
 
     static func storableText(_ text: String) -> String? {
         guard text.count <= maxCharacters,
@@ -131,6 +149,70 @@ enum ClipboardHistoryEditing {
     static func canSave(original: String, draft: String) -> Bool {
         guard let text = storableText(draft) else { return false }
         return text != original
+    }
+
+    static func retainedEntries(_ entries: [ClipboardHistoryEntry],
+                                recentLimit: Int,
+                                textByteLimit: Int = maxStoredTextUTF8Bytes) -> [ClipboardHistoryEntry] {
+        var remainingBytes = max(0, textByteLimit)
+        func retained(_ candidates: [ClipboardHistoryEntry], limit: Int?) -> [ClipboardHistoryEntry] {
+            var result: [ClipboardHistoryEntry] = []
+            for entry in candidates {
+                if let limit, result.count >= limit { break }
+                let byteCount = entry.kind == .text ? entry.text.utf8.count : 0
+                guard byteCount <= remainingBytes else { continue }
+                remainingBytes -= byteCount
+                result.append(entry)
+            }
+            return result
+        }
+        let pinned = retained(entries.filter(\.isPinned), limit: nil)
+        let recentLimitOrNil = recentLimit <= 0 ? nil : recentLimit
+        let recent = retained(entries.filter { !$0.isPinned }, limit: recentLimitOrNil)
+        return pinned + recent
+    }
+
+    static func preservesPinnedEntries(from original: [ClipboardHistoryEntry],
+                                       in retained: [ClipboardHistoryEntry]) -> Bool {
+        let retainedIDs = Set(retained.map(\.id))
+        return original.lazy.filter(\.isPinned).allSatisfy { retainedIDs.contains($0.id) }
+    }
+
+    static func canLoadEncodedHistory(byteCount: Int?) -> Bool {
+        guard let byteCount else { return false }
+        return byteCount >= 0 && byteCount <= maxEncodedHistoryBytes
+    }
+
+    /// Encodes a readable snapshot without ever writing a file the next
+    /// launch would reject. JSON escaping can make stored data much larger
+    /// than the raw UTF-8 text budget, so the encoded bound must be enforced
+    /// on the actual bytes rather than estimated from the strings.
+    static func encodedHistory(_ entries: [ClipboardHistoryEntry],
+                               byteLimit: Int = maxEncodedHistoryBytes) -> EncodedHistory? {
+        guard byteLimit >= 2 else { return nil }
+        let encoder = JSONEncoder()
+        let ordered = entries.filter(\.isPinned) + entries.filter { !$0.isPinned }
+        var retained: [ClipboardHistoryEntry] = []
+        var encodedEntries: [Data] = []
+        var encodedSize = 2 // Opening and closing brackets.
+
+        for entry in ordered {
+            guard let encoded = try? encoder.encode(entry) else { return nil }
+            let addedSize = encoded.count + (encodedEntries.isEmpty ? 0 : 1)
+            guard encodedSize + addedSize <= byteLimit else { continue }
+            retained.append(entry)
+            encodedEntries.append(encoded)
+            encodedSize += addedSize
+        }
+
+        var data = Data(capacity: encodedSize)
+        data.append(0x5B)
+        for (index, encoded) in encodedEntries.enumerated() {
+            if index > 0 { data.append(0x2C) }
+            data.append(encoded)
+        }
+        data.append(0x5D)
+        return EncodedHistory(entries: retained, data: data)
     }
 }
 
@@ -204,8 +286,11 @@ enum ClipboardHistorySearch {
 
     private static func normalized(_ value: String) -> String {
         value
+            // No locale: Turkish folds a dotted I to a dotless one, and a
+            // search that inherited the Mac's locale would stop finding
+            // "ISTANBUL" for someone who typed "istanbul".
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-                     locale: .current)
+                     locale: nil)
             .lowercased()
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\t", with: " ")
@@ -227,6 +312,43 @@ enum ClipboardHistorySelection {
             return entry
         }
         return selectedEntry
+    }
+}
+
+enum ClipboardHistoryPreview {
+    static func handlesSpace(selectionIsVisible: Bool, hasModifiers: Bool) -> Bool {
+        selectionIsVisible && !hasModifiers
+    }
+}
+
+enum ClipboardHistoryEscape {
+    enum Action: Equatable {
+        case clearBatchSelection
+        case hideWindow
+    }
+
+    /// Esc backs out one layer at a time - selection, then the window.
+    /// Preview is a persistent view setting, not a layer: only clicking its
+    /// own toggle turns it off (or Space, but only once arrow-key navigation
+    /// has made a row's selection visible - see `ClipboardHistoryPreview
+    /// .handlesSpace`; while the search field has focus, Space just types),
+    /// so a keystroke meant to close the panel can never silently re-hide
+    /// it first.
+    static func action(batchCount: Int) -> Action {
+        batchCount > 0 ? .clearBatchSelection : .hideWindow
+    }
+}
+
+enum ClipboardHistoryFocus {
+    /// Which side owns an ordinary key press while a text view holds focus in
+    /// the quick panel. A composing input method always wins: Return confirms
+    /// the candidate, the arrows walk it and Esc drops it, so claiming those
+    /// keys leaves the search field unusable in Chinese, Japanese and Korean.
+    /// Outside composition the multiline editor keeps its editing keys, while
+    /// the search field (a field editor) and the read-only preview leave the
+    /// list's shortcuts intact.
+    static func textViewOwnsKeys(isComposing: Bool, isFieldEditor: Bool, isEditable: Bool) -> Bool {
+        isComposing || (isEditable && !isFieldEditor)
     }
 }
 
@@ -302,12 +424,24 @@ enum ClipboardHistoryBatch {
         batchCount > 0 || queryIsEmpty
     }
 
+    static func listOwnsDeleteShortcut(batchCount: Int) -> Bool {
+        batchCount > 0
+    }
+
     /// The plain-text side of a rich batch, for targets that only take text.
     static func richPlainText(_ parts: [RichPart]) -> String {
         combinedText(parts.compactMap { part in
             if case let .text(text) = part { return text }
             return nil
         })
+    }
+}
+
+enum ClipboardHistoryCapturePolicy {
+    static func isCopiedScreenshot(_ paths: [String], in directory: URL?) -> Bool {
+        guard paths.count == 1,
+              let directory else { return false }
+        return ScreenshotSupport.isCopiedScreenshot(URL(fileURLWithPath: paths[0]), in: directory)
     }
 }
 
@@ -416,5 +550,21 @@ enum ClipboardHistorySensitiveText {
             return false
         }
         return true
+    }
+}
+
+enum ClipboardHistoryImageSupport {
+    static let imageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "heic", "heif", "tiff", "tif", "gif", "webp", "bmp", "ico", "icns", "svg", "avif"
+    ]
+
+    static func isImageFileName(_ name: String) -> Bool {
+        let ext = (name as NSString).pathExtension.lowercased()
+        return imageExtensions.contains(ext)
+    }
+
+    static func isImageFilePath(_ path: String, fileManager: FileManager = .default) -> Bool {
+        guard isImageFileName(path) else { return false }
+        return fileManager.fileExists(atPath: path)
     }
 }

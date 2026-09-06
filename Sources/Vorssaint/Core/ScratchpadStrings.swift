@@ -13,6 +13,7 @@ struct ScratchpadFeatureStrings {
     let copyAll: String
     let copied: String
     let exportAction: String
+    let exportFailed: String
     let clearAction: String
     let retentionTitle: String
     let retentionNever: String
@@ -33,6 +34,8 @@ struct ScratchpadFeatureStrings {
     let cancel: String
     let deletePadMessageFormat: String
     let padLimitFormat: String
+    let previewFormatting: String
+    let editText: String
 }
 
 extension FeatureStrings {
@@ -65,6 +68,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "Copy all",
         copied: "Copied",
         exportAction: "Save as file",
+        exportFailed: "The file could not be saved",
         clearAction: "Clear",
         retentionTitle: "Clear on its own",
         retentionNever: "Never",
@@ -84,7 +88,9 @@ extension ScratchpadFeatureStrings {
         saveName: "Save",
         cancel: "Cancel",
         deletePadMessageFormat: "Delete “%@” and everything in it?",
-        padLimitFormat: "You can keep up to %d scratchpads"
+        padLimitFormat: "You can keep up to %d scratchpads",
+        previewFormatting: "Show formatting",
+        editText: "Edit text"
     )
 
     static let ptBR = ScratchpadFeatureStrings(
@@ -96,6 +102,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "Copiar tudo",
         copied: "Copiado",
         exportAction: "Salvar como arquivo",
+        exportFailed: "Não foi possível salvar o arquivo",
         clearAction: "Limpar",
         retentionTitle: "Limpar sozinho",
         retentionNever: "Nunca",
@@ -115,7 +122,9 @@ extension ScratchpadFeatureStrings {
         saveName: "Salvar",
         cancel: "Cancelar",
         deletePadMessageFormat: "Apagar “%@” e todo o conteúdo?",
-        padLimitFormat: "Você pode manter até %d rascunhos"
+        padLimitFormat: "Você pode manter até %d rascunhos",
+        previewFormatting: "Ver formatação",
+        editText: "Editar texto"
     )
 
     static let tr = ScratchpadFeatureStrings(
@@ -127,6 +136,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "Tümünü kopyala",
         copied: "Kopyalandı",
         exportAction: "Dosya olarak kaydet",
+        exportFailed: "Dosya kaydedilemedi",
         clearAction: "Temizle",
         retentionTitle: "Kendiliğinden temizle",
         retentionNever: "Hiçbir zaman",
@@ -146,7 +156,9 @@ extension ScratchpadFeatureStrings {
         saveName: "Kaydet",
         cancel: "Vazgeç",
         deletePadMessageFormat: "“%@” ve içindeki her şey silinsin mi?",
-        padLimitFormat: "%d adede kadar karalama defteri tutabilirsiniz"
+        padLimitFormat: "%d adede kadar karalama defteri tutabilirsiniz",
+        previewFormatting: "Biçimlendirmeyi göster",
+        editText: "Metni düzenle"
     )
 
     static let ru = ScratchpadFeatureStrings(
@@ -158,6 +170,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "Скопировать всё",
         copied: "Скопировано",
         exportAction: "Сохранить как файл",
+        exportFailed: "Не удалось сохранить файл",
         clearAction: "Очистить",
         retentionTitle: "Очищать автоматически",
         retentionNever: "Никогда",
@@ -177,7 +190,9 @@ extension ScratchpadFeatureStrings {
         saveName: "Сохранить",
         cancel: "Отмена",
         deletePadMessageFormat: "Удалить «%@» вместе со всем содержимым?",
-        padLimitFormat: "Можно хранить до %d черновиков"
+        padLimitFormat: "Можно хранить до %d черновиков",
+        previewFormatting: "Показать форматирование",
+        editText: "Редактировать текст"
     )
 
     static let es = ScratchpadFeatureStrings(
@@ -189,6 +204,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "Copiar todo",
         copied: "Copiado",
         exportAction: "Guardar como archivo",
+        exportFailed: "No se pudo guardar el archivo",
         clearAction: "Limpiar",
         retentionTitle: "Limpiar solo",
         retentionNever: "Nunca",
@@ -207,8 +223,10 @@ extension ScratchpadFeatureStrings {
         closePad: "Cerrar borrador",
         saveName: "Guardar",
         cancel: "Cancelar",
-        deletePadMessageFormat: "¿Eliminar «%@» y todo su contenido?",
-        padLimitFormat: "Puedes guardar hasta %d borradores"
+        deletePadMessageFormat: "¿Eliminar “%@” y todo su contenido?",
+        padLimitFormat: "Puedes guardar hasta %d borradores",
+        previewFormatting: "Ver formato",
+        editText: "Editar texto"
     )
 
     static let de = ScratchpadFeatureStrings(
@@ -220,6 +238,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "Alles kopieren",
         copied: "Kopiert",
         exportAction: "Als Datei sichern",
+        exportFailed: "Die Datei konnte nicht gesichert werden",
         clearAction: "Leeren",
         retentionTitle: "Automatisch leeren",
         retentionNever: "Nie",
@@ -239,7 +258,9 @@ extension ScratchpadFeatureStrings {
         saveName: "Sichern",
         cancel: "Abbrechen",
         deletePadMessageFormat: "„%@“ und den gesamten Inhalt löschen?",
-        padLimitFormat: "Du kannst bis zu %d Schmierzettel behalten"
+        padLimitFormat: "Du kannst bis zu %d Schmierzettel behalten",
+        previewFormatting: "Formatierung zeigen",
+        editText: "Text bearbeiten"
     )
 
     static let fr = ScratchpadFeatureStrings(
@@ -247,10 +268,11 @@ extension ScratchpadFeatureStrings {
         hubDescription: "Des blocs flottants à onglets pour les notes éphémères",
         panelCaption: "Des notes rapides dans des onglets séparés",
         openButton: "Ouvrir le brouillon",
-        placeholder: "Écrivez ce que vous voulez. Tout s'enregistre tout seul.",
+        placeholder: "Écrivez ce que vous voulez. Tout s’enregistre tout seul.",
         copyAll: "Tout copier",
         copied: "Copié",
         exportAction: "Enregistrer dans un fichier",
+        exportFailed: "Impossible d’enregistrer le fichier",
         clearAction: "Effacer",
         retentionTitle: "Effacer automatiquement",
         retentionNever: "Jamais",
@@ -269,8 +291,10 @@ extension ScratchpadFeatureStrings {
         closePad: "Fermer le brouillon",
         saveName: "Enregistrer",
         cancel: "Annuler",
-        deletePadMessageFormat: "Supprimer « %@ » et tout son contenu ?",
-        padLimitFormat: "Vous pouvez conserver jusqu’à %d brouillons"
+        deletePadMessageFormat: "Supprimer «\u{00A0}%@\u{00A0}» et tout son contenu\u{00A0}?",
+        padLimitFormat: "Vous pouvez conserver jusqu’à %d brouillons",
+        previewFormatting: "Afficher la mise en forme",
+        editText: "Modifier le texte"
     )
 
     static let it = ScratchpadFeatureStrings(
@@ -282,6 +306,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "Copia tutto",
         copied: "Copiato",
         exportAction: "Salva come file",
+        exportFailed: "Impossibile salvare il file",
         clearAction: "Svuota",
         retentionTitle: "Svuota automaticamente",
         retentionNever: "Mai",
@@ -301,7 +326,9 @@ extension ScratchpadFeatureStrings {
         saveName: "Salva",
         cancel: "Annulla",
         deletePadMessageFormat: "Eliminare “%@” e tutto il contenuto?",
-        padLimitFormat: "Puoi conservare fino a %d bozze"
+        padLimitFormat: "Puoi conservare fino a %d bozze",
+        previewFormatting: "Mostra formattazione",
+        editText: "Modifica testo"
     )
 
     static let ja = ScratchpadFeatureStrings(
@@ -313,6 +340,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "すべてコピー",
         copied: "コピーしました",
         exportAction: "ファイルとして保存",
+        exportFailed: "ファイルを保存できませんでした",
         clearAction: "消去",
         retentionTitle: "自動で消去",
         retentionNever: "しない",
@@ -332,7 +360,9 @@ extension ScratchpadFeatureStrings {
         saveName: "保存",
         cancel: "キャンセル",
         deletePadMessageFormat: "「%@」とその内容をすべて削除しますか？",
-        padLimitFormat: "クイックメモは最大%d個まで作成できます"
+        padLimitFormat: "クイックメモは最大%d個まで作成できます",
+        previewFormatting: "書式を表示",
+        editText: "テキストを編集"
     )
 
     static let ko = ScratchpadFeatureStrings(
@@ -344,6 +374,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "전체 복사",
         copied: "복사됨",
         exportAction: "파일로 저장",
+        exportFailed: "파일을 저장할 수 없습니다",
         clearAction: "지우기",
         retentionTitle: "자동으로 지우기",
         retentionNever: "안 함",
@@ -363,7 +394,9 @@ extension ScratchpadFeatureStrings {
         saveName: "저장",
         cancel: "취소",
         deletePadMessageFormat: "“%@” 및 모든 내용을 삭제할까요?",
-        padLimitFormat: "빠른 메모는 최대 %d개까지 만들 수 있습니다"
+        padLimitFormat: "빠른 메모는 최대 %d개까지 만들 수 있습니다",
+        previewFormatting: "서식 보기",
+        editText: "텍스트 편집"
     )
 
     static let zhHans = ScratchpadFeatureStrings(
@@ -375,6 +408,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "全部拷贝",
         copied: "已拷贝",
         exportAction: "存储为文件",
+        exportFailed: "无法存储文件",
         clearAction: "清空",
         retentionTitle: "自动清空",
         retentionNever: "从不",
@@ -391,10 +425,12 @@ extension ScratchpadFeatureStrings {
         padActions: "草稿板操作",
         renamePad: "重命名草稿板",
         closePad: "关闭草稿板",
-        saveName: "存储",
+        saveName: "保存",
         cancel: "取消",
         deletePadMessageFormat: "删除“%@”及其中的全部内容？",
-        padLimitFormat: "最多可保留 %d 个草稿板"
+        padLimitFormat: "最多可保留 %d 个草稿板",
+        previewFormatting: "显示格式",
+        editText: "编辑文本"
     )
 
     static let zhTW = ScratchpadFeatureStrings(
@@ -406,6 +442,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "全部拷貝",
         copied: "已拷貝",
         exportAction: "儲存為檔案",
+        exportFailed: "無法儲存檔案",
         clearAction: "清空",
         retentionTitle: "自動清空",
         retentionNever: "永不",
@@ -425,7 +462,9 @@ extension ScratchpadFeatureStrings {
         saveName: "儲存",
         cancel: "取消",
         deletePadMessageFormat: "刪除「%@」和其中的所有內容？",
-        padLimitFormat: "最多可保留 %d 個草稿板"
+        padLimitFormat: "最多可保留 %d 個草稿板",
+        previewFormatting: "顯示格式",
+        editText: "編輯文字"
     )
 
     static let zhHK = ScratchpadFeatureStrings(
@@ -437,6 +476,7 @@ extension ScratchpadFeatureStrings {
         copyAll: "全部拷貝",
         copied: "已拷貝",
         exportAction: "儲存為檔案",
+        exportFailed: "無法儲存檔案",
         clearAction: "清空",
         retentionTitle: "自動清空",
         retentionNever: "永不",
@@ -456,6 +496,8 @@ extension ScratchpadFeatureStrings {
         saveName: "儲存",
         cancel: "取消",
         deletePadMessageFormat: "刪除「%@」及當中的所有內容？",
-        padLimitFormat: "最多可保留 %d 個草稿板"
+        padLimitFormat: "最多可保留 %d 個草稿板",
+        previewFormatting: "顯示格式",
+        editText: "編輯文字"
     )
 }

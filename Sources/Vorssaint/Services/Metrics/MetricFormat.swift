@@ -10,6 +10,51 @@ struct NetworkCounters: Equatable {
     var sent: UInt64 = 0
 }
 
+/// Detects the macOS failure mode where outbound interface counters keep moving
+/// while inbound counters stay frozen. The first suspect sample only primes the
+/// process reader; a second consecutive sample is required before using it.
+struct NetworkCounterFallback {
+    private(set) var isActive = false
+    private var missingInboundSamples = 0
+
+    mutating func observe(previous: NetworkCounters,
+                          current: NetworkCounters) -> (sampleProcesses: Bool, useProcessDownload: Bool) {
+        guard current.received >= previous.received,
+              current.sent >= previous.sent else {
+            reset()
+            return (false, false)
+        }
+
+        if current.received > previous.received {
+            reset()
+            return (false, false)
+        }
+
+        let outgoingAdvanced = current.sent > previous.sent
+        if isActive {
+            // Once the inbound interface counter is known to be frozen, lack
+            // of upload says nothing about download. Keep sampling socket
+            // flows until the received counter itself proves recovery.
+            return (true, true)
+        }
+
+        if outgoingAdvanced {
+            missingInboundSamples += 1
+        } else {
+            missingInboundSamples = 0
+        }
+        if missingInboundSamples >= 2 {
+            isActive = true
+        }
+        return (outgoingAdvanced, isActive)
+    }
+
+    mutating func reset() {
+        isActive = false
+        missingInboundSamples = 0
+    }
+}
+
 struct DiskIOCounters: Equatable {
     var read: UInt64 = 0
     var written: UInt64 = 0
@@ -21,24 +66,36 @@ struct DiskIOCounters: Equatable {
 /// Everything here depends only on Foundation — no IOKit, no AppKit, no UI — so
 /// it compiles and runs standalone in the unit-test target (`./build.sh --test`).
 enum MetricFormat {
+    /// Numbers follow the reader's region, not the app's language: macOS keeps
+    /// those two settings apart, and seven of the thirteen languages here are
+    /// spoken where a decimal is written with a comma. Held in one place so a
+    /// test can pin it and stay honest on a machine set to any region.
+    static var locale: Locale = .current
+
     // MARK: Memory
 
-    /// Matches Activity Monitor's "Memory Used": physical RAM minus pages that
-    /// are free, speculative, or file-backed cache. The side breakdown
-    /// (App/Wired/Compressed) does not expose every bucket counted in the total.
+    /// Matches Activity Monitor's Memory Used: app memory, wired memory,
+    /// compressed memory and the reserved tagged-memory storage region.
     static func memoryUsed(totalBytes: UInt64,
+                           appBytes: UInt64,
                            pageSize: UInt64,
-                           freePages: UInt64,
-                           speculativePages: UInt64,
-                           fileBackedPages: UInt64) -> UInt64 {
+                           wiredPages: UInt64,
+                           compressorPages: UInt64,
+                           tagStoragePages: UInt64) -> UInt64 {
         guard totalBytes > 0, pageSize > 0 else { return 0 }
-        let freeAndSpeculative = freePages.addingReportingOverflow(speculativePages)
-        guard !freeAndSpeculative.overflow else { return 0 }
-        let availablePages = freeAndSpeculative.partialValue.addingReportingOverflow(fileBackedPages)
-        guard !availablePages.overflow else { return 0 }
-        let availableBytes = availablePages.partialValue.multipliedReportingOverflow(by: pageSize)
-        guard !availableBytes.overflow else { return 0 }
-        return availableBytes.partialValue >= totalBytes ? 0 : totalBytes - availableBytes.partialValue
+        let wiredBytes = wiredPages.multipliedReportingOverflow(by: pageSize)
+        guard !wiredBytes.overflow else { return 0 }
+        let compressedBytes = compressorPages.multipliedReportingOverflow(by: pageSize)
+        guard !compressedBytes.overflow else { return 0 }
+        let tagStorageBytes = tagStoragePages.multipliedReportingOverflow(by: pageSize)
+        guard !tagStorageBytes.overflow else { return 0 }
+        let appAndWired = appBytes.addingReportingOverflow(wiredBytes.partialValue)
+        guard !appAndWired.overflow else { return 0 }
+        let withCompressed = appAndWired.partialValue.addingReportingOverflow(compressedBytes.partialValue)
+        guard !withCompressed.overflow else { return 0 }
+        let usedBytes = withCompressed.partialValue.addingReportingOverflow(tagStorageBytes.partialValue)
+        guard !usedBytes.overflow else { return 0 }
+        return min(usedBytes.partialValue, totalBytes)
     }
 
     /// Purgeable internal pages do not count because the system can reclaim
@@ -53,6 +110,27 @@ enum MetricFormat {
         let activeBytes = activePages.partialValue.multipliedReportingOverflow(by: pageSize)
         guard !activeBytes.overflow else { return 0 }
         return min(activeBytes.partialValue, totalBytes)
+    }
+
+    /// Physical RAM held by the compressor. Already counted inside Memory Used.
+    static func compressedMemory(totalBytes: UInt64,
+                                 pageSize: UInt64,
+                                 compressorPages: UInt64) -> UInt64 {
+        pageBytes(pageCount: compressorPages, pageSize: pageSize, totalBytes: totalBytes)
+    }
+
+    /// File-backed pages the system can drop. Memory Used already excludes them.
+    static func cachedFiles(totalBytes: UInt64,
+                            pageSize: UInt64,
+                            fileBackedPages: UInt64) -> UInt64 {
+        pageBytes(pageCount: fileBackedPages, pageSize: pageSize, totalBytes: totalBytes)
+    }
+
+    private static func pageBytes(pageCount: UInt64, pageSize: UInt64, totalBytes: UInt64) -> UInt64 {
+        guard totalBytes > 0, pageSize > 0 else { return 0 }
+        let bytes = pageCount.multipliedReportingOverflow(by: pageSize)
+        guard !bytes.overflow else { return 0 }
+        return min(bytes.partialValue, totalBytes)
     }
 
     /// Keeps every memory surface on the same persisted choice. Unknown
@@ -84,8 +162,8 @@ enum MetricFormat {
 
     /// Bytes (raw) → "0", "8" for B; one decimal under 10, none at or above.
     private static func number(_ value: Double, unit: String) -> String {
-        if unit == "B" { return String(format: "%.0f", value) }
-        return value < 10 ? String(format: "%.1f", value) : String(format: "%.0f", value)
+        if unit == "B" { return String(format: "%.0f", locale: Self.locale, value) }
+        return value < 10 ? String(format: "%.1f", locale: Self.locale, value) : String(format: "%.0f", locale: Self.locale, value)
     }
 
     /// A whole quantity of bytes, e.g. "1.2 GB". Used for session totals.
@@ -103,10 +181,10 @@ enum MetricFormat {
             index += 1
         }
         if units[index] == "B" {
-            return String(format: "%.0f B", value)
+            return String(format: "%.0f B", locale: Self.locale, value)
         }
-        return value < 10 ? String(format: "%.1f %@", value, units[index])
-            : String(format: "%.0f %@", value, units[index])
+        return value < 10 ? String(format: "%.1f %@", locale: Self.locale, value, units[index])
+            : String(format: "%.0f %@", locale: Self.locale, value, units[index])
     }
 
     static func diskBytesPrecise(_ bytes: UInt64) -> String {
@@ -119,13 +197,13 @@ enum MetricFormat {
         }
         let unit = units[index]
         if unit == "B" {
-            return String(format: "%.0f B", value)
+            return String(format: "%.0f B", locale: Self.locale, value)
         }
         if unit == "TB" || unit == "PB" {
-            return String(format: "%.2f %@", value, unit)
+            return String(format: "%.2f %@", locale: Self.locale, value, unit)
         }
-        return value < 10 ? String(format: "%.1f %@", value, unit)
-            : String(format: "%.0f %@", value, unit)
+        return value < 10 ? String(format: "%.1f %@", locale: Self.locale, value, unit)
+            : String(format: "%.0f %@", locale: Self.locale, value, unit)
     }
 
     /// A throughput, e.g. "1.2 MB/s". Used in the panel.
@@ -162,7 +240,7 @@ enum MetricFormat {
             if rounded >= 10 {
                 return "\(Int(rounded.rounded()))\(units[index])"
             }
-            return String(format: "%.1f%@", rounded, units[index])
+            return String(format: "%.1f%@", locale: Self.locale, rounded, units[index])
         }
         return "\(Int(value.rounded()))\(units[index])"
     }
@@ -172,17 +250,67 @@ enum MetricFormat {
     /// Power, e.g. "8.5 W" / "23 W" (one decimal under 10, none above).
     static func watts(_ value: Double) -> String {
         let magnitude = abs(value)
-        return magnitude < 10 ? String(format: "%.1f W", value) : String(format: "%.0f W", value)
+        return magnitude < 10 ? String(format: "%.1f W", locale: Self.locale, value) : String(format: "%.0f W", locale: Self.locale, value)
     }
 
     /// Compact power for the menu bar, e.g. "9W".
     static func wattsCompact(_ value: Double) -> String {
-        String(format: "%.0fW", value.rounded())
+        String(format: "%.0fW", locale: Self.locale, value.rounded())
+    }
+
+    static func systemPowerWatts(measured: Double?,
+                                 batteryWatts: Double?,
+                                 externalConnected: Bool) -> Double? {
+        if let measured { return measured }
+        guard !externalConnected, let batteryWatts, batteryWatts < 0 else { return nil }
+        return -batteryWatts
     }
 
     /// A 0...1 fraction as a rounded percentage, e.g. "12%".
     static func percent(_ fraction: Double) -> String {
         "\(Int((max(0, min(1, fraction)) * 100).rounded()))%"
+    }
+
+    /// Keeps process breakdown values on the same 0...100 scale as the
+    /// aggregate hardware meters.
+    static func boundedPercentage(_ percentage: Double) -> Double {
+        guard percentage.isFinite else { return 0 }
+        return max(0, min(100, percentage))
+    }
+
+    static func machTimeNanoseconds(_ ticks: UInt64,
+                                    numerator: UInt32,
+                                    denominator: UInt32) -> UInt64? {
+        guard denominator > 0 else { return nil }
+        let divisor = UInt64(denominator)
+        let multiplier = UInt64(numerator)
+        let whole = (ticks / divisor).multipliedReportingOverflow(by: multiplier)
+        guard !whole.overflow else { return nil }
+        let remainder = (ticks % divisor).multipliedReportingOverflow(by: multiplier)
+        guard !remainder.overflow else { return nil }
+        let nanoseconds = whole.partialValue.addingReportingOverflow(remainder.partialValue / divisor)
+        return nanoseconds.overflow ? nil : nanoseconds.partialValue
+    }
+
+    /// Converts a process's cumulative CPU-time delta into its share of the
+    /// machine over the same wall-clock interval used by the system monitor.
+    static func processCPUPercentage(previousNanoseconds: UInt64,
+                                     currentNanoseconds: UInt64,
+                                     elapsed: TimeInterval,
+                                     processorCount: Int) -> Double {
+        guard currentNanoseconds >= previousNanoseconds,
+              elapsed > 0, elapsed.isFinite else { return 0 }
+        let capacityNanoseconds = elapsed * 1_000_000_000 * Double(max(1, processorCount))
+        return boundedPercentage(Double(currentNanoseconds - previousNanoseconds) / capacityNanoseconds * 100)
+    }
+
+    /// Sampling APIs do not share a clock and can briefly over-attribute work.
+    /// Never let the process rows claim more than the matching aggregate meter.
+    static func processReconciliationScale(sampledTotal: Double,
+                                           aggregatePercentage: Double?) -> Double {
+        guard sampledTotal.isFinite, sampledTotal > 0,
+              let aggregatePercentage, aggregatePercentage.isFinite else { return 1 }
+        return min(1, boundedPercentage(aggregatePercentage) / sampledTotal)
     }
 
     /// Smooths the GPU usage readout enough to hide one-sample compositor spikes
@@ -202,9 +330,9 @@ enum MetricFormat {
     static func temperature(_ celsius: Double, unit: TemperatureUnit) -> String {
         switch unit {
         case .celsius:
-            return String(format: "%.0f °C", celsius)
+            return String(format: "%.0f °C", locale: Self.locale, celsius)
         case .fahrenheit:
-            return String(format: "%.0f °F", celsius * 9 / 5 + 32)
+            return String(format: "%.0f °F", locale: Self.locale, celsius * 9 / 5 + 32)
         }
     }
 
@@ -213,9 +341,9 @@ enum MetricFormat {
     static func temperatureCompact(_ celsius: Double, unit: TemperatureUnit) -> String {
         switch unit {
         case .celsius:
-            return String(format: "%.0f°", celsius)
+            return String(format: "%.0f°", locale: Self.locale, celsius)
         case .fahrenheit:
-            return String(format: "%.0f°", celsius * 9 / 5 + 32)
+            return String(format: "%.0f°", locale: Self.locale, celsius * 9 / 5 + 32)
         }
     }
 
@@ -294,5 +422,12 @@ struct MetricHistory {
         if values.count > capacity {
             values.removeFirst(values.count - capacity)
         }
+    }
+
+    /// Graph data is useful only while a graph surface is visible. Returning an
+    /// empty publication at rest leaves this ring intact for the next opening
+    /// without making every background sample copy its retained array.
+    func publishedValues(whileVisible visible: Bool) -> [Double] {
+        visible ? values : []
     }
 }

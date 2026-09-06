@@ -9,10 +9,15 @@ struct WindowLayoutSettings: View {
     @ObservedObject private var service = WindowLayoutService.shared
     @AppStorage(DefaultsKey.panelUtilityWindowLayout) private var showInPanel = true
     @AppStorage(DefaultsKey.windowLayoutShortcutsEnabled) private var shortcutsEnabled = true
+    @AppStorage(DefaultsKey.windowDirectionalEnabled) private var directionalEnabled = false
+    @AppStorage(DefaultsKey.windowDirectionalShortcut) private var directionalShortcutRaw = GlobalShortcut.windowDirectionalDefault.storageValue
     @AppStorage(DefaultsKey.windowEdgeSnapEnabled) private var edgeSnapEnabled = false
+    @AppStorage(DefaultsKey.windowEdgeSnapDisabledZones) private var edgeSnapDisabledZones = ""
     @AppStorage(DefaultsKey.windowGestureEnabled) private var gestureEnabled = false
     @AppStorage(DefaultsKey.windowGestureModifiers) private var gestureModifiers = WindowGestureSupport.defaultModifierStorageValue
     @AppStorage(DefaultsKey.windowGestureRaiseWindow) private var gestureRaiseWindow = false
+    @AppStorage(DefaultsKey.windowLayoutWindowGap) private var windowGap = 0
+    @AppStorage(DefaultsKey.windowLayoutScreenGap) private var screenGap = 0
     @State private var systemTilingEnabled = WindowEdgeSnapSupport.isSystemTilingEnabled
     // Same preference the Switcher page exposes next to Dock Preview; it is
     // mirrored here because it is a window-juggling behavior people look for
@@ -49,6 +54,14 @@ struct WindowLayoutSettings: View {
                 Text(text.edgeSnapCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                WindowEdgeSnapZonePicker(disabledZonesStorage: $edgeSnapDisabledZones,
+                                         text: text,
+                                         resetTitle: l10n.s.shortcutReset)
+                    .disabled(!edgeSnapEnabled)
+                    .opacity(edgeSnapEnabled ? 1 : 0.45)
+                    .onChange(of: edgeSnapDisabledZones) { _, _ in
+                        WindowLayoutService.shared.syncWithPreferences()
+                    }
                 if systemTilingEnabled {
                     Label(text.edgeSnapSystemConflict, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
@@ -87,6 +100,14 @@ struct WindowLayoutSettings: View {
                 }
             }
 
+            Section(text.gapsSection) {
+                gapPicker(text.windowGap, selection: $windowGap)
+                gapPicker(text.screenGap, selection: $screenGap)
+                Text(text.gapsCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section(text.shortcuts) {
                 Toggle(text.shortcuts, isOn: $shortcutsEnabled)
                     .onChange(of: shortcutsEnabled) { _, _ in
@@ -99,6 +120,26 @@ struct WindowLayoutSettings: View {
                     Text(l10n.s.shortcutUnavailable)
                         .font(.caption)
                         .foregroundStyle(.orange)
+                }
+                Divider()
+                Toggle(WindowDirectionalStrings.localized(l10n.language).title,
+                       isOn: $directionalEnabled)
+                    .onChange(of: directionalEnabled) { _, _ in service.syncWithPreferences() }
+                Text(WindowDirectionalStrings.localized(l10n.language).caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if directionalEnabled {
+                    ShortcutRecorderButton(shortcut: directionalShortcut,
+                                           isEnabled: permissions.accessibility,
+                                           waitingTitle: l10n.s.shortcutPressKeys,
+                                           invalidAction: {},
+                                           captureAction: saveDirectionalShortcut)
+                        .frame(width: 108)
+                    if service.directionalShortcutRegistrationFailed {
+                        Text(l10n.s.shortcutUnavailable)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                 }
             }
 
@@ -117,6 +158,7 @@ struct WindowLayoutSettings: View {
                 actionRow(.rightHalf)
                 actionRow(.topHalf)
                 actionRow(.bottomHalf)
+                actionRow(.centerHalf)
             }
 
             Section(text.thirds) {
@@ -145,6 +187,7 @@ struct WindowLayoutSettings: View {
 
             Section(text.other) {
                 actionRow(.maximize)
+                actionRow(.marginMaximize)
                 actionRow(.fullScreen)
                 actionRow(.center)
                 actionRow(.previousDisplay)
@@ -163,6 +206,41 @@ struct WindowLayoutSettings: View {
             for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshSystemTilingState()
         }
+    }
+
+    private var directionalShortcut: GlobalShortcut {
+        GlobalShortcut(storageValue: directionalShortcutRaw) ?? .windowDirectionalDefault
+    }
+
+    private func saveDirectionalShortcut(_ shortcut: GlobalShortcut) {
+        guard service.directionalShortcutConflictTitle(shortcut) == nil else { return }
+        directionalShortcutRaw = shortcut.storageValue
+        service.syncWithPreferences()
+    }
+
+    /// The gaps take effect on the next placement — the engine reads them
+    /// per apply — so the pickers need no service sync.
+    private func gapPicker(_ title: String, selection: Binding<Int>) -> some View {
+        Picker(title, selection: selection) {
+            ForEach(WindowLayoutGaps.presets, id: \.self) { value in
+                Text(gapPresetTitle(value)).tag(value)
+            }
+        }
+        .pickerStyle(.menu)
+    }
+
+    private func gapPresetTitle(_ value: Int) -> String {
+        let name: String
+        switch value {
+        case 0: return text.gapNone
+        case 8: name = text.gapTiny
+        case 16: name = text.gapSmall
+        case 32: name = text.gapMedium
+        case 64: name = text.gapLarge
+        case 128: name = text.gapExtraLarge
+        default: return "\(value) px"
+        }
+        return "\(name) (\(value) px)"
     }
 
     private func refreshSystemTilingState() {
@@ -191,6 +269,7 @@ struct WindowLayoutSettings: View {
         case .rightHalf: return "rectangle.rightthird.inset.filled"
         case .topHalf: return "rectangle.topthird.inset.filled"
         case .bottomHalf: return "rectangle.bottomthird.inset.filled"
+        case .centerHalf: return "rectangle.center.inset.filled"
         case .leftThird: return "rectangle.leftthird.inset.filled"
         case .centerThird: return "rectangle.center.inset.filled"
         case .rightThird: return "rectangle.rightthird.inset.filled"
@@ -207,6 +286,7 @@ struct WindowLayoutSettings: View {
         case .bottomLeft: return "arrow.down.left"
         case .bottomRight: return "arrow.down.right"
         case .maximize: return "arrow.up.left.and.arrow.down.right"
+        case .marginMaximize: return "rectangle.inset.filled"
         case .fullScreen: return "rectangle.fill"
         case .center: return "scope"
         case .previousDisplay: return "arrow.left.to.line"

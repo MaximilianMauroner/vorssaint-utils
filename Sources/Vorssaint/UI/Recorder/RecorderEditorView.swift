@@ -11,9 +11,26 @@ struct RecorderEditorView: View {
     @ObservedObject var model: RecorderEditorModel
     let controller: RecorderEditorController
     @ObservedObject private var l10n = L10n.shared
+    @State private var sharedRecord: RecordingShareRecord?
+    /// The area being drawn for a blur, in the stage's own points, while the
+    /// mouse is down.
+    @State private var blurDraft: CGRect?
+    @AppStorage(DefaultsKey.recorderSharingEnabled) private var sharingEnabled = true
 
     private var strings: RecorderFeatureStrings {
         FeatureStrings.recorder(l10n.language)
+    }
+
+    private var shareStrings: RecorderShareStrings {
+        FeatureStrings.recorderShare(l10n.language)
+    }
+
+    private var screenshotStrings: ScreenshotFeatureStrings {
+        FeatureStrings.screenshot(l10n.language)
+    }
+
+    private var recentCapturesTitle: String {
+        FeatureStrings.recentCaptures(l10n.language).title
     }
 
     var body: some View {
@@ -35,6 +52,11 @@ struct RecorderEditorView: View {
         .animation(.easeOut(duration: 0.18), value: model.isExporting)
         .animation(.easeOut(duration: 0.18), value: model.lastExportedURL)
         .frame(minWidth: 940, minHeight: 560)
+        .sheet(item: $sharedRecord) { record in
+            RecorderSharedLinkView(record: record,
+                                   strings: screenshotStrings,
+                                   close: { sharedRecord = nil })
+        }
     }
 
     // MARK: - Bands
@@ -44,6 +66,14 @@ struct RecorderEditorView: View {
             BrandMark(width: 24, tint: Color(white: 0.92))
             Text(strings.editorTitle)
                 .font(.system(size: 13, weight: .semibold))
+            Button {
+                RecentCaptureService.shared.showHistoryWindow()
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+            }
+            .buttonStyle(RecorderToolbarButtonStyle(compact: true))
+            .screenshotSafeHelp(recentCapturesTitle)
+            .accessibilityLabel(recentCapturesTitle)
             Divider().frame(height: 18).padding(.horizontal, 3)
             Button(action: model.undo) {
                 Image(systemName: "arrow.uturn.backward")
@@ -88,6 +118,10 @@ struct RecorderEditorView: View {
                 .screenshotSafeHelp("⌘C")
             }
 
+            if sharingEnabled {
+                shareMenu
+            }
+
             Menu {
                 Button(strings.saveVideoButton, action: controller.saveVideo)
                     .keyboardShortcut("s", modifiers: .command)
@@ -111,6 +145,26 @@ struct RecorderEditorView: View {
         .frame(height: 54)
         .background(.ultraThinMaterial)
         .overlay(alignment: .bottom) { Divider().opacity(0.45) }
+    }
+
+    private var shareMenu: some View {
+        Menu {
+            ForEach(RecordingShareDuration.allCases) { duration in
+                Button(duration.title(screenshotStrings)) {
+                    controller.share(duration) { record in
+                        sharedRecord = record
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "link")
+                .frame(width: 24, height: 24)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(model.isExporting)
+        .screenshotSafeHelp(screenshotStrings.shareButton)
+        .accessibilityLabel(screenshotStrings.shareButton)
     }
 
     private var presetsMenu: some View {
@@ -174,6 +228,9 @@ struct RecorderEditorView: View {
                     }
                     .allowsHitTesting(false)
                 }
+                if model.isPickingBlurArea {
+                    blurPicker(in: proxy.size)
+                }
             }
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
@@ -185,15 +242,65 @@ struct RecorderEditorView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .onTapGesture {
-            guard !model.isAimingZoom else { return }
-            // Clicking the picture puts a selected zoom down before it does
-            // anything else, so there is always a way out of it.
+            guard !model.isAimingZoom, !model.isPickingBlurArea else { return }
+            // Clicking the picture puts a selected zoom or blur down before it
+            // does anything else, so there is always a way out of it.
             if model.selectedZoomID != nil {
                 model.selectZoom(nil)
+            } else if model.selectedBlurID != nil {
+                model.selectLaneItem(.blur, id: nil)
             } else {
                 model.togglePlay()
             }
         }
+    }
+
+    /// Drawing the area is one drag on the picture, and the rectangle that
+    /// follows the mouse is what says so. It is drawn over the recording as
+    /// captured, so what is inside the rectangle is exactly what gets hidden.
+    private func blurPicker(in size: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color.black.opacity(0.001)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 2)
+                        .onChanged { value in
+                            blurDraft = CGRect(
+                                x: min(value.startLocation.x, value.location.x),
+                                y: min(value.startLocation.y, value.location.y),
+                                width: abs(value.location.x - value.startLocation.x),
+                                height: abs(value.location.y - value.startLocation.y))
+                        }
+                        .onEnded { value in
+                            blurDraft = nil
+                            model.pickBlurArea(from: value.startLocation,
+                                               to: value.location,
+                                               in: size)
+                        }
+                )
+            if let draft = blurDraft {
+                Rectangle()
+                    .fill(Color.teal.opacity(0.22))
+                    .overlay {
+                        Rectangle().strokeBorder(Color.teal, lineWidth: 1.5)
+                    }
+                    .frame(width: draft.width, height: draft.height)
+                    .offset(x: draft.minX, y: draft.minY)
+                    .allowsHitTesting(false)
+            }
+            VStack {
+                Text(strings.blurPickAreaHint)
+                    .font(.system(size: 11, weight: .medium))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 10)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            .allowsHitTesting(false)
+        }
+        .onDisappear { blurDraft = nil }
     }
 
     private var bottomBand: some View {
@@ -214,6 +321,20 @@ struct RecorderEditorView: View {
                 timelineRow(strings.textContentLabel) {
                     RecorderZoomLane(model: model, kind: .text,
                                      emptyHint: strings.textLaneEmptyHint)
+                        .frame(height: 30)
+                }
+            }
+            if !model.document.images.isEmpty {
+                timelineRow(strings.imageLaneLabel) {
+                    RecorderZoomLane(model: model, kind: .image,
+                                     emptyHint: strings.imageLaneEmptyHint)
+                        .frame(height: 30)
+                }
+            }
+            if !model.document.blurs.isEmpty {
+                timelineRow(strings.blurLaneLabel) {
+                    RecorderZoomLane(model: model, kind: .blur,
+                                     emptyHint: strings.blurLaneEmptyHint)
                         .frame(height: 30)
                 }
             }
@@ -279,6 +400,24 @@ struct RecorderEditorView: View {
             .buttonStyle(.borderless)
             .foregroundStyle(Color(white: 0.8))
 
+            Button {
+                model.addImage(at: model.sourceTime)
+            } label: {
+                Label(strings.addImageButton, systemImage: "photo")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(Color(white: 0.8))
+
+            Button {
+                model.addBlur(at: model.sourceTime)
+            } label: {
+                Label(strings.addBlurButton, systemImage: "aqi.medium")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(Color(white: 0.8))
+
             if let selection = model.cutSelection {
                 Button {
                     model.cutSelectedRange()
@@ -337,7 +476,7 @@ struct RecorderEditorView: View {
     private var outputSizeLabel: String {
         let size = model.exportSize
         guard size.width > 0 else { return "" }
-        return "\(Int(size.width))x\(Int(size.height))"
+        return "\(Int(size.width)) × \(Int(size.height))"
     }
 
     private var timeLabel: String {
@@ -362,10 +501,16 @@ struct RecorderEditorView: View {
     /// "this is hard for me", and it is not.
     private var exportProgressChip: some View {
         HStack(spacing: 8) {
-            ProgressView(value: model.exportProgress)
-                .progressViewStyle(.linear)
-                .frame(width: 110)
-            Text(strings.exportingLabel)
+            if model.exportPhase == .uploading {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 20)
+            } else {
+                ProgressView(value: model.exportProgress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 110)
+            }
+            Text(exportProgressLabel)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color(white: 0.8))
             Button(strings.cancelButton) { model.cancelExport() }
@@ -377,6 +522,14 @@ struct RecorderEditorView: View {
         .padding(.vertical, 6)
         .background(.regularMaterial, in: Capsule())
         .transition(.opacity)
+    }
+
+    private var exportProgressLabel: String {
+        switch model.exportPhase {
+        case .saving: strings.exportingLabel
+        case .compressing: shareStrings.compressing
+        case .uploading: shareStrings.uploading
+        }
     }
 
     /// The finished file itself, draggable straight into a chat window and
@@ -402,6 +555,92 @@ struct RecorderEditorView: View {
         .screenshotSafeHelp(l10n.s.cleanerRevealInFinder)
         .onDrag { NSItemProvider(contentsOf: url) ?? NSItemProvider() }
         .transition(.opacity)
+    }
+}
+
+private struct RecorderSharedLinkView: View {
+    let record: RecordingShareRecord
+    let strings: ScreenshotFeatureStrings
+    let close: () -> Void
+    @State private var deleting = false
+    @State private var showingDeleteError = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Label(strings.sharedLinksTitle, systemImage: "link")
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                Button(strings.done, action: close)
+                    .keyboardShortcut(.defaultAction)
+            }
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text(record.url.absoluteString)
+                    .font(.system(.body, design: .rounded))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                HStack(spacing: 4) {
+                    Text(strings.expiresLabel)
+                    Text(record.expiresAt, style: .relative)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.055),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+            }
+
+            HStack {
+                Spacer()
+                Button {
+                    if RecordingShareService.shared.copy(record.url) {
+                        QuickToolHUD.show(icon: "link", message: strings.sharedHUD)
+                    } else {
+                        NSSound.beep()
+                    }
+                } label: {
+                    Label(strings.copyLink, systemImage: "doc.on.doc")
+                }
+                .keyboardShortcut("c", modifiers: .command)
+                Button(role: .destructive) {
+                    deleteLink()
+                } label: {
+                    if deleting {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label(strings.deleteLink, systemImage: "trash")
+                    }
+                }
+                .disabled(deleting)
+            }
+        }
+        .padding(20)
+        .frame(width: 480)
+        .alert(strings.deleteFailedHUD, isPresented: $showingDeleteError) {
+            Button(strings.done, role: .cancel) {}
+        }
+    }
+
+    private func deleteLink() {
+        deleting = true
+        Task { @MainActor in
+            do {
+                try await RecordingShareService.shared.delete(record)
+                QuickToolHUD.show(icon: "link", message: strings.linkDeletedHUD)
+                close()
+            } catch {
+                deleting = false
+                showingDeleteError = true
+            }
+        }
     }
 }
 
@@ -549,6 +788,11 @@ private struct Filmstrip: View {
     private enum Handle { case start, end }
 
     private let handleWidth: CGFloat = 12
+    private let coordinateSpace = "recorderFilmstrip"
+    /// Whether the drag in progress is picking a stretch to cut rather than
+    /// scrubbing. Decided on its first movement and kept, so letting go of
+    /// Shift halfway through does not turn the pick into a scrub.
+    @State private var dragPicksCut: Bool?
 
     var body: some View {
         GeometryReader { proxy in
@@ -562,34 +806,49 @@ private struct Filmstrip: View {
                 // The strip itself is what scrubbing listens to. The handles
                 // sit above it with their own gestures, so a drag that starts
                 // on a handle trims and never moves the playhead too.
-                // Dragging across the film picks a stretch to remove; a plain
-                // click clears it. Scrubbing lives on the ruler above, so the
-                // two never fight over the same drag.
+                // Dragging across the film scrubs, the way every simple
+                // editor does; holding Shift while dragging picks a stretch
+                // to remove instead. The picture follows the pointer either
+                // way, so a cut can land on the exact moment.
                 thumbnails
                     .frame(width: width, height: height)
                     .contentShape(Rectangle())
                     .gesture(
                         DragGesture(minimumDistance: 2)
                             .onChanged { value in
-                                let from = seconds(at: value.startLocation.x, width: width)
+                                let picksCut = dragPicksCut
+                                    ?? NSEvent.modifierFlags.contains(.shift)
+                                dragPicksCut = picksCut
                                 let to = seconds(at: value.location.x, width: width)
-                                model.setCutSelection(min(from, to)...max(from, to))
+                                if picksCut {
+                                    let from = seconds(at: value.startLocation.x, width: width)
+                                    model.setCutSelection(min(from, to)...max(from, to))
+                                }
+                                model.seek(to: to)
                             }
+                            .onEnded { _ in dragPicksCut = nil }
                     )
                     .onTapGesture { location in
-                        if model.cutSelection != nil {
-                            model.setCutSelection(nil)
-                        } else {
-                            model.seek(to: seconds(at: location.x, width: width))
-                        }
+                        // A click goes to that moment and puts down any
+                        // selection, the way clicking away works everywhere.
+                        model.setCutSelection(nil)
+                        model.seek(to: seconds(at: location.x, width: width))
                     }
 
-                // What was already cut out, as a seam you can click to undo.
+                // What was already cut out goes dark like the trimmed ends,
+                // with a seam at its start you can click to put it back.
                 ForEach(Array(model.document.cuts.enumerated()), id: \.offset) { _, cut in
                     let seam = position(cut.start, width: width)
+                    let from = max(startX, seam)
+                    let to = min(endX, position(cut.end, width: width))
+                    Color.black.opacity(0.62)
+                        .frame(width: max(0, to - from), height: height)
+                        .offset(x: from)
+                        .allowsHitTesting(false)
                     Rectangle()
                         .fill(Color.orange.opacity(0.9))
                         .frame(width: 3, height: height)
+                        .contentShape(Rectangle().inset(by: -4))
                         .offset(x: max(0, seam - 1.5))
                         .onTapGesture { model.restoreCut(at: cut.start) }
                 }
@@ -620,14 +879,17 @@ private struct Filmstrip: View {
                     .offset(x: startX)
                     .allowsHitTesting(false)
 
-                handle(at: startX, height: height)
+                handle(height: height)
+                    .position(x: startX + handleWidth / 2, y: height / 2)
                     .gesture(drag(.start, width: width))
-                handle(at: endX - handleWidth, height: height)
+                handle(height: height)
+                    .position(x: endX - handleWidth / 2, y: height / 2)
                     .gesture(drag(.end, width: width))
 
                 playhead(at: position(model.sourceTime, width: width), height: height)
             }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .coordinateSpace(.named(coordinateSpace))
         }
     }
 
@@ -647,7 +909,7 @@ private struct Filmstrip: View {
         }
     }
 
-    private func handle(at x: CGFloat, height: CGFloat) -> some View {
+    private func handle(height: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: 4, style: .continuous)
             .fill(Color.accentColor)
             .frame(width: handleWidth, height: height)
@@ -656,7 +918,6 @@ private struct Filmstrip: View {
                     .fill(Color.white.opacity(0.85))
                     .frame(width: 2, height: height * 0.36)
             }
-            .offset(x: max(0, x))
             .contentShape(Rectangle().inset(by: -6))
     }
 
@@ -670,7 +931,7 @@ private struct Filmstrip: View {
     }
 
     private func drag(_ handle: Handle, width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(coordinateSpace))
             .onChanged { value in
                 let time = seconds(at: value.location.x, width: width)
                 switch handle {

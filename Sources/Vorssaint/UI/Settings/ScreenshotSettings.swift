@@ -3,13 +3,12 @@
 
 import SwiftUI
 
-/// Settings for the screenshot shortcut, capture, save and export behavior.
-struct ScreenshotSettings: View {
+/// Screenshot-specific sections inside the shared screen-capture page.
+struct ScreenshotCaptureSettings: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var permissions = Permissions.shared
     @ObservedObject private var service = ScreenshotService.shared
     @ObservedObject private var sharing = ScreenshotShareService.shared
-    @AppStorage(DefaultsKey.screenshotShortcutEnabled) private var shortcutEnabled = false
     @AppStorage(DefaultsKey.screenshotFullScreenShortcutEnabled)
     private var fullScreenShortcutEnabled = false
     @AppStorage(DefaultsKey.screenshotLastCaptureShortcutEnabled)
@@ -25,6 +24,11 @@ struct ScreenshotSettings: View {
     @AppStorage(DefaultsKey.screenshotFileNumberNext) private var nextNumber = 1
     @AppStorage(DefaultsKey.screenshotIncludePointer) private var includePointer = false
     @AppStorage(DefaultsKey.screenshotShowLastRegion) private var showLastRegion = true
+    @AppStorage(DefaultsKey.screenshotLoupeStartsOn) private var loupeStartsOn = false
+    @AppStorage(DefaultsKey.screenshotLoupeRememberZoom) private var rememberLoupeZoom = false
+    @AppStorage(DefaultsKey.screenshotLoupeDefaultZoom) private var loupeDefaultZoom = 1.0
+    @AppStorage(DefaultsKey.screenshotLoupeSteppedZoomByDefault)
+    private var steppedLoupeZoomByDefault = false
     @AppStorage(DefaultsKey.screenshotDownscale) private var downscale = false
     @AppStorage(DefaultsKey.screenshotDelay) private var delay = 0
     @AppStorage(DefaultsKey.screenshotDefaultAction) private var defaultActionRaw = ""
@@ -42,7 +46,7 @@ struct ScreenshotSettings: View {
     }
 
     var body: some View {
-        Form {
+        Group {
             Section {
                 HStack(spacing: 10) {
                     Button {
@@ -63,19 +67,6 @@ struct ScreenshotSettings: View {
                 Text(strings.panelCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Toggle(l10n.s.quickToolShortcutToggle, isOn: $shortcutEnabled)
-                    .onChange(of: shortcutEnabled) { _, _ in
-                        ScreenshotService.shared.syncWithPreferences()
-                    }
-                ShortcutPreferenceRow(role: .screenshot,
-                                      isEnabled: shortcutEnabled) {
-                    ScreenshotService.shared.syncWithPreferences()
-                }
-                if shortcutEnabled, service.shortcutRegistrationFailed {
-                    Text(l10n.s.shortcutUnavailable)
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
                 Toggle(strings.fullScreenShortcutTitle, isOn: $fullScreenShortcutEnabled)
                     .onChange(of: fullScreenShortcutEnabled) { _, _ in
                         ScreenshotService.shared.syncWithPreferences()
@@ -122,6 +113,7 @@ struct ScreenshotSettings: View {
             } header: {
                 Text(strings.pageTitle)
             }
+            .settingsSectionAnchor(.screenshot)
 
             Section {
                 Toggle(strings.freezeToggle, isOn: $freeze)
@@ -141,8 +133,32 @@ struct ScreenshotSettings: View {
                 .pickerStyle(.segmented)
                 Toggle(strings.pointerToggle, isOn: $includePointer)
                 Toggle(strings.lastRegionToggle, isOn: $showLastRegion)
-                previewPositionRow
-                defaultActionRow
+                DisclosureGroup {
+                    Toggle(strings.loupeStartsOnToggle, isOn: $loupeStartsOn)
+                    Toggle(strings.loupeRememberZoomToggle, isOn: $rememberLoupeZoom)
+                    if !rememberLoupeZoom {
+                        Picker(strings.loupeDefaultZoomLabel, selection: $loupeDefaultZoom) {
+                            ForEach(ScreenshotSupport.captureLoupeDefaultZooms, id: \.self) { zoom in
+                                Text(zoom.formatted(
+                                    .number.precision(.fractionLength(0...1))) + "×")
+                                    .tag(zoom)
+                            }
+                        }
+                    }
+                    Picker(strings.loupeWheelZoomLabel,
+                           selection: $steppedLoupeZoomByDefault) {
+                        Text(strings.loupeZoomFast).tag(false)
+                        Text(strings.loupeZoomStepped).tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    Text(strings.loupeZoomOptionCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    previewPositionRow
+                    defaultActionRow
+                } label: {
+                    Text(FeatureStrings.recorder(l10n.language).moreOptions)
+                }
             }
 
             Section {
@@ -199,7 +215,6 @@ struct ScreenshotSettings: View {
                 Text(strings.shareSectionTitle)
             }
         }
-        .formStyle(.grouped)
         .onAppear { sharing.refresh() }
         .sheet(isPresented: $showingSharedLinks) {
             ScreenshotSharedLinksView()

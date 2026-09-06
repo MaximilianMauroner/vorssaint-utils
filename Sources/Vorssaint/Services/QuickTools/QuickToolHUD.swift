@@ -9,9 +9,14 @@ import SwiftUI
 /// the mouse, fading out on its own. Purely visual; never takes focus.
 enum QuickToolHUD {
     private static var panel: NSPanel?
-    private static var scrollingPanel: NSPanel?
+    private static var scrollingPanel: ScrollingCapturePanel?
     private static var scrollingModel: ScrollingCaptureHUDModel?
     private static var dismissWork: DispatchWorkItem?
+    /// How wide a message is allowed to get, on either of this file's two
+    /// message panels. A confirmation is read at a
+    /// glance, so anything past this is a preview rather than the whole value;
+    /// a short one still sizes to itself and is not padded out to this width.
+    fileprivate static let messageWidthLimit: CGFloat = 360
     /// Bumped by every show(). A dismiss whose fade-out was overtaken by a
     /// newer show() must not order the panel out from its completion handler.
     private static var generation = 0
@@ -51,6 +56,19 @@ enum QuickToolHUD {
             }
             Text(message)
                 .font(.system(size: 12, weight: .semibold))
+                // What was copied can be a whole paragraph, and the panel is
+                // laid out at whatever the text asks for. Unbounded, one long
+                // line measures wider than the screen and the panel, centred on
+                // that width, hangs off both edges with nothing readable left.
+                //
+                // Truncating at the tail rather than the middle so that the
+                // ellipsis is always drawn: a value whose first paragraph ends
+                // on the second line is cut at a line break, not inside one,
+                // and middle truncation leaves no mark at all there — the
+                // preview then reads as the whole of what was copied.
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .frame(maxWidth: messageWidthLimit, alignment: .leading)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
@@ -64,18 +82,11 @@ enum QuickToolHUD {
             DispatchQueue.main.async { showCountdown(value) }
             return
         }
-        let content = ZStack {
-            Circle()
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-            Circle()
-                .trim(from: 0.04, to: 0.96)
-                .stroke(Color.accentColor,
-                        style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .padding(6)
-            Text("\(value)")
-                .font(.system(size: 32, weight: .bold, design: .rounded))
-                .monospacedDigit()
+        let startedAt = Date()
+        let content = TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            let progress = ScreenshotSupport.countdownRingProgress(
+                elapsed: context.date.timeIntervalSince(startedAt))
+            QuickToolCountdownView(value: value, progress: progress)
         }
         .frame(width: 82, height: 82)
         .background(.regularMaterial, in: Circle())
@@ -84,9 +95,9 @@ enum QuickToolHUD {
         present(AnyView(content), dismissAfter: 0.92, windowShadow: false)
     }
 
-    /// The scrolling capture stays visible and controllable while the target
-    /// keeps moving. The panel does not activate the app, so clicking either
-    /// action never steals focus from the page being captured.
+    /// The scrolling capture stays visible while the person moves the target.
+    /// Its non-activating panel takes key focus only so Return and Escape do
+    /// not leak into the page being captured.
     static func showScrollingCapture(message: String,
                                      finishTitle: String,
                                      cancelTitle: String,
@@ -121,6 +132,7 @@ enum QuickToolHUD {
                               height: size.height),
                        display: true)
         panel.orderFrontRegardless()
+        panel.makeKey()
     }
 
     static func updateScrollingCapture(height: Int) {
@@ -137,6 +149,7 @@ enum QuickToolHUD {
             return
         }
         scrollingPanel?.orderOut(nil)
+        scrollingPanel?.contentViewController = nil
         scrollingModel = nil
     }
 
@@ -180,6 +193,8 @@ enum QuickToolHUD {
         }, completionHandler: {
             guard generation == dismissed else { return }
             panel.orderOut(nil)
+            panel.contentViewController = nil
+            dismissWork = nil
         })
     }
 
@@ -190,9 +205,13 @@ enum QuickToolHUD {
         return panel
     }
 
-    private static func ensureScrollingPanel() -> NSPanel {
+    private static func ensureScrollingPanel() -> ScrollingCapturePanel {
         if let scrollingPanel { return scrollingPanel }
-        let panel = makePanel()
+        let panel = ScrollingCapturePanel(contentRect: .zero,
+                                          styleMask: [.borderless, .nonactivatingPanel],
+                                          backing: .buffered,
+                                          defer: false)
+        configure(panel)
         panel.ignoresMouseEvents = false
         scrollingPanel = panel
         return panel
@@ -203,6 +222,11 @@ enum QuickToolHUD {
                             styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered,
                             defer: false)
+        configure(panel)
+        return panel
+    }
+
+    private static func configure(_ panel: NSPanel) {
         panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -211,8 +235,34 @@ enum QuickToolHUD {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
-        return panel
     }
+}
+
+private struct QuickToolCountdownView: View {
+    let value: Int
+    let progress: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            Circle()
+                .trim(from: 0.04, to: 0.04 + progress * 0.92)
+                .stroke(Color.accentColor,
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .padding(6)
+            Text("\(value)")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .monospacedDigit()
+        }
+    }
+}
+
+/// A non-activating panel that can still own Return and Escape while the
+/// underlying window continues receiving pointer and scrolling events.
+private final class ScrollingCapturePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
 }
 
 private final class ScrollingCaptureHUDModel: ObservableObject {
@@ -240,6 +290,11 @@ private struct ScrollingCaptureHUDView: View {
                 Text(model.message)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(2)
+                    // Same panel geometry as the confirmation above, so the
+                    // same bound: this one is laid out from fittingSize and
+                    // centred on it too.
+                    .truncationMode(.tail)
+                    .frame(maxWidth: QuickToolHUD.messageWidthLimit, alignment: .leading)
                 Text("\(model.height) px")
                     .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
@@ -247,9 +302,11 @@ private struct ScrollingCaptureHUDView: View {
             }
             Button(cancelTitle, action: onCancel)
                 .controlSize(.small)
+                .keyboardShortcut(.cancelAction)
             Button(finishTitle, action: onFinish)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)

@@ -78,7 +78,7 @@ struct FeedbackView: View {
                                 Text(kind == .bug ? strings.bugPlaceholder : strings.featurePlaceholder)
                                     .foregroundStyle(.tertiary)
                                     .padding(.horizontal, 11)
-                                    .padding(.vertical, 13)
+                                    .padding(.top, 6)
                                     .allowsHitTesting(false)
                             }
                         }
@@ -171,6 +171,9 @@ struct FeedbackView: View {
             diagnosticRow("macOS", diagnostics.macOS)
             if let model = diagnostics.macModel { diagnosticRow("Mac", model) }
             diagnosticRow(l10n.s.languageLabel, diagnostics.language)
+            diagnosticRow(l10n.s.betaBadgeLabel, diagnostics.isBeta ? "✓" : "○")
+            diagnosticRow(strings.diagnosticsChannelLabel,
+                          diagnostics.updateChannel.replacingOccurrences(of: "-", with: " ").capitalized)
         }
         .font(.caption.monospaced())
         .foregroundStyle(.secondary)

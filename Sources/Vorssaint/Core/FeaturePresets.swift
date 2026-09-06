@@ -89,16 +89,22 @@ enum FeatureEnergyProfile: String {
 extension AppFeature {
     var energyProfile: FeatureEnergyProfile {
         switch self {
-        case .scrollInverter, .smoothScroll, .windowMaximizer, .middleClick,
-             .mouseNavigation, .mouseButtonShortcuts, .dockPreview, .dockClick, .shelf:
+        case .scrollInverter, .focusFollowsMouse, .smoothScroll, .windowMaximizer, .middleClick,
+             .mouseNavigation, .mouseButtonShortcuts, .mouseClickDebounce,
+             .dockPreview, .dockClick, .shelf:
             return .mouse
-        case .switcher, .keyboardDebounce, .finderCutPaste, .finderRename, .superKey:
+        case .switcher, .keyboardDebounce, .finderCutPaste, .finderRename, .superKey, .quitWindowProtection:
             return .keyboard
         case .textSnippets, .autoQuit:
             return .inputs
         case .windowLayout:
+            let edgeSnapRuns = UserDefaults.standard.bool(forKey: DefaultsKey.windowEdgeSnapEnabled)
+                && !WindowEdgeSnapZone.enabledZones(
+                    from: UserDefaults.standard.string(
+                        forKey: DefaultsKey.windowEdgeSnapDisabledZones)
+                ).isEmpty
             return UserDefaults.standard.bool(forKey: DefaultsKey.windowGestureEnabled)
-                || UserDefaults.standard.bool(forKey: DefaultsKey.windowEdgeSnapEnabled)
+                || edgeSnapRuns
                 ? .pointer : .idle
         case .radialMenu:
             // With a side button configured the trigger is a mouse tap;
@@ -110,11 +116,14 @@ extension AppFeature {
              .monitorCPU, .monitorGPU, .monitorMemory,
              .monitorNetwork, .monitorDisk, .monitorPower:
             return .periodic
-        case .pastePlain, .mixer, .soundOutputSwitcher, .micMute,
-             .musicBlock, .keepAwake, .brightness, .quickLauncher, .quickToggles, .colorPicker,
+        case .mixer:
+            return UserDefaults.standard.bool(forKey: DefaultsKey.preciseVolumeRollerEnabled)
+                ? .keyboard : .idle
+        case .mouseAcceleration, .pastePlain, .soundOutputSwitcher, .micMute,
+             .musicBlock, .bluetoothSleep, .keepAwake, .brightness, .quickLauncher, .quickToggles, .colorPicker,
              .screenOCR, .cleaningMode, .mediaTools, .cleaner, .uninstaller, .homebrew, .screenshot,
              .cameraPreview, .scratchpad, .commandBar, .screenRecorder, .fanControl,
-             .diskImageInstaller:
+             .diskImageInstaller, .killProcess:
             return .idle
         case .appUpdates:
             // The list is on demand; only a background schedule keeps a timer.

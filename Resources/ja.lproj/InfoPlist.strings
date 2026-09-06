@@ -2,10 +2,13 @@
 "NSAppleEventsUsageDescription" = "Vorssaintは、Finderでのファイル移動、項目のゴミ箱への移動、Homebrewの操作を依頼したときのターミナルコマンドの実行にオートメーションを使用します。";
 
 /* macOS Screen & System Audio Recording permission prompt. */
-"NSAudioCaptureUsageDescription" = "Vorssaintは、ミキサーで各アプリの音量を調整するためだけに、それぞれのアプリの音声にアクセスします。何も録音されず、Macの外に送信されることもありません。";
+"NSAudioCaptureUsageDescription" = "Vorssaintは、ミキサーで各アプリの音量を調整するため、また開始した画面収録にMacの音声を含めるために、各アプリの音声を使用します。Macの外に送信されることはありません。";
+
+/* macOS Bluetooth permission prompt. */
+"NSBluetoothAlwaysUsageDescription" = "Vorssaintは、接続済み周辺機器のバッテリー残量を読み取るためだけにBluetoothを使用します。データがMacの外に送信されることはありません。";
 
 /* macOS Microphone permission prompt. */
-"NSMicrophoneUsageDescription" = "Vorssaintは、画面収録でマイクをオンにしたときだけ音声を収録します。音声はMac上のその収録内に残ります。";
+"NSMicrophoneUsageDescription" = "Vorssaintは、画面収録でマイクをオンにしたときだけ音声を収録します。一時リンクを作成しない限り、音声はMac上に保存されます。";
 
 /* macOS Camera permission prompt. */
 "NSCameraUsageDescription" = "Vorssaintは、開いたプレビューウインドウにのみカメラを表示し、通話前に自分の映りを確認できるようにします。何も録画されず、Macの外に送信されることもありません。";

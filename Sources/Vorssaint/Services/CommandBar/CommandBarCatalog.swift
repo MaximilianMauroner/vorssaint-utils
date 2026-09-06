@@ -50,6 +50,7 @@ struct CommandBarEntry: Identifiable {
     let answerValue: String?
     /// The calculator's row: pinned above everything and styled as a result.
     let isAnswer: Bool
+    /// Only durable identities may retain habits; window IDs and PIDs are reused.
     let countsUsage: Bool
     /// The text the ranking reads instead of the title, for the rows whose
     /// title carries something that is not a word. An emoji row shows the
@@ -66,7 +67,16 @@ struct CommandBarEntry: Identifiable {
     /// moment it was about to run. A row that does nothing with those words
     /// goes on answering to its name alone.
     let takesArgument: Bool
+    /// Where this row lives on the disk, for the rows that are a real file:
+    /// an app, one of the Mac's own folders, a place the person saved. The
+    /// rows the bar makes up have no such place, and saying so here is what
+    /// keeps ⌘Return and the actions list from ever disagreeing about it.
+    let revealPath: String?
     let run: (Int?) -> Void
+
+    /// Whether this row can be shown where it lives. One rule, read by the
+    /// combination and by the actions list alike.
+    var canRevealInFinder: Bool { revealPath != nil }
 
     /// Whether running this row asks the person something first. A row that
     /// would confirm, or wait for a number, or send them to a Settings page
@@ -88,7 +98,7 @@ struct CommandBarEntry: Identifiable {
                         confirmationPrompt: confirmationPrompt, answerValue: answerValue,
                         isAnswer: isAnswer, countsUsage: countsUsage,
                         matchTitle: matchTitle, keepsBarOpen: keepsBarOpen,
-                        takesArgument: takesArgument, run: run)
+                        takesArgument: takesArgument, revealPath: revealPath, run: run)
     }
 
     /// Glyph rows get a tinted plate behind the icon; real app, file and
@@ -118,6 +128,7 @@ struct CommandBarEntry: Identifiable {
          matchTitle: String? = nil,
          keepsBarOpen: Bool = false,
          takesArgument: Bool = false,
+         revealPath: String? = nil,
          run: @escaping (Int?) -> Void) {
         self.id = id
         self.stableKey = stableKey ?? id
@@ -138,6 +149,7 @@ struct CommandBarEntry: Identifiable {
         self.matchTitle = matchTitle
         self.keepsBarOpen = keepsBarOpen
         self.takesArgument = takesArgument
+        self.revealPath = revealPath
         self.run = run
     }
 }
@@ -194,17 +206,15 @@ enum CommandBarCatalog {
                               language: AppLanguage,
                               bar: CommandBarFeatureStrings) -> [CommandBarEntry] {
         let hub = FeatureStrings.hub(language)
-        return AppFeature.allCases.compactMap { feature in
-            // Two keys means two different switches; which one a single row
-            // would flip is a guess, and a guess here changes the person's Mac.
-            guard feature.isAvailable, feature.enabledKeys.count == 1,
-                  let key = feature.enabledKeys.first else { return nil }
-            let name = feature.hubTitle(s, hub: hub)
+        func entry(for feature: AppFeature,
+                   key: String,
+                   name: String,
+                   id: String) -> CommandBarEntry {
             let isOn = UserDefaults.standard.bool(forKey: key)
             let needsAccessibility = feature.permissions.contains(.accessibility)
                 && !Permissions.shared.accessibility
             return CommandBarEntry(
-                id: "toggle.\(feature.rawValue)",
+                id: id,
                 title: String(format: isOn ? bar.turnOffFormat : bar.turnOnFormat, name),
                 subtitle: groupTitle(feature.group, hub: hub),
                 keywords: name,
@@ -213,11 +223,47 @@ enum CommandBarCatalog {
                 trouble: needsAccessibility ? .needsPermission : nil,
                 run: { _ in
                     UserDefaults.standard.set(!isOn, forKey: key)
-                    // The feature re-reads its own preferences; writing the key
-                    // alone would leave it switched on and doing nothing.
                     FeatureRuntime.shared.sync([feature])
                     QuickToolHUD.show(icon: feature.symbolName, message: name)
                 })
+        }
+
+        return AppFeature.allCases.flatMap { feature -> [CommandBarEntry] in
+            guard feature.isAvailable else { return [] }
+            if feature == .scrollInverter {
+                return [
+                    entry(for: feature,
+                          key: DefaultsKey.scrollInverterEnabled,
+                          name: s.invertVerticalScroll,
+                          id: "toggle.scrollInverter.vertical"),
+                    entry(for: feature,
+                          key: DefaultsKey.scrollInverterHorizontalEnabled,
+                          name: s.invertHorizontalScroll,
+                          id: "toggle.scrollInverter.horizontal"),
+                ]
+            }
+            if feature == .mouseButtonShortcuts {
+                let buttons = FeatureStrings.mouseButtons(language)
+                return [
+                    entry(for: feature,
+                          key: DefaultsKey.mouseButtonShortcutsEnabled,
+                          name: feature.hubTitle(s, hub: hub),
+                          id: "toggle.mouseButtonShortcuts"),
+                    entry(for: feature,
+                          key: DefaultsKey.mouseSpacesGestureEnabled,
+                          name: buttons.spacesEnableLabel,
+                          id: "toggle.mouseButtonShortcuts.spacesGesture"),
+                ]
+            }
+            // Two keys means two different switches; which one a single row
+            // would flip is a guess, and a guess here changes the person's Mac.
+            guard feature.enabledKeys.count == 1,
+                  let key = feature.enabledKeys.first else { return [] }
+            let name = feature.hubTitle(s, hub: hub)
+            return [entry(for: feature,
+                          key: key,
+                          name: name,
+                          id: "toggle.\(feature.rawValue)")]
         }
     }
 
@@ -241,7 +287,7 @@ enum CommandBarCatalog {
         /// A shortcut is only shown while it actually fires (its enables on),
         /// so the bar never teaches a dead combination.
         func roleShortcut(_ role: GlobalShortcutRole) -> GlobalShortcut? {
-            guard role.feature.isAvailable,
+            guard role.isAvailable(using: { $0.isAvailable }),
                   role.requiredEnableKeys.allSatisfy({ UserDefaults.standard.bool(forKey: $0) })
             else { return nil }
             return role.savedShortcut
@@ -282,6 +328,19 @@ enum CommandBarCatalog {
                 trouble: Permissions.shared.screenRecording ? nil : .needsPermission,
                 run: { _ in afterBeat { ScreenRecorderService.shared.toggle() } }))
         }
+        if AppFeature.screenshot.isAvailable || AppFeature.screenRecorder.isAvailable {
+            let recent = FeatureStrings.recentCaptures(language)
+            entries.append(CommandBarEntry(
+                id: "action.recentCaptures",
+                title: recent.title,
+                subtitle: groupTitle(.tools, hub: hub),
+                keywords: [recent.screenshot, recent.recording,
+                           RecentCaptureStrings.enUS.title].joined(separator: " "),
+                icon: .symbol("clock.arrow.circlepath"),
+                run: { _ in afterBeat(0.1) {
+                    RecentCaptureService.shared.showHistoryWindow()
+                } }))
+        }
         if AppFeature.screenOCR.isAvailable {
             entries.append(CommandBarEntry(
                 id: "action.screenOCR",
@@ -302,20 +361,31 @@ enum CommandBarCatalog {
                 run: { _ in afterBeat { ColorSamplerService.shared.pick() } }))
         }
         if AppFeature.clipboardHistory.isAvailable {
-            let clipboardTitle = FeatureStrings.clipboard(language).title
+            let clipboard = FeatureStrings.clipboard(language)
             let keepsHistory = UserDefaults.standard.bool(forKey: DefaultsKey.clipboardHistoryEnabled)
             let canUseHistory = CommandBarClipboardAccess.canUseHistory(
                 captureEnabled: keepsHistory,
                 hasSavedItems: !ClipboardHistoryService.shared.entries.isEmpty)
             entries.append(CommandBarEntry(
                 id: "action.clipboardWindow",
-                title: clipboardTitle,
-                subtitle: area(.clipboardHistory, under: clipboardTitle),
+                title: clipboard.title,
+                subtitle: area(.clipboardHistory, under: clipboard.title),
                 icon: .symbol("doc.on.clipboard"),
                 shortcut: keepsHistory ? roleShortcut(.clipboard) : nil,
                 trouble: canUseHistory ? nil
-                    : .needsSetup(featureTitle: clipboardTitle, page: .clipboard),
+                    : .needsSetup(featureTitle: clipboard.title, page: .clipboard),
                 run: { _ in afterBeat(0.1) { ClipboardHistoryService.shared.showHistoryWindow() } }))
+            entries.append(CommandBarEntry(
+                id: "action.clipboardClearRecent",
+                title: clipboard.clearRecent,
+                subtitle: area(.clipboardHistory),
+                keywords: [clipboard.title, ClipboardFeatureStrings.enUS.title,
+                           ClipboardFeatureStrings.enUS.clearRecent].joined(separator: " "),
+                icon: .symbol("trash"),
+                trouble: canUseHistory ? nil
+                    : .needsSetup(featureTitle: clipboard.title, page: .clipboard),
+                confirmationPrompt: clipboard.clearRecent,
+                run: { _ in ClipboardHistoryService.shared.clearRecent() }))
         }
         if AppFeature.textSnippets.isAvailable {
             entries.append(CommandBarEntry(
@@ -631,7 +701,21 @@ enum CommandBarCatalog {
             keywords: bar.kindEmoji,
             icon: .symbol("face.smiling"),
             keepsBarOpen: true,
-            run: { _ in CommandBarService.shared.enterCategory(.emoji) }))
+            run: { _ in CommandBarService.shared.setCategory(.emoji) }))
+        if AppFeature.killProcess.isAvailable,
+           UserDefaults.standard.bool(forKey: DefaultsKey.killProcessCommandBarEnabled) {
+            let killStrings = FeatureStrings.killProcess(language)
+            entries.append(CommandBarEntry(
+                id: CommandBarPreferences.killProcessBrowserRowID,
+                title: killStrings.pageTitle,
+                subtitle: killStrings.browseSubtitle,
+                icon: .symbol("xmark.octagon"),
+                keepsBarOpen: true,
+                run: { _ in
+                    CommandBarService.shared.setCategory(.killProcess)
+                    CommandBarService.shared.query = ""
+                }))
+        }
         let feedback = FeatureStrings.feedback(language)
         entries.append(CommandBarEntry(
             id: "action.feedback.bug",
@@ -645,6 +729,12 @@ enum CommandBarCatalog {
             subtitle: feedback.commandSubtitle,
             icon: .symbol("lightbulb"),
             run: { _ in afterBeat { appDelegate()?.openFeedbackWindow(kind: .feature) } }))
+        entries.append(CommandBarEntry(
+            id: "action.restartApp",
+            title: String(format: bar.restartAppFormat, AppInfo.name),
+            subtitle: bar.sourceActions,
+            icon: .symbol("arrow.clockwise"),
+            run: { _ in FeatureRuntime.shared.relaunchApp() }))
         // What people try on day one: put the Mac to sleep, restart it, turn
         // Wi-Fi off. Everything but sleep confirms on the row first.
         for action in CommandBarExtras.PowerAction.allCases {
@@ -673,9 +763,7 @@ enum CommandBarCatalog {
                 keywords: "wifi wi-fi",
                 icon: .symbol(wifiOn ? "wifi.slash" : "wifi"),
                 isActive: wifiOn,
-                run: { _ in
-                    if !CommandBarExtras.setWiFiPower(!wifiOn) { NSSound.beep() }
-                }))
+                run: { _ in CommandBarExtras.setWiFiPower(!wifiOn) }))
         }
 
         // The folders every Mac has. A fixed set of destinations, never a
@@ -688,6 +776,7 @@ enum CommandBarCatalog {
                 keywords: bar.kindFolder,
                 icon: .filePath(folder.url.path),
                 countsUsage: true,
+                revealPath: folder.url.path,
                 run: { _ in NSWorkspace.shared.open(folder.url) }))
         }
 
@@ -713,21 +802,90 @@ enum CommandBarCatalog {
     private static func settingsEntries(_ s: Strings,
                                         language: AppLanguage,
                                         bar: CommandBarFeatureStrings) -> [CommandBarEntry] {
-        SettingsDirectory.sections(s, language: language)
-            .flatMap(\.items)
-            .filter { item in
-                !pagesCoveredByActions.contains(item.page)
-                    && FeatureVisibilitySupport.isPageVisible(item.page) { $0.isAvailable }
+        SettingsDirectory.searchItems(s, language: language).compactMap { item in
+            let id: String
+            switch item.id {
+            case .page(let page):
+                guard !pagesCoveredByActions.contains(page),
+                      FeatureVisibilitySupport.isPageVisible(page, isAvailable: { $0.isAvailable })
+                else { return nil }
+                id = "settings.\(page)"
+            case .feature(let feature):
+                guard feature.isAvailable,
+                      FeatureVisibilitySupport.isPageVisible(
+                        item.destination.page, isAvailable: { $0.isAvailable })
+                else { return nil }
+                id = "settings.feature.\(feature.rawValue)"
             }
-            .map { item in
-                CommandBarEntry(
-                    id: "settings.\(item.page)",
-                    title: item.title,
-                    subtitle: s.settingsTitle,
-                    keywords: item.keywords.joined(separator: " "),
-                    icon: .symbol(item.icon),
-                    run: { _ in openSettings(at: item.page) })
-            }
+            return CommandBarEntry(
+                id: id,
+                title: item.title,
+                subtitle: s.settingsTitle,
+                keywords: item.keywords.joined(separator: " "),
+                icon: .symbol(item.icon),
+                run: { _ in
+                    let routed = SettingsSearchSupport.route(for: item)
+                    openSettings(at: routed.destination, targetFeature: routed.targetFeature)
+                })
+        }
+    }
+
+    // MARK: - Files
+
+    /// One row per file Spotlight found in the folders the person named.
+    ///
+    /// A found file is a passing thing, like something copied: it is not
+    /// pinned, named or learned from, because the row exists for exactly as
+    /// long as the words that found it. What it does keep is where it lives,
+    /// so ⌘Return shows it in Finder.
+    static func fileEntries(_ paths: [String],
+                            bar: CommandBarFeatureStrings) -> [CommandBarEntry] {
+        let home = NSHomeDirectory()
+        return paths.map { path in
+            let url = URL(fileURLWithPath: path)
+            let folder = CommandBarFileSearchSupport.abbreviating(
+                url.deletingLastPathComponent().path, homeDirectory: home)
+            return CommandBarEntry(
+                id: "file.\(path)",
+                title: url.lastPathComponent,
+                subtitle: folder,
+                keywords: bar.sourceFiles,
+                icon: .filePath(path),
+                countsUsage: false,
+                revealPath: path,
+                run: { _ in
+                    guard FileManager.default.fileExists(atPath: path) else {
+                        QuickToolHUD.show(icon: "doc.questionmark", message: url.lastPathComponent)
+                        return
+                    }
+                    NSWorkspace.shared.open(url)
+                })
+        }
+    }
+
+    // MARK: - The Mac's own Settings panes
+
+    /// One row per pane System Settings shows, opened by the address macOS
+    /// gives it. The names come from macOS and are the ones it shows itself;
+    /// the words underneath them are translated, so the pane answers in the
+    /// language the person is typing even where its name does not.
+    static func macSettingsEntries(_ panes: [CommandBarSystemSettings.Pane],
+                                   bar: CommandBarFeatureStrings) -> [CommandBarEntry] {
+        panes.map { pane in
+            CommandBarEntry(
+                id: "macsettings.\(pane.bundleID)",
+                title: pane.name,
+                subtitle: bar.sourceMacSettings,
+                keywords: pane.keywords,
+                icon: .symbol("gearshape.2"),
+                run: { _ in
+                    guard let url = CommandBarSystemSettings.url(for: pane.bundleID) else {
+                        NSSound.beep()
+                        return
+                    }
+                    NSWorkspace.shared.open(url)
+                })
+        }
     }
 
     // MARK: - Snippets
@@ -767,6 +925,12 @@ enum CommandBarCatalog {
         return apps.filter { $0.bundleID != ownBundleID }.map { app in
             let isRunning = app.bundleID.map { runningBundleIDs.contains($0) } ?? false
                 || runningPaths.contains(app.url.standardizedFileURL.path)
+            // The title may be localized while the bundle keeps the name the
+            // person learned, and an ideographic title may be easier to type
+            // by sound.
+            let diskName = app.url.deletingPathExtension().lastPathComponent
+            let keywords = CommandBarSearch.applicationKeywords(
+                title: app.name, diskName: diskName, alternateNames: app.alternateNames)
             return CommandBarEntry(
                 id: "app.\(app.id)",
                 // Two copies of one app need two rows, so the row is keyed by
@@ -774,8 +938,10 @@ enum CommandBarCatalog {
                 stableKey: app.bundleID.map { "app.bundle.\($0)" } ?? "app.\(app.id)",
                 title: app.name,
                 subtitle: bar.kindApp,
+                keywords: keywords,
                 icon: .appIcon(path: app.url.path),
                 isActive: isRunning,
+                revealPath: app.url.path,
                 run: { _ in
                     NSWorkspace.shared.openApplication(at: app.url,
                                                        configuration: NSWorkspace.OpenConfiguration()) { _, error in
@@ -804,7 +970,7 @@ enum CommandBarCatalog {
             return CommandBarEntry(
                 id: "menu.\(index).\(item.title)",
                 title: item.title,
-                subtitle: path.isEmpty ? appName : "\(appName) › \(path)",
+                subtitle: CommandBarMenuPath.crumb(appName: appName, path: item.path),
                 keywords: bar.kindMenu + " " + appName + " " + path,
                 icon: .symbol("filemenu.and.selection"),
                 menuShortcut: item.shortcut,
@@ -836,6 +1002,7 @@ enum CommandBarCatalog {
                 keywords: name,
                 icon: app.bundleURL.map { .appIcon(path: $0.path) } ?? .symbol("xmark.circle"),
                 confirmationPrompt: String(format: bar.quitConfirmFormat, name),
+                countsUsage: app.bundleIdentifier != nil,
                 run: { _ in
                     guard let running = NSRunningApplication(processIdentifier: pid),
                           !running.isTerminated else {
@@ -849,6 +1016,26 @@ enum CommandBarCatalog {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                         running.terminate()
                     }
+                })
+        }
+    }
+
+    /// One row per running process, so typing its name finds and can kill it
+    /// directly. Force Kill, Kill All and Kill Process Tree live in the row's
+    /// Actions panel, the same place Force Quit and Restart live for apps.
+    static func killProcessEntries(_ processes: [KillProcessEntry],
+                                   killStrings: KillProcessFeatureStrings) -> [CommandBarEntry] {
+        processes.filter { !$0.isProtected }.map { process in
+            CommandBarEntry(
+                id: "kill.\(process.pid)",
+                title: process.name,
+                subtitle: String(format: killStrings.pidLabelFormat, process.pid),
+                keywords: process.path,
+                icon: process.bundleURL.map { .appIcon(path: $0.path) } ?? .symbol("xmark.octagon"),
+                confirmationPrompt: String(format: killStrings.confirmKillFormat, process.name),
+                countsUsage: false,
+                run: { _ in
+                    KillProcessService.shared.kill(process, force: false)
                 })
         }
     }
@@ -874,6 +1061,7 @@ enum CommandBarCatalog {
                 keywords: bar.kindWindow + " " + appName,
                 icon: NSRunningApplication(processIdentifier: pid)?.bundleURL
                     .map { .appIcon(path: $0.path) } ?? .symbol("macwindow"),
+                countsUsage: false,
                 run: { _ in
                     afterBeat(0.1) {
                         WindowActivator.activate(pid: pid, windowID: windowID, appName: appName)
@@ -890,7 +1078,7 @@ enum CommandBarCatalog {
                                     bar: CommandBarFeatureStrings) -> [CommandBarEntry] {
         var entries: [CommandBarEntry] = []
 
-        if let battery = SystemInfo.batterySnapshot() {
+        if let battery = cachedBattery {
             let value = "\(battery.percent)%"
             let detail = battery.isCharging
                 ? bar.answerBatteryCharging
@@ -906,7 +1094,7 @@ enum CommandBarCatalog {
         }
 
         if AppFeature.monitorMemory.isAvailable,
-           let memory = SystemInfo.memoryUsage(), memory.total > 0 {
+           let memory = cachedMemory, memory.total > 0 {
             let metric = Defaults.sanitizedMonitorMemoryMetric(
                 UserDefaults.standard.string(forKey: DefaultsKey.monitorMemoryMetric) ?? "")
             let selected = MetricFormat.selectedMemory(used: memory.used,
@@ -982,6 +1170,13 @@ enum CommandBarCatalog {
     /// one lands, which simply means the row is not offered yet.
     static var cachedBootVolumeSpace: (free: UInt64, total: UInt64)?
 
+    /// The battery and the memory pressure are read the same way and for the
+    /// same reason: both cross into the kernel (IOKit power sources, the mach
+    /// VM statistics), and the bar opens on a keystroke.
+    static var cachedBattery: BatteryInfo?
+    static var cachedMemory: (used: UInt64, appUsed: UInt64, total: UInt64,
+                              compressed: UInt64, cached: UInt64, swapUsed: UInt64?)?
+
     static func readBootVolumeSpace() -> (free: UInt64, total: UInt64)? {
         let url = URL(fileURLWithPath: "/")
         guard let values = try? url.resourceValues(forKeys: [
@@ -995,12 +1190,17 @@ enum CommandBarCatalog {
         return (free, UInt64(total))
     }
 
+    /// The HUD travels with the write rather than racing it: it says the value
+    /// is on the clipboard, so it appears once it is. The bar itself is never
+    /// held up — the lane can be wedged behind an app that promised pasteboard
+    /// content and stopped answering (issue #887).
     private static func copyAnswer(_ value: String) {
-        GeneralPasteboardAccess.shared.sync {
+        GeneralPasteboardAccess.shared.async({
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(value, forType: .string)
-        }
-        QuickToolHUD.show(icon: "doc.on.doc", message: value)
+        }, then: {
+            QuickToolHUD.show(icon: "doc.on.doc", message: value)
+        })
     }
 
     // MARK: - Emoji
@@ -1010,7 +1210,7 @@ enum CommandBarCatalog {
     static func emojiEntries(bar: CommandBarFeatureStrings) -> [CommandBarEntry] {
         CommandBarEmoji.emoji.map { emoji in
             CommandBarEntry(
-                id: "emoji.\(emoji.character)",
+                id: "emoji.\(emoji.identity)",
                 title: emoji.character + "  " + emoji.name,
                 subtitle: bar.kindEmoji,
                 keywords: emoji.name + " " + emoji.keywords + " " + bar.kindEmoji,
@@ -1047,16 +1247,25 @@ enum CommandBarCatalog {
             CommandBarEntry(
                 id: "link.\(link.id.uuidString)",
                 title: link.name,
-                subtitle: link.takesQuery ? bar.linkSearchHint : bar.kindLink,
+                subtitle: link.kind == .script
+                    ? (link.runsWithoutArgument ? bar.scriptBareSearchHint : bar.scriptSearchHint)
+                    : (link.takesArgument ? bar.linkSearchHint : bar.kindLink),
                 keywords: bar.kindLink,
                 icon: .symbol(link.kind.symbolName),
-                // A saved search may still need to be told what to look for,
-                // and it cannot ask from behind a closed panel.
-                keepsBarOpen: link.takesQuery,
-                // Only a search reads the words that follow its name; a plain
-                // site or folder opens the same either way.
-                takesArgument: link.takesQuery,
-                run: { _ in open(link) })
+                // A saved search, or a script, may still need to be told what
+                // to look for, and it cannot ask from behind a closed panel.
+                keepsBarOpen: link.takesArgument,
+                // Only a search or a script reads the words that follow its
+                // name; a plain site or folder opens the same either way.
+                takesArgument: link.takesArgument,
+                revealPath: CommandBarLinks.revealPath(for: link),
+                run: { _ in
+                    if link.kind == .script {
+                        runScript(link)
+                    } else {
+                        open(link)
+                    }
+                })
         }
     }
 
@@ -1076,27 +1285,79 @@ enum CommandBarCatalog {
         }
         // Everything below opens something, so the bar is done. A row that
         // takes a query is still on screen; one that does not was already
-        // hidden, and hiding twice costs nothing.
-        defer { service.hide() }
+        // hidden, and hiding twice costs nothing. It goes now, not when the
+        // clipboard answers, which may be never.
         let date = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .none)
-        let copied = GeneralPasteboardAccess.shared.sync {
-            NSPasteboard.general.string(forType: .string)
-        } ?? ""
-        let expanded = CommandBarLinks.expand(link.destination,
-                                              kind: link.kind,
-                                              query: argument,
-                                              clipboard: copied,
-                                              selection: service.selectionWhenRun,
-                                              date: date)
-        guard let url = CommandBarLinks.url(for: link, expanded: expanded) else {
-            NSSound.beep()
+        let selection = service.selectionWhenRun
+        service.hide()
+        withClipboard(neededBy: link.destination) { copied in
+            let expanded = CommandBarLinks.expand(link.destination,
+                                                  kind: link.kind,
+                                                  query: argument,
+                                                  clipboard: copied,
+                                                  selection: selection,
+                                                  date: date)
+            guard let url = CommandBarLinks.url(for: link, expanded: expanded) else {
+                NSSound.beep()
+                return
+            }
+            if link.kind == .place, !FileManager.default.fileExists(atPath: url.path) {
+                QuickToolHUD.show(icon: "folder.badge.questionmark", message: link.name)
+                return
+            }
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// The general pasteboard, handed back on the main queue. A destination
+    /// without the clipboard placeholder never reads it at all, and one that
+    /// does reads it on the shared lane, so a stalled pasteboard provider
+    /// delays this one row rather than freezing the app (issue #887).
+    private static func withClipboard(neededBy destination: String,
+                                      _ body: @escaping (String) -> Void) {
+        guard destination.contains(CommandBarLinkPlaceholder.clipboard.token) else {
+            body("")
             return
         }
-        if link.kind == .place, !FileManager.default.fileExists(atPath: url.path) {
-            QuickToolHUD.show(icon: "folder.badge.questionmark", message: link.name)
+        GeneralPasteboardAccess.shared.async({
+            NSPasteboard.general.string(forType: .string) ?? ""
+        }, then: body)
+    }
+
+    /// Return pressed before a script's debounced run has answered yet: runs
+    /// at once instead of waiting, and leaves the bar open the way a search
+    /// does, since there is nothing to copy until the row shows an answer.
+    private static func runScript(_ link: CommandBarLink) {
+        let service = CommandBarService.shared
+        let typed = service.queryWhenRun.trimmingCharacters(in: .whitespaces)
+        let argument = CommandBarLinks.trailingArgument(query: typed, name: link.name) ?? ""
+        // A script that needs something to work on asks for it rather than
+        // running on nothing; one marked as needing nothing just runs.
+        if argument.isEmpty, !link.runsWithoutArgument {
+            service.prefill(link.name + " ")
             return
         }
-        NSWorkspace.shared.open(url)
+        if let cached = service.scriptRunner.cachedResult(linkID: link.id, argument: argument) {
+            copyAnswer(cached.text)
+            service.hide()
+            return
+        }
+        service.scriptRunner.runNow(link: link, argument: argument)
+    }
+
+    /// The row a saved script shows once it has answered: the same shape as
+    /// the calculator's own answer, so Return copies it the same way.
+    static func scriptAnswerEntry(link: CommandBarLink,
+                                  result: CommandBarScriptRunner.Result,
+                                  bar: CommandBarFeatureStrings) -> CommandBarEntry {
+        CommandBarEntry(
+            id: "link.\(link.id.uuidString)",
+            title: result.text,
+            subtitle: bar.copyHint,
+            icon: .symbol(link.kind.symbolName),
+            isAnswer: true,
+            countsUsage: false,
+            run: { _ in copyAnswer(result.text) })
     }
 
     // MARK: - What is selected right now
@@ -1133,7 +1394,7 @@ enum CommandBarCatalog {
             run: { _ in useInSearch(text) }))
 
         if AppFeature.urlCleaner.isAvailable,
-           let cleaned = URLCleanerService.shared.clean(text), cleaned != text {
+           let cleaned = URLCleanerService.shared.clean(text), cleaned.url != text {
             entries.append(CommandBarEntry(
                 id: "selection.cleanLink",
                 title: bar.actionCleanURL,
@@ -1141,8 +1402,11 @@ enum CommandBarCatalog {
                 keywords: L10n.shared.s.urlCleanerName,
                 icon: .symbol("link"),
                 run: { _ in
-                    URLCleanerService.shared.copy(cleaned)
-                    QuickToolHUD.show(icon: "link", message: L10n.shared.s.urlCleanerCleaned)
+                    URLCleanerService.shared.copy(cleaned.url)
+                    QuickToolHUD.show(icon: "link", message: cleaned.removed.isEmpty
+                        ? L10n.shared.s.urlCleanerCleaned
+                        : String(format: L10n.shared.s.urlCleanerRemovedFormat,
+                                 cleaned.removed.joined(separator: ", ")))
                 }))
         }
 
@@ -1334,27 +1598,44 @@ enum CommandBarCatalog {
     }
 
     private static func openSettings(at page: SettingsPage) {
-        SettingsRouter.shared.page = page
+        openSettings(at: FeatureSettingsDestination(page))
+    }
+
+    private static func openSettings(at destination: FeatureSettingsDestination,
+                                     targetFeature: AppFeature? = nil) {
+        SettingsRouter.shared.request(destination, targetFeature: targetFeature)
         appDelegate()?.openSettingsWindow()
     }
 
+    /// Reads through the shared lane like every other clipboard row: a direct
+    /// main-thread read races the lane's readers and freezes the app on a
+    /// promised flavour nobody is left to render (issue #887).
     private static func cleanClipboardURL() {
-        let s = L10n.shared.s
-        guard let raw = NSPasteboard.general.string(forType: .string),
-              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            QuickToolHUD.show(icon: "link", message: s.urlCleanerNoURL)
-            return
-        }
-        guard let cleaned = URLCleanerService.shared.clean(raw) else {
-            QuickToolHUD.show(icon: "link", message: s.urlCleanerNoURL)
-            return
-        }
-        guard cleaned != raw else {
-            QuickToolHUD.show(icon: "checkmark.circle", message: s.urlCleanerNoChange)
-            return
-        }
-        URLCleanerService.shared.copy(cleaned)
-        QuickToolHUD.show(icon: "link", message: s.urlCleanerCleaned)
+        GeneralPasteboardAccess.shared.async({
+            NSPasteboard.general.string(forType: .string)
+        }, then: { raw in
+            let s = L10n.shared.s
+            guard let raw,
+                  !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                QuickToolHUD.show(icon: "link", message: s.urlCleanerNoURL)
+                return
+            }
+            let cleaned = URLCleanerService.shared.clean(raw)
+            switch URLCleaning.outcome(for: cleaned, input: raw) {
+            case .notAURL:
+                QuickToolHUD.show(icon: "link", message: s.urlCleanerNoURL)
+            case .unchanged:
+                QuickToolHUD.show(icon: "checkmark.circle", message: s.urlCleanerNoChange)
+            case .rewritten:
+                cleaned.map { URLCleanerService.shared.copy($0.url) }
+                QuickToolHUD.show(icon: "link", message: s.urlCleanerCleaned)
+            case .removed(let names):
+                cleaned.map { URLCleanerService.shared.copy($0.url) }
+                QuickToolHUD.show(icon: "link",
+                                  message: String(format: s.urlCleanerRemovedFormat,
+                                                  names.joined(separator: ", ")))
+            }
+        })
     }
 
     /// Brightness lands on the display under the pointer, the screen where

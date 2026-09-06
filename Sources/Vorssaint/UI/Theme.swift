@@ -59,8 +59,42 @@ enum PanelSurface {
         scheme == .light ? Color.black.opacity(0.055) : Color.white.opacity(0.085)
     }
 
+    /// Raised contrast is asked for by someone who cannot see a hairline at a
+    /// tenth of an opacity, so the outlines that separate one card from the
+    /// next are the ones that answer. A panel is rebuilt every time it opens,
+    /// which is when a change to this setting shows.
     static func border(for scheme: ColorScheme) -> Color {
-        scheme == .light ? Color.black.opacity(0.09) : Color.white.opacity(0.11)
+        let raised = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        return scheme == .light
+            ? Color.black.opacity(raised ? 0.24 : 0.09)
+            : Color.white.opacity(raised ? 0.28 : 0.11)
+    }
+
+    /// A control that sits ON a glass surface rather than in it: the system's
+    /// own round toggles read as physical because they are lighter than what
+    /// is behind them and carry their own shadow.
+    static func raisedFill(for scheme: ColorScheme) -> Color {
+        scheme == .light ? Color.white.opacity(0.88) : Color.white.opacity(0.14)
+    }
+
+    static func raisedBorder(for scheme: ColorScheme) -> Color {
+        let raised = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        return scheme == .light
+            ? Color.black.opacity(raised ? 0.22 : 0.07)
+            : Color.white.opacity(raised ? 0.32 : 0.16)
+    }
+
+    static func raisedShadow(for scheme: ColorScheme) -> Color {
+        scheme == .light ? Color.black.opacity(0.14) : Color.black.opacity(0.38)
+    }
+
+    /// The lit edge of a glass surface: bright where the light comes from,
+    /// gone by the bottom. Without it a translucent panel reads as paper.
+    static func rimHighlight(for scheme: ColorScheme) -> LinearGradient {
+        LinearGradient(colors: [Color.white.opacity(scheme == .light ? 0.95 : 0.30),
+                                Color.white.opacity(scheme == .light ? 0.12 : 0.04)],
+                       startPoint: .top,
+                       endPoint: .bottom)
     }
 }
 
@@ -103,9 +137,34 @@ private struct PanelCardModifier: ViewModifier {
 
 private struct PanelGlassSurface: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @AppStorage(DefaultsKey.liquidGlassEnabled) private var liquidGlassEnabled = false
     let cornerRadius: CGFloat
 
     var body: some View {
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *), liquidGlassEnabled, !reduceTransparency {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.clear)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(PanelSurface.baseFill(for: colorScheme).opacity(colorScheme == .light ? 0.35 : 0.45))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.8)
+                )
+        } else {
+            standardSurface
+        }
+#else
+        standardSurface
+#endif
+    }
+
+    @ViewBuilder
+    private var standardSurface: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(.regularMaterial)
             .overlay(
@@ -150,6 +209,26 @@ struct BrandMark: View {
                 .aspectRatio(contentMode: .fit)
                 .foregroundStyle(tint)
                 .frame(width: width * 0.5)
+        }
+    }
+}
+
+struct DiscordMark: View {
+    var width: CGFloat
+
+    private static let mark: NSImage? = {
+        guard let url = Bundle.main.url(forResource: "discord-symbol",
+                                        withExtension: "svg",
+                                        subdirectory: "Images") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
+
+    var body: some View {
+        if let mark = Self.mark {
+            Image(nsImage: mark)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: width)
         }
     }
 }

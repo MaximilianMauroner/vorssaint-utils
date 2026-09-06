@@ -11,44 +11,57 @@ enum CommandBarClipboardAccess {
     }
 }
 
+enum CommandBarMenuPath {
+    /// The trail to a menu command, from the app name down. Every Mac app
+    /// carries a menu named after itself, which made those rows read
+    /// "Notes \u{203A} Notes", so a name is never repeated right after itself.
+    static func crumb(appName: String, path: [String]) -> String {
+        ([appName] + path).reduce(into: [String]()) { trail, name in
+            guard !name.isEmpty, trail.last != name else { return }
+            trail.append(name)
+        }.joined(separator: " \u{203A} ")
+    }
+}
+
+/// What an empty field shows. Pure, because the ranking, the panel and the
+/// tests all need the same answer.
+enum CommandBarHome {
+    /// Whether an empty field still draws the browse list and its chips. A
+    /// category is an explicit drill-in and always shows its rows; a peek is
+    /// the person asking for the list anyway.
+    static func showsBrowseList(compact: Bool, hasCategory: Bool, isPeeking: Bool) -> Bool {
+        hasCategory || isPeeking || !compact
+    }
+
+    /// Whether the panel is the field alone, with no divider, list or footer.
+    static func isCollapsed(compact: Bool,
+                            query: String,
+                            hasCategory: Bool,
+                            isPeeking: Bool) -> Bool {
+        guard compact, !hasCategory, !isPeeking else { return false }
+        return query.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+}
+
 /// The bar can be visible before home has finished preparing, but only the
-/// presentation that asked for that work may receive it. Keeping that rule in
-/// one value also makes the current search index explicit: an Emoji-only index
-/// must never answer an ordinary row shortcut after the panel closes.
+/// presentation that asked for that work may receive it.
 struct CommandBarPresentationLifecycle {
     enum Surface: Equatable {
         case hidden
         case loadingHome(UUID)
         case home(UUID)
-        case emoji(UUID)
-    }
-
-    enum Index: Equatable {
-        case none
-        case full
-        case emoji
     }
 
     private(set) var surface: Surface = .hidden
-    private(set) var index: Index = .none
 
-    var usesEmojiIndex: Bool { surface.isEmoji }
     var isLoadingHome: Bool { surface.isLoadingHome }
-    var hasFullIndex: Bool { index == .full }
 
     mutating func beginHome(_ id: UUID) {
         surface = .loadingHome(id)
-        index = .none
-    }
-
-    mutating func beginEmoji(_ id: UUID) {
-        surface = .emoji(id)
-        index = .none
     }
 
     mutating func hide() {
         surface = .hidden
-        index = .none
     }
 
     func acceptsHomeHydration(_ id: UUID, isVisible: Bool) -> Bool {
@@ -60,8 +73,8 @@ struct CommandBarPresentationLifecycle {
     }
 
     /// A shared cache is useful to whichever Home is current when its work
-    /// finishes, even when another presentation started that work. Emoji and
-    /// a hidden panel still reject the accompanying UI refresh.
+    /// finishes, even when another presentation started that work. A hidden
+    /// panel still rejects the accompanying UI refresh.
     func acceptsSharedCacheCompletion(startedBy _: UUID,
                                       currentID: UUID,
                                       isVisible: Bool) -> Bool {
@@ -75,26 +88,11 @@ struct CommandBarPresentationLifecycle {
         return true
     }
 
-    @discardableResult
-    mutating func leaveEmojiForHome(_ id: UUID, isVisible: Bool) -> Bool {
-        guard isVisible, surface == .emoji(id) else { return false }
-        surface = .home(id)
-        index = .none
-        return true
-    }
-
-    mutating func markFullIndex() {
-        index = .full
-    }
-
-    mutating func markEmojiIndex() {
-        index = .emoji
-    }
 }
 
 /// A shortcut that needs the panel waits for Home's deferred hydration before
 /// it enters confirmation, argument or setup mode. Its presentation id keeps
-/// a close, Emoji or a newer opening from running yesterday's request.
+/// a close or newer opening from running yesterday's request.
 struct CommandBarDeferredRowShortcut {
     private var pending: (presentationID: UUID, stableKey: String)?
 
@@ -106,6 +104,10 @@ struct CommandBarDeferredRowShortcut {
         pending = nil
     }
 
+    func key(for presentationID: UUID) -> String? {
+        pending?.presentationID == presentationID ? pending?.stableKey : nil
+    }
+
     mutating func take(for presentationID: UUID) -> String? {
         guard pending?.presentationID == presentationID else { return nil }
         defer { pending = nil }
@@ -114,11 +116,6 @@ struct CommandBarDeferredRowShortcut {
 }
 
 private extension CommandBarPresentationLifecycle.Surface {
-    var isEmoji: Bool {
-        if case .emoji = self { return true }
-        return false
-    }
-
     var isLoadingHome: Bool {
         if case .loadingHome = self { return true }
         return false
@@ -133,7 +130,8 @@ struct CommandBarCandidate {
     /// Already folded, so a long list is not re-folded on every keystroke.
     let normalizedTitle: String
     let normalizedKeywords: String
-    /// An explicit name given by the person leads ordinary textual matches.
+    /// A deliberate preference, such as an alias or learned query choice,
+    /// leads ordinary textual matches.
     let priority: Int
     let boost: Int
 
@@ -168,6 +166,15 @@ struct CommandBarCandidate {
 /// also matches as an in-order subsequence of a word ("brlho" finds "brilho")
 /// and, as a last resort, within one edit of a word ("birlho" too).
 enum CommandBarSearch {
+    /// A leading colon scopes the global search to emoji. The marker is not
+    /// part of the text being matched, so `:fire` finds the same emoji as
+    /// `fire` inside the Emoji category.
+    static func emojiQuery(from query: String) -> String? {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix(":") else { return nil }
+        return String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
+    }
+
     /// Case, accent and width differences never matter. Folded without a
     /// locale on purpose: Turkish lowercases a capital I to a dotless one, so
     /// a locale-aware fold would stop "insta" from finding a title that begins
@@ -197,6 +204,36 @@ enum CommandBarSearch {
     /// for the lookup.
     private static func isInvisible(_ scalar: Unicode.Scalar) -> Bool {
         scalar.value >= 0x00AD && scalar.properties.generalCategory == .format
+    }
+
+    /// The Latin spellings an ideographic title also answers to. The pinyin
+    /// comes back run together, the way it is typed, plus its initials. A
+    /// title without a Han character gets nothing because romanizing it would
+    /// only repeat the title.
+    static func pinyinKeywords(_ title: String) -> String {
+        let romanized = NSMutableString(string: title)
+        guard CFStringTransform(romanized, nil, kCFStringTransformMandarinLatin, false),
+              romanized as String != title else { return "" }
+        CFStringTransform(romanized, nil, kCFStringTransformStripDiacritics, false)
+        let syllables = (romanized as String)
+            .split { !$0.isLetter && !$0.isNumber }
+            .map { $0.lowercased() }
+        guard !syllables.isEmpty else { return "" }
+        let joined = syllables.joined()
+        let initials = String(syllables.compactMap(\.first))
+        return joined == initials ? joined : joined + " " + initials
+    }
+
+    static func applicationKeywords(title: String,
+                                    diskName: String,
+                                    alternateNames: [String]) -> String {
+        var names = alternateNames
+        if !diskName.isEmpty, normalized(diskName) != normalized(title) {
+            names.append(diskName)
+        }
+        let pinyin = pinyinKeywords(title)
+        if !pinyin.isEmpty { names.append(pinyin) }
+        return names.joined(separator: " ")
     }
 
     /// Whether the query names the verb of a format like "Quit %@". Used to
@@ -264,8 +301,9 @@ enum CommandBarSearch {
         return score
     }
 
-    /// Indexes of the matching candidates, best first; ties keep the caller's
-    /// order so equally good rows stay where the catalog put them.
+    /// Indexes of the matching candidates, best first. Deliberate preferences
+    /// lead match quality; ties keep the caller's order so equally good rows
+    /// stay where the catalog put them.
     static func rankedIndexes(candidates: [CommandBarCandidate], matching query: String) -> [Int] {
         let normalizedQuery = normalized(query)
         let scored: [(index: Int, priority: Int, tier: Int, score: Int, position: Int)] = candidates.enumerated()
@@ -289,9 +327,9 @@ enum CommandBarSearch {
             .map(\.index)
     }
 
-    /// Broad text quality is compared before usage and source preferences.
-    /// Those signals can reorder two prefix matches, but cannot bury the app
-    /// whose title is exactly what was typed.
+    /// Broad text quality is compared before passive signals such as usage and
+    /// source preference. Explicit aliases and learned query choices arrive as
+    /// priority instead, because they record what the person actually meant.
     private static func matchTier(title: String, keywords: String, query: String) -> Int {
         if title == query { return 5 }
         if title.hasPrefix(query) { return 4 }
@@ -615,8 +653,9 @@ enum CommandBarUsage {
     }
 }
 
-/// Which app won after a typed query. Preferences hold only keyed digests of
-/// query prefixes; the per-install key lives separately in the Keychain.
+/// Which durable result won after a typed query. Preferences hold only keyed
+/// digests of query prefixes; the per-install key lives separately in the
+/// Keychain.
 enum CommandBarQueryHabits {
     typealias Store = [String: [String: CommandBarUse]]
 
@@ -745,7 +784,7 @@ enum CommandBarQueryHabits {
         let old = cache.normalizedQuery
         if normalized.hasPrefix(old) {
             var keys = cache.prepared.keys
-            let firstNewLength = max(3, Array(old).count + 1)
+            let firstNewLength = Array(old).count + 1
             if firstNewLength <= characters.count {
                 for length in firstNewLength...characters.count {
                     let prefix = String(characters.prefix(length))
@@ -766,8 +805,8 @@ enum CommandBarQueryHabits {
     private static func preparedKeys(_ characters: [Character],
                                      key: Data,
                                      digest: (String, Data) -> String) -> [(String, Int)] {
-        guard characters.count >= 3 else { return [] }
-        return (3...characters.count).map { length in
+        guard !characters.isEmpty else { return [] }
+        return (1...characters.count).map { length in
             (digest(String(characters.prefix(length)), key), length)
         }
     }
@@ -785,9 +824,29 @@ enum CommandBarQueryHabits {
 
     /// Starts the only Keychain work used by query learning. Search and
     /// selection read the memory cache without waiting for this queue.
-    static func warmInstallationKey() {
-        installationKeyCache.warm()
+    static func warmInstallationKey(_ whenReady: (() -> Void)? = nil) {
+        installationKeyCache.warm(whenReady)
     }
+
+    static func removeInstallationKey() {
+        installationKeyCache.stopAndRemove {
+            _ = SecItemDelete([
+                kSecClass: kSecClassGenericPassword,
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
+            ] as CFDictionary)
+        }.wait()
+    }
+
+    // Developer and official installations must never share or delete each
+    // other's key; their learned choices already live in separate preferences.
+    static func installationKeyService(bundleID: String) -> String {
+        bundleID + ".command-bar-query-habits"
+    }
+
+    private static let keyService = installationKeyService(
+        bundleID: Bundle.main.bundleIdentifier ?? "com.vorssaint.utils")
+    private static let keyAccount = "hmac-key"
 
     private static let installationKeyCache = CommandBarQueryHabitKeyCache {
         loadInstallationKey(using: liveKeyStore)
@@ -843,8 +902,8 @@ enum CommandBarQueryHabits {
         read: {
             let lookup: [CFString: Any] = [
                 kSecClass: kSecClassGenericPassword,
-                kSecAttrService: "org.vorssaint.command-bar-query-habits",
-                kSecAttrAccount: "hmac-key",
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
                 kSecReturnData: true,
                 kSecMatchLimit: kSecMatchLimitOne,
             ]
@@ -861,8 +920,8 @@ enum CommandBarQueryHabits {
         add: { data in
             SecItemAdd([
                 kSecClass: kSecClassGenericPassword,
-                kSecAttrService: "org.vorssaint.command-bar-query-habits",
-                kSecAttrAccount: "hmac-key",
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
                 kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
                 kSecValueData: data,
             ] as CFDictionary, nil)
@@ -870,15 +929,15 @@ enum CommandBarQueryHabits {
         update: { data in
             let identity: [CFString: Any] = [
                 kSecClass: kSecClassGenericPassword,
-                kSecAttrService: "org.vorssaint.command-bar-query-habits",
-                kSecAttrAccount: "hmac-key",
+                kSecAttrService: keyService,
+                kSecAttrAccount: keyAccount,
             ]
             return SecItemUpdate(identity as CFDictionary,
                                  [kSecValueData: data] as CFDictionary)
         })
 }
 
-/// One decoded copy of learned app choices. The service reloads this when a
+/// One decoded copy of learned result choices. The service reloads this when a
 /// presentation starts and ranking only reads the already-decoded dictionary.
 struct CommandBarQueryHabitStoreCache {
     private(set) var store: CommandBarQueryHabits.Store = [:]
@@ -919,12 +978,14 @@ final class CommandBarQueryHabitKeyCache {
         case idle
         case loading
         case ready(Data)
+        case stopped
     }
 
     private let lock = NSLock()
     private let queue: DispatchQueue
     private let load: () -> Data?
     private var state = State.idle
+    private var readinessCallbacks: [() -> Void] = []
 
     init(queue: DispatchQueue = DispatchQueue(
             label: "org.vorssaint.command-bar-query-habit-key",
@@ -941,25 +1002,56 @@ final class CommandBarQueryHabitKeyCache {
         return key
     }
 
-    func warm() {
+    func warm(_ whenReady: (() -> Void)? = nil) {
         lock.lock()
+        if case .stopped = state {
+            lock.unlock()
+            return
+        }
+        if case .ready = state {
+            lock.unlock()
+            whenReady?()
+            return
+        }
+        if let whenReady { readinessCallbacks.append(whenReady) }
         guard case .idle = state else {
             lock.unlock()
             return
         }
         state = .loading
-        lock.unlock()
 
         queue.async { [self] in
             let key = load()
             lock.lock()
+            guard case .loading = state else {
+                lock.unlock()
+                return
+            }
+            let callbacks: [() -> Void]
             if let key, key.count == 32 {
                 state = .ready(key)
+                callbacks = readinessCallbacks
             } else {
                 state = .idle
+                callbacks = []
             }
+            readinessCallbacks = []
             lock.unlock()
+            callbacks.forEach { $0() }
         }
+        lock.unlock()
+    }
+
+    /// Stop before enqueueing deletion, so an in-flight load cannot restore
+    /// the key or notify callers after uninstall has removed it.
+    func stopAndRemove(_ remove: @escaping () -> Void) -> DispatchWorkItem {
+        lock.lock()
+        state = .stopped
+        readinessCallbacks = []
+        let removal = DispatchWorkItem(block: remove)
+        queue.async(execute: removal)
+        lock.unlock()
+        return removal
     }
 }
 
@@ -971,6 +1063,12 @@ enum CommandBarLearning {
 }
 
 enum CommandBarCompletion {
+    static func completedQuery(current: String, title: String, matchTitle: String?) -> String {
+        CommandBarSearch.emojiQuery(from: current) != nil
+            ? ":" + (matchTitle ?? title)
+            : (matchTitle ?? title)
+    }
+
     static func queryForLearning(current: String, beforeCompletion: String?) -> String {
         beforeCompletion ?? current
     }

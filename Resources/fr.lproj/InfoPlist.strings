@@ -2,10 +2,13 @@
 "NSAppleEventsUsageDescription" = "Vorssaint utilise Automatisation pour déplacer des fichiers dans le Finder, placer des éléments dans la Corbeille et ouvrir des commandes Terminal lorsque vous demandez des actions Homebrew.";
 
 /* macOS Screen & System Audio Recording permission prompt. */
-"NSAudioCaptureUsageDescription" = "Vorssaint accède au son de chaque app uniquement pour régler son volume individuel dans le mixeur. Rien n'est enregistré et rien ne quitte votre Mac.";
+"NSAudioCaptureUsageDescription" = "Vorssaint utilise le son de chaque app pour régler son volume dans le mixeur et pour inclure le son du Mac dans les enregistrements d'écran que vous lancez. Rien ne quitte votre Mac.";
+
+/* macOS Bluetooth permission prompt. */
+"NSBluetoothAlwaysUsageDescription" = "Vorssaint utilise le Bluetooth uniquement pour lire la batterie des périphériques connectés. Rien ne quitte votre Mac.";
 
 /* macOS Microphone permission prompt. */
-"NSMicrophoneUsageDescription" = "Vorssaint enregistre votre micro uniquement quand vous l’activez pour un enregistrement d’écran. Le son reste dans cet enregistrement sur votre Mac.";
+"NSMicrophoneUsageDescription" = "Vorssaint enregistre votre micro uniquement quand vous l’activez pour un enregistrement d’écran. Le son reste sur votre Mac, sauf si vous créez un lien temporaire.";
 
 /* macOS Camera permission prompt. */
 "NSCameraUsageDescription" = "Vorssaint affiche votre caméra uniquement dans la fenêtre d'aperçu que vous ouvrez, pour vérifier votre apparence avant un appel. Rien n'est enregistré et rien ne quitte votre Mac.";

@@ -16,19 +16,19 @@ enum AppFeature: String, CaseIterable {
     // Windows and Dock
     case switcher, dockPreview, dockClick, windowMaximizer, windowLayout, autoQuit
     // Mouse and keyboard
-    case scrollInverter, smoothScroll, mouseNavigation, mouseButtonShortcuts, middleClick,
-         keyboardDebounce, textSnippets, superKey
+    case scrollInverter, focusFollowsMouse, smoothScroll, mouseAcceleration, mouseNavigation, mouseButtonShortcuts, middleClick,
+         mouseClickDebounce, keyboardDebounce, textSnippets, superKey, quitWindowProtection
     // Clipboard and files
     case clipboardHistory, pastePlain, finderCutPaste, finderRename, shelf, urlCleaner,
          diskImageInstaller
     // Sound
     case mixer, soundOutputSwitcher, micMute, musicBlock
     // Energy and display
-    case keepAwake, brightness, extraBrightness
+    case keepAwake, brightness, extraBrightness, bluetoothSleep
     // Tools
     case quickLauncher, quickToggles, colorPicker, screenOCR, cleaningMode, mediaTools,
          cleaner, uninstaller, homebrew, appUpdates, screenshot, cameraPreview, radialMenu, scratchpad,
-         commandBar, screenRecorder
+         commandBar, screenRecorder, killProcess
     // System monitor, one entry per metric family (temperatures live with
     // their parent metric: CPU temp with CPU, battery temp with power).
     case monitorCPU, monitorGPU, monitorMemory, monitorNetwork, monitorDisk, monitorPower, fanControl
@@ -45,24 +45,71 @@ enum AppPermission: String, CaseIterable {
          automationFinder, automationTerminal, audioCapture, microphone, camera, appManagement
 }
 
+enum PermissionPollingSupport {
+    static func interval(visibleSurfaceCount: Int,
+                         accessibilityIsNeeded: Bool,
+                         screenRecordingIsNeeded: Bool,
+                         accessibilityIsGranted: Bool,
+                         screenRecordingIsGranted: Bool) -> TimeInterval? {
+        guard visibleSurfaceCount > 0 || accessibilityIsNeeded || screenRecordingIsNeeded else {
+            return nil
+        }
+        if visibleSurfaceCount > 0
+            || (accessibilityIsNeeded && !accessibilityIsGranted)
+            || (screenRecordingIsNeeded && !screenRecordingIsGranted) {
+            return 2.5
+        }
+        return 60
+    }
+}
+
 extension AppFeature {
+    /// Whether an engaged feature needs permission changes while it sits in
+    /// the background. One-shot tools ask and refresh at the moment they run;
+    /// polling for those just because their tile is installed wastes wakeups.
+    func monitorsPermissionChanges(edgeSnapDisabledZones: String? = nil,
+                                   boolFor: (String) -> Bool) -> Bool {
+        switch self {
+        case .windowLayout:
+            return boolFor(DefaultsKey.windowLayoutShortcutsEnabled)
+                || boolFor(DefaultsKey.windowGestureEnabled)
+                || (boolFor(DefaultsKey.windowEdgeSnapEnabled)
+                    && !WindowEdgeSnapZone.enabledZones(
+                        from: edgeSnapDisabledZones
+                    ).isEmpty)
+        case .screenOCR, .cleaningMode, .screenshot, .commandBar, .screenRecorder:
+            return false
+        default:
+            return true
+        }
+    }
+
+    var monitorsPermissionChanges: Bool {
+        monitorsPermissionChanges(
+            edgeSnapDisabledZones: UserDefaults.standard.string(
+                forKey: DefaultsKey.windowEdgeSnapDisabledZones
+            ),
+            boolFor: UserDefaults.standard.bool(forKey:)
+        )
+    }
+
     var group: FeatureGroup {
         switch self {
         case .switcher, .dockPreview, .dockClick, .windowMaximizer, .windowLayout, .autoQuit:
             return .windowsDock
-        case .scrollInverter, .smoothScroll, .mouseNavigation, .mouseButtonShortcuts, .middleClick,
-             .keyboardDebounce, .textSnippets, .superKey:
+        case .scrollInverter, .focusFollowsMouse, .smoothScroll, .mouseAcceleration, .mouseNavigation, .mouseButtonShortcuts, .middleClick,
+             .keyboardDebounce, .textSnippets, .superKey, .quitWindowProtection, .mouseClickDebounce:
             return .mouseKeyboard
         case .clipboardHistory, .pastePlain, .finderCutPaste, .finderRename, .shelf, .urlCleaner,
              .diskImageInstaller:
             return .clipboardFiles
         case .mixer, .soundOutputSwitcher, .micMute, .musicBlock:
             return .sound
-        case .keepAwake, .brightness, .extraBrightness:
+        case .keepAwake, .brightness, .extraBrightness, .bluetoothSleep:
             return .energyDisplay
         case .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
              .cleaner, .uninstaller, .homebrew, .appUpdates, .screenshot, .cameraPreview, .radialMenu,
-             .scratchpad, .commandBar, .screenRecorder:
+             .scratchpad, .commandBar, .screenRecorder, .killProcess:
             return .tools
         case .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower,
              .fanControl:
@@ -79,13 +126,20 @@ extension AppFeature {
         case .windowLayout: return "rectangle.3.group"
         case .autoQuit: return "xmark.rectangle"
         case .scrollInverter: return "arrow.up.arrow.down"
+        case .focusFollowsMouse: return "cursorarrow.and.square.on.square.dashed"
         case .smoothScroll: return "cursorarrow.motionlines"
+        case .mouseAcceleration: return "cursorarrow.rays"
         case .mouseNavigation: return "arrow.left.arrow.right"
         case .mouseButtonShortcuts: return "button.programmable"
         case .middleClick: return "computermouse"
         case .keyboardDebounce: return "keyboard"
         case .textSnippets: return "text.append"
-        case .superKey: return "capslock"
+        case .superKey:
+            return SuperKeySource.sanitized(
+                UserDefaults.standard.string(forKey: DefaultsKey.superKeySource)
+            ).systemImage
+        case .mouseClickDebounce: return "cursorarrow.click"
+        case .quitWindowProtection: return "shield.lefthalf.filled"
         case .clipboardHistory: return "doc.on.clipboard"
         case .pastePlain: return "doc.plaintext"
         case .finderCutPaste: return "scissors"
@@ -100,6 +154,7 @@ extension AppFeature {
         case .keepAwake: return "moon.zzz.fill"
         case .brightness: return "display.2"
         case .extraBrightness: return "sun.max.fill"
+        case .bluetoothSleep: return "wave.3.right.circle"
         case .quickLauncher: return "wand.and.rays"
         case .quickToggles: return "togglepower"
         case .colorPicker: return "eyedropper"
@@ -116,6 +171,7 @@ extension AppFeature {
         case .radialMenu: return "circle.grid.cross"
         case .scratchpad: return "note.text"
         case .commandBar: return "command"
+        case .killProcess: return "xmark.octagon"
         case .monitorCPU: return "cpu"
         case .monitorGPU: return "rectangle.connected.to.line.below"
         case .monitorMemory: return "memorychip"
@@ -128,7 +184,7 @@ extension AppFeature {
 
     var availabilityKey: String { DefaultsKey.featureAvailable(rawValue) }
 
-    var isBeta: Bool { self == .fanControl }
+    var isBeta: Bool { self == .fanControl || self == .killProcess }
 
     /// Availability read straight from defaults. Existing features stay
     /// available on update; explicit beta opt-ins may start unavailable.
@@ -149,14 +205,21 @@ extension AppFeature {
                                  DefaultsKey.dockClickCycleWindows]
         case .windowMaximizer: return [DefaultsKey.windowMaximizeEnabled]
         case .autoQuit: return [DefaultsKey.autoQuitEnabled]
-        case .scrollInverter: return [DefaultsKey.scrollInverterEnabled]
+        case .scrollInverter: return [DefaultsKey.scrollInverterEnabled,
+                                      DefaultsKey.scrollInverterHorizontalEnabled]
+        case .focusFollowsMouse: return [DefaultsKey.focusFollowsMouseEnabled]
         case .smoothScroll: return [DefaultsKey.smoothScrollEnabled]
+        case .mouseAcceleration: return [DefaultsKey.mouseAccelerationDisabled]
         case .mouseNavigation: return [DefaultsKey.mouseNavigationEnabled]
-        case .mouseButtonShortcuts: return [DefaultsKey.mouseButtonShortcutsEnabled]
+        case .mouseButtonShortcuts: return [DefaultsKey.mouseButtonShortcutsEnabled,
+                                            DefaultsKey.mouseSpacesGestureEnabled]
         case .middleClick: return [DefaultsKey.middleClickEnabled]
         case .keyboardDebounce: return [DefaultsKey.keyboardDebounceEnabled]
+        case .quitWindowProtection:
+            return [DefaultsKey.quitProtectionQuitEnabled, DefaultsKey.quitProtectionCloseEnabled]
         case .textSnippets: return [DefaultsKey.textSnippetsEnabled, DefaultsKey.snippetLibraryEnabled]
         case .superKey: return [DefaultsKey.superKeyEnabled]
+        case .mouseClickDebounce: return [DefaultsKey.mouseClickDebounceEnabled]
         case .radialMenu: return [DefaultsKey.radialMenuEnabled]
         case .clipboardHistory: return [DefaultsKey.clipboardHistoryEnabled]
         case .pastePlain: return [DefaultsKey.pastePlainEnabled]
@@ -169,10 +232,11 @@ extension AppFeature {
         case .musicBlock: return [DefaultsKey.musicBlockEnabled]
         case .brightness: return [DefaultsKey.brightnessControlEnabled]
         case .extraBrightness: return [DefaultsKey.extraBrightnessEnabled]
+        case .bluetoothSleep: return [DefaultsKey.bluetoothSleepEnabled]
         case .windowLayout, .diskImageInstaller, .mixer, .micMute, .keepAwake,
              .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
              .cleaner, .uninstaller, .homebrew, .appUpdates, .screenshot, .cameraPreview, .scratchpad,
-             .commandBar, .screenRecorder,
+             .commandBar, .screenRecorder, .killProcess,
              .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower,
              .fanControl:
             return []
@@ -185,9 +249,12 @@ extension AppFeature {
     /// monitor only notifies when an alert is on, and so on).
     var permissions: [AppPermission] {
         switch self {
-        case .scrollInverter, .smoothScroll, .mouseNavigation, .mouseButtonShortcuts, .middleClick,
-             .keyboardDebounce, .textSnippets, .superKey, .dockClick, .windowMaximizer, .windowLayout,
-             .autoQuit, .cleaningMode, .pastePlain, .radialMenu,
+        case .mouseAcceleration:
+            return []
+        case .scrollInverter, .focusFollowsMouse, .smoothScroll, .mouseNavigation, .mouseButtonShortcuts, .middleClick,
+             .keyboardDebounce, .textSnippets, .superKey, .mouseClickDebounce,
+             .dockClick, .windowMaximizer, .windowLayout,
+             .autoQuit, .quitWindowProtection, .cleaningMode, .pastePlain, .radialMenu,
              // The bar reads other apps' menus and windows and types at the
              // caret, all of it through Accessibility.
              .commandBar:
@@ -200,10 +267,11 @@ extension AppFeature {
         case .switcher: return [.accessibility, .screenRecording]
         case .dockPreview: return [.accessibility, .screenRecording]
         case .screenOCR: return [.screenRecording]
-        case .screenshot: return [.screenRecording, .accessibility]
-        // The sound of the Mac rides the same grant the pixels do. Microphone
-        // access stays contextual, and Accessibility only keeps typing timing.
-        case .screenRecorder: return [.screenRecording, .accessibility, .microphone]
+        case .screenshot: return [.screenRecording]
+        // The sound of the Mac is read through an audio grant of its own.
+        // Microphone access stays contextual, and Accessibility only keeps
+        // typing timing.
+        case .screenRecorder: return [.screenRecording, .accessibility, .audioCapture, .microphone]
         case .cameraPreview: return [.camera]
         case .keepAwake: return [.accessibility]
         case .brightness: return [.accessibility]
@@ -212,12 +280,12 @@ extension AppFeature {
         case .homebrew: return [.automationTerminal, .appManagement]
         case .appUpdates: return [.notifications, .appManagement]
         case .diskImageInstaller: return [.appManagement]
-        case .mixer: return [.audioCapture]
+        case .mixer: return [.audioCapture, .accessibility]
         case .monitorCPU, .monitorMemory, .monitorDisk, .monitorPower: return [.notifications]
         case .clipboardHistory, .shelf, .urlCleaner,
              .soundOutputSwitcher, .musicBlock,
-             .extraBrightness, .quickLauncher, .colorPicker, .micMute, .mediaTools,
-             .scratchpad, .monitorGPU, .monitorNetwork, .fanControl:
+             .extraBrightness, .bluetoothSleep, .quickLauncher, .colorPicker, .micMute, .mediaTools,
+             .scratchpad, .monitorGPU, .monitorNetwork, .fanControl, .killProcess:
             return []
         }
     }
@@ -231,10 +299,6 @@ extension AppFeature {
              .uninstaller, .homebrew, .appUpdates, .mixer, .cameraPreview,
              .micMute:
             return []
-        case .screenshot:
-            // Accessibility is only needed by scrolling capture. The regular
-            // screenshot flow should not ask for it during first setup.
-            return [.screenRecording]
         default:
             return permissions.filter { $0 == .accessibility || $0 == .screenRecording }
         }
@@ -248,7 +312,9 @@ extension AppFeature {
     /// features and explicit betas ship uninstalled.
     static var availabilityDefaults: [String: Any] {
         Dictionary(uniqueKeysWithValues: allCases.map {
-            ($0.availabilityKey, $0 != .fanControl && $0 != .diskImageInstaller)
+            ($0.availabilityKey,
+             $0 != .focusFollowsMouse && $0 != .fanControl && $0 != .diskImageInstaller
+                && $0 != .killProcess)
         })
     }
 
@@ -274,6 +340,8 @@ extension AppFeature {
                         stringFor(DefaultsKey.radialMenuMouseButton)) != .off
             case (.keepAwake, .accessibility):
                 return boolFor(DefaultsKey.keepAwakeMouseJiggleEnabled)
+            case (.mixer, .accessibility):
+                return boolFor(DefaultsKey.preciseVolumeRollerEnabled)
             case (.brightness, .accessibility):
                 return boolFor(DefaultsKey.brightnessKeysEnabled)
                     || boolFor(DefaultsKey.brightnessOSDEnabled)
@@ -285,17 +353,23 @@ extension AppFeature {
                 return boolFor(DefaultsKey.monitorAlertDisk)
             case (.monitorPower, .notifications):
                 return boolFor(DefaultsKey.monitorAlertBattery)
+                    || boolFor(DefaultsKey.monitorAlertBatteryTemperature)
             case (.appUpdates, .notifications):
                 return AppUpdatesSupport.CheckFrequency
                     .sanitized(stringFor(DefaultsKey.appUpdatesCheckFrequency)) != .off
                     && boolFor(DefaultsKey.appUpdatesNotify)
+            case (.cleaner, .filesAndFolders):
+                return boolFor(DefaultsKey.whatsAppDownloadsEnabled)
             case (.cleaner, .notifications):
                 let cleanerNotifies = (stringFor(DefaultsKey.cleanerScheduleFrequency) ?? "off") != "off"
                     && boolFor(DefaultsKey.cleanerScheduleNotify)
-                let whatsAppNotifies = (boolFor(DefaultsKey.whatsAppDownloadsAutomaticEnabled)
+                let whatsAppNotifies = boolFor(DefaultsKey.whatsAppDownloadsEnabled)
+                    && (boolFor(DefaultsKey.whatsAppDownloadsAutomaticEnabled)
                         || boolFor(DefaultsKey.whatsAppOrganizerEnabled))
                     && boolFor(DefaultsKey.whatsAppDownloadsNotify)
                 return cleanerNotifies || whatsAppNotifies
+            case (.screenRecorder, .audioCapture):
+                return boolFor(DefaultsKey.recorderSystemAudio)
             case (.screenRecorder, .microphone):
                 return boolFor(DefaultsKey.recorderMicrophone)
             default:
@@ -309,6 +383,7 @@ extension AppFeature {
     static let monitorAlertPairs: [(key: String, feature: AppFeature)] = [
         (DefaultsKey.monitorAlertCPU, .monitorCPU),
         (DefaultsKey.monitorAlertCPUTemperature, .monitorCPU),
+        (DefaultsKey.monitorAlertBatteryTemperature, .monitorPower),
         (DefaultsKey.monitorAlertMemory, .monitorMemory),
         (DefaultsKey.monitorAlertDisk, .monitorDisk),
         (DefaultsKey.monitorAlertBattery, .monitorPower),
