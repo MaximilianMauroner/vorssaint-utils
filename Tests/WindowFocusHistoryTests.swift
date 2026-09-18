@@ -25,9 +25,9 @@ enum WindowFocusHistoryTests {
         }
         expect(windows(history) == [20, 10, 30, 11],
                "rapid A then B activation selects A next even when both AX reads are missing")
-        expect(!history.focus(10, for: a) && windows(history) == [20, 10, 30, 11],
-               "a late AX response from A cannot displace B")
-        expect(history.focus(20, for: b) && windows(history) == [20, 10, 30, 11],
+        expect(history.focus(11, for: a) && windows(history) == [20, 11, 30, 10],
+               "a late AX response resolves A in place without displacing B")
+        expect(history.focus(20, for: b) && windows(history) == [20, 11, 30, 10],
                "B resolving its window retains the unresolved activation of A")
         let againA = history.activate(1)!
         expect(!history.focus(10, for: a), "returning to the same PID does not accept its old request")
