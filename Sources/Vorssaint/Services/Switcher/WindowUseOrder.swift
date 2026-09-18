@@ -14,7 +14,7 @@ struct WindowFocusHistory {
     }
 
     private enum Use: Equatable {
-        case app(pid_t)
+        case app(Request)
         case window(CGWindowID)
     }
 
@@ -24,28 +24,54 @@ struct WindowFocusHistory {
 
     mutating func activate(_ pid: pid_t, recording: Bool = true) -> Request? {
         current = recording ? Request(pid: pid) : nil
-        if recording { promote(.app(pid)) }
+        if let current {
+            recent.removeAll { use in
+                if case .app(let request) = use { return request.pid == pid }
+                return false
+            }
+            promote(.app(current))
+        }
         return current
     }
 
     @discardableResult
     mutating func focus(_ window: CGWindowID, for request: Request) -> Bool {
-        guard current == request else { return false }
-        recent.removeAll { $0 == .app(request.pid) }
-        promote(.window(window))
+        if current == request {
+            recent.removeAll { use in
+                if case .app(let pending) = use { return pending.pid == request.pid }
+                return false
+            }
+            promote(.window(window))
+            return true
+        }
+        // The AX query began while this activation was current, but another
+        // app won focus before it answered. Resolve only that activation's
+        // placeholder, in place, so the actual window is remembered without
+        // moving it ahead of anything the user did in the meantime.
+        guard let placeholder = recent.firstIndex(of: .app(request)) else { return false }
+        if recent.contains(.window(window)) {
+            recent.remove(at: placeholder)
+        } else {
+            recent[placeholder] = .window(window)
+        }
+        revision = UUID()
         return true
     }
 
     mutating func switched(to window: CGWindowID?, pid: pid_t, previous: CGWindowID?) {
         if let current, previous != nil {
-            recent.removeAll { $0 == .app(current.pid) }
+            recent.removeAll { $0 == .app(current) }
         }
         // Invalidate an AX read already in flight before the explicit switch.
-        current = Request(pid: pid)
+        let request = Request(pid: pid)
+        current = request
         if let previous { promote(.window(previous)) }
-        recent.removeAll { $0 == .app(pid) }
+        recent.removeAll { use in
+            if case .app(let request) = use { return request.pid == pid }
+            return false
+        }
         if let window { promote(.window(window)) }
-        else { promote(.app(pid)) }
+        else { promote(.app(request)) }
     }
 
     mutating func reconcile(windows: Set<CGWindowID>, revision capturedRevision: UUID) {
@@ -62,7 +88,10 @@ struct WindowFocusHistory {
     }
 
     mutating func terminated(_ pid: pid_t) {
-        recent.removeAll { $0 == .app(pid) }
+        recent.removeAll { use in
+            if case .app(let request) = use { return request.pid == pid }
+            return false
+        }
         if current?.pid == pid { current = nil }
         revision = UUID()
     }
@@ -76,7 +105,7 @@ struct WindowFocusHistory {
             let index = baseline.first { index in
                 switch use {
                 case .window(let id): return entries[index].windowID == id
-                case .app(let pid): return entries[index].pid == pid
+                case .app(let request): return entries[index].pid == request.pid
                 }
             }
             if let index, seen.insert(index).inserted { result.append(index) }
