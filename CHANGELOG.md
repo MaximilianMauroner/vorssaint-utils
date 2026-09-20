@@ -7,74 +7,418 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Summary
-Vorssaint adds app shortcuts, recording overlays, Keep Awake automation, minimalist window previews and Dock middle-click closing, and brings battery details together in Power. It expands capture, window and keyboard controls and improves recording safety, resource use, app updates, network readings, readability, localization, mouse reconnection, focus, search, shortcut recovery and privacy.
+App Switcher shows more previews, and shortcut fields accept macOS shortcuts. The mixer adds microphone volume; Dynamic Island adds compact layouts, notifications, discovery, a stopwatch, sound bars, Scratchpad and optional menu overlap; Command Bar expands emoji, calculations and layouts; utilities add Dock holds preserving window sizes, clipboard previews, port management, local IP, quit protection progress, arrow styles, home-folder installs and sideways scrolling, alongside Keep Awake automation, restored lid sleep, snippet sounds, menu recovery and settings history.
 
 ### Added
-- Optional minimal previews hide window titles, controls and decoration in the Dock and App Switcher while keeping selection visible.
-- Middle-click a Dock preview to close that window, including pinned previews, regardless of the close button’s app-quit setting.
-- Manage app shortcuts, aliases and pinned favorites in a searchable list from Keyboard shortcuts or Command Bar settings.
-- App updates check supported update feeds published by developers, including feeds hosted with their releases.
-- The recording editor can put a picture over the video, in any of nine spots and at the size and transparency you choose.
-- Keep Awake can start automatically while selected apps are open, including in the background. Thanks to @Borisserz.
-- Super key can pause while selected apps are open, restoring the chosen key’s normal behavior until they quit. Thanks to @Borisserz.
-- Window Layout can center a window at half the screen’s width, with an optional shortcut. Thanks to @Borisserz.
-- Each capture tool can hide the mode menu when opened with its keyboard shortcut. Thanks to @EugeneCarldotme.
-- The capture magnifier offers a remembered or chosen starting zoom and step-by-step wheel control. Thanks to @ruvelro.
-- Optional keyboard backlight shortcuts adjust brightness one step at a time, available in Keyboard shortcuts. Thanks to @EugeneCarldotme.
-- Switching Spaces by dragging a button can follow your hand, the way a trackpad swipe does, in Mouse settings.
-- Recent captures can open from their own assignable shortcut without returning to the menu bar panel.
-- Window Layout has a visual map for turning each edge and corner snap area on or off, thanks to @levelupimprovement.
+- Dynamic Island can show compact activity over menus, off by default under At rest in settings.
+- The Network card shows the Mac's local IPv4 address with the connection name, copyable and hideable like the other blocks. Thanks to @muskecan.
+- Holding ⌘Q or ⌘W shows a progress bar in the confirmation prompt, which now names only the action being confirmed. Thanks to @ywu73.
+- Dock Preview can experimentally keep the Dock visible during previews while preserving window sizes, off by default under More options.
+- Uninstalling Dynamic Island offers to uninstall its extensions along with it or to keep them installed.
+- Adjust microphone input volume from the mixer, with an editable percentage on supported devices. Thanks to @GolamRafi27oo.
+- Window Layout can center a window at two-thirds of the screen width in one action. Thanks to @Borisserz.
+- Command Bar offers a default emoji skin tone and one-off alternatives from each emoji's actions. Thanks to @justin-chiam.
+- Capture guides show R to repeat the last selected area, including in Dynamic Island. Thanks to @marcelharinck.
+- Pin and reorder mixer apps, with positions remembered when apps reopen and included in settings backups.
+- Dynamic Island's timer page offers a stopwatch that counts up with pause and cancel, keeping its seconds visible beside the camera.
+- Text snippets can play an alert sound of your choice each time a typed trigger expands. Thanks to @tenbux.
+- Keep Awake automation can require every selected condition, ending the session as soon as one stops holding. Thanks to @sarat03.
+- Snippet and Command Bar settings show which app holds secure input when typing is blocked, with a button to bring it forward. Thanks to @tenbux.
+- Command Bar's calculator completes missing brackets, adds scientific functions, constants and notation, and Tab continues from the answer. Thanks to @DarkEden-coding.
+- Scroll sideways in any app by holding a chosen key while turning the mouse wheel, installable from Features. Thanks to @cjscld.
+- Dynamic Island's music bars can follow the player's actual sound, off by default and needing system audio permission. Thanks to @ruvelro.
+- Dynamic Island holds notifications under the pointer and previews messages on hover, with actions to open, dismiss or browse the inbox.
+- Clicking an appointment in Dynamic Island's calendar opens it in Calendar, the way album art opens the player.
+- Shortcut fields offer to take over a macOS key, such as ⌘⇧3, while the app runs and the feature is on. Thanks to @owendaw.
+- Command Bar can switch to an ABC layout while open and restore the previous one on close, under More options. Thanks to @iva-zhu.
+- Clipboard History can show the latest copy next to the menu bar icon, with an adjustable length; clicking it opens the history. Thanks to @adnn-alc.
+- Dock Preview can order windows by creation time instead of last use, from More options in its settings. Thanks to @Borisserz.
+- Port Manager, installable from Features, lists listening ports per process, filters them and can end one through Kill Process. Thanks to @MrDXTR and @Yash121l.
+- The screenshot editor's arrow offers solid, outline, open, double-ended and scribbly styles, remembered for the next capture. Thanks to @kxnstandin.
+- The disk image installer can put apps in your home folder's Applications, a remembered choice that names the destination. Thanks to @JashRashne.
+- Keep Awake can run until a time you pick in the panel; a time already past today counts for tomorrow. Thanks to @EdenRochmanSharabi.
+- Settings goes back and forward through visited pages with the mouse side buttons, a Go menu or ⌘[ and ⌘]. Thanks to @pergioa.
+- Dynamic Island's controls can show a Scratchpad shortcut that opens the pad in one click, enabled under Content in its settings. Thanks to @sarat03.
+- The Uninstaller can list and remove apps from the Command Bar, including the one selected in Finder, once enabled in its settings. Thanks to @naveenkrdy.
 
 ### Changed
-- Battery charge, history, temperature, accessory levels and energy-consuming apps move from System to Power, alongside charging, health and remaining time.
-- App updates recognize installer-based and renamed apps, refresh manual searches, and use store identifiers to improve detection.
-- Focus follows mouse, window previews, clipboard history and recent captures avoid unnecessary polling, image processing, icon retention and history writes.
-- Command Bar remembers search choices across launches, tolerates short typos, and offers more emoji through its category or a colon. Thanks to @MaximilianMauroner.
-- Scratchpad notes stay in the app's private storage instead of the preferences, so a settings export no longer carries what you typed. Thanks to @CSkjolden.
-- Build checks read the keycap your keyboard layout shows, where they expected the US one. Thanks to @mugurc.
-- Build checks stop expecting one macOS wording for feet and inches. Thanks to @iva-zhu.
-- Build checks adapt to Macs with larger thread pools. Thanks to @mugurc.
-- The radial menu throws its actions out of the center one after another when it opens and gathers them back in when it closes.
-- The radial menu's highlight sweeps to the pointed slice, and its actions sit on the glass as raised buttons with guides between them.
-- Panel outlines answer the system's Increase Contrast, which they were ignoring while already following reduced motion and transparency.
-- Package installation and update logs use less processing.
+- App Switcher uses available space to show more previews when cycling through the current app's windows. Thanks to @EugeneCarldotme.
+- App Switcher shows two window previews side by side when space allows, even with only one app in the icon row.
+- Settings use visual choices, cards and switches across the main pages, with live previews for the menu bar and panel.
+- Settings search highlights the selected section, and Mouse & Trackpad offers direct links to each available feature.
+- Features lists Dynamic Island and its extensions in a section of their own instead of among the tools.
+- Dynamic Island animates music bars without continuously redrawing them in the app and stops their animation when hidden.
+- Synchronized lyrics update when each verse starts, avoiding constant checks between verses and while playback is paused.
+- Compact music, timer and download indicators keep clear of Dynamic Island's curved edges, with readable percentages in narrow spaces. Thanks to @ruvelro.
+- Dynamic Island opens and closes smoothly at the top edge when set to hide until hover.
+- Dynamic Island aligns volume and brightness controls, with fading header buttons for Keep open and Settings when their floating buttons are absent.
+- Dynamic Island opens as a wide strip with sideways cards, mixer faders, compact calendar and timer controls, and an embedded Scratchpad.
+- Dynamic Island's custom height goes down to 260 points, so the island can stay small; the pages adapt their rows to the chosen height.
+- Opening Dynamic Island while it shows music, a timer, a download or a notification goes to that activity; the reopening preference applies only at rest.
+- Dismissing the original system banner now waits briefly, allowing short alert sounds to finish.
+- Keyboard debounce windows adjust in 1 ms steps, reaching values below 5 ms for magnetic keyboards. Thanks to @Borisserz.
+- The media tools describe each compression level under the Low, Medium and High buttons. Thanks to @samanyudas.
 
 ### Fixed
-- App updates detect universal store apps using their Mac versions and warn when store checks cannot be completed.
-- Opening a recording with damaged pointer data no longer requests excessive memory.
-- Saving a recording keeps the file already there when an export fails or is cancelled, and never writes a video missing your edits.
-- Screenshot, text and color shortcuts leave active recordings alone, while the recording command still stops them.
-- Network readings recover from temporary counter failures without false spikes, and speed tests report server errors instead of misleading results.
-- Toggling Wi-Fi from the Command Bar no longer blocks clicks and scrolling while the system responds. Thanks to @mugurc.
-- App Switcher restores native shortcuts after crashes even when disabled, and its reverse window shortcut leaves screenshots available. Thanks to @owendaw.
-- Shortcut recording detects system shortcuts even when they have never been customized. Thanks to @owendaw.
-- Mouse acceleration stays disabled after disconnecting and reconnecting a mouse.
-- Focus follows mouse avoids reactivating the current game window and changing focus while a modifier key or mouse button is held.
-- The App Switcher shows supported alternate app icons without flickering during navigation. Thanks to @EugeneCarldotme and @hash00.
-- Color picking copies the sampled pixel's correct color and shows matching values in the magnifier. Thanks to @MaksimEgorov.
-- Installing a build you compiled yourself keeps its system permissions across rebuilds, where only the Developer variant was protected. Thanks to @hash00 and @PathGao.
-- Restarting the app reopens it once it has finished closing, where a slow quit could leave it closed.
-- The Keep Awake option for no icon shows the crossed-out circle it promised, where the bar across it was never drawn.
-- Saving the scratchpad to a file says so when it cannot be written, where a full disk or a read-only volume ended in silence.
-- Numbers on screen use the decimal mark of your region, where the panel, the menu bar and the editors always wrote a point.
-- The App Switcher and Dock preview now show their selection on the light appearance, where it was white on a light card.
-- The App Switcher names an app once, where a window titled after its own app made it say the name three times.
-- Searching the clipboard and Settings works in Turkish, where the dotted I kept matches from being found.
-- The list of apps on the first screen sorts by the rules of your language, where accented names were pushed past Z.
-- Counts read correctly in Russian, where two to four items take a form of their own and were being given the wrong word.
-- The selected-text and process counts read correctly at one, where every language showed "1 words" and "1 processes".
-- Spanish, Italian, Portuguese and Turkish quote the way the system does, instead of borrowing the French marks.
-- French keeps its punctuation and quotation marks on the line they belong to, where a line break could strand them.
-- Labels that say work is under way end with a real ellipsis, and apostrophes across every language are the typographic ones.
-- The Command Bar's battery example works in every language, where the English word matched nothing and led to an empty list.
-- A menu command names its app once, where every app's own menu made the row read the name twice.
-- The Media preview stops re-reading the watermark image from disk on every frame while its opacity is dragged.
-- The disk monitor no longer asks a mounted image how much it could free, a question it answered with an error every sample.
-- The recording editor's look presets carry one name each instead of repeating it, and sizes use a proper multiplication sign.
-- The zoom panel's button says what it does instead of borrowing the timeline's hint to click somewhere else.
-- Slider labels shrink instead of being cut where Turkish and Spanish run past the column, in the backdrop and recording panels.
-- Clicks and scrolling no longer lag in full-screen apps and games while the three-finger middle click or the reversed scroll direction is on.
-- Tapping Super key for Escape no longer carries a modifier still reported by the keyboard. Thanks to @gatzifratzi, @PathGao and @hash00.
+- App Switcher keeps an app's windows listed after Q until it really quits, including one that stops at a save prompt. Thanks to @PathGao.
+- Keep Awake restores lid sleep after a timer or battery cutoff, respecting macOS sleep protections. Thanks to @NongKnot.
+- Dynamic Island shows a video playing in a browser even when a music app is open but stopped. Thanks to @ruvelro.
+- Stopping Music from opening on its own again catches launches from headphones connecting or their buttons, and no longer needs Accessibility.
+- Muting every microphone now releases a headset that connected while muted, and one unplugged during the mute once it returns.
+- Automatic link cleaning now handles links copied from browsers and messaging apps along with their formatting, while leaving pictures and files alone.
+- App Switcher brings the selected window forward while preserving focus recovery and the correct app menus. Thanks to @shlok1806.
+- Recent captures appear promptly when opened from another app and close when switching apps. Thanks to @iltonandrew.
+- Command Bar offers all Keep Awake durations without turning unsupported times into indefinite sessions. Thanks to @tuttopassastudios and @brandom.
+- Panel permission and recent capture buttons align with the card text. Thanks to @COMEBACKISREAL.
+- Dynamic Island offers playback controls when a music app is recognized and updates them after permission is granted.
+- Dynamic Island is no longer listed as a window by tiling window managers, which showed a ghost window on the current desktop. Thanks to @Yahddyyp.
+- On screens without a camera cutout, Dynamic Island no longer blinks when you switch apps or hides while a launcher has focus. Thanks to @Yahddyyp.
+- Now Playing in Dynamic Island no longer says nothing is playing while it fetches the current track. Thanks to @Yahddyyp.
+- File dialogs opened from the media tools inside Dynamic Island attach to it instead of opening behind it. Thanks to @Yahddyyp.
+- The recording editor keeps its saving indicator on one line in narrow windows. Thanks to @Yahddyyp.
+- After an in-app update, search no longer lists the app as “Vorssaint.app.update-new”. Thanks to @Yahddyyp.
+- The window layout ring keeps the aimed direction while its default shortcut is held, without flashing back to maximize on key repeats. Thanks to @Borisserz.
+- Focus follows mouse no longer makes the arriving desktop slide in a second time when the pointer settles during a desktop switch.
+- External monitors that answer brightness readings only when asked twice now show their real level, and monitors dismissed earlier are checked again. Thanks to @PathGao.
+- Displays whose brightness slider does nothing behind a converter can dim the picture in software from the panel or the Energy page. Thanks to @sarat03.
+- Switching the built-in display back on waits for the lid to open, and the panel says so meanwhile. Thanks to @rkrkrkk.
+- A window opened right after an App Switcher switch, even from a fullscreen app, stays in front. Thanks to @akune.
+- Picking a mark in the screenshot editor shows its own color and thickness instead of the last mark's. Thanks to @kxnstandin.
+- The menu bar panel can recover an unexpected close during a click inside it while preserving its position.
+- Clearing all permissions now also stops the text snippet, quit protection and brightness key listeners first, so input no longer freezes. Thanks to @dajiaohuang.
+
+## [3.4.0-beta.2.1] - 2026-09-16
+
+### Summary
+Dynamic Island can hide until you hover, reopen where you choose and keep capture controls out of the way while you select. This beta also adds screenshot watermarks, makes screenshots and recordings sharper, and fixes Dock previews, timers, music, alerts and recording audio.
+
+### Hotfix
+- Dynamic Island shows an Update button only while open.
+
+### Added
+- Dynamic Island can stay completely hidden and appear only when you move the pointer to the top of the screen.
+- Dynamic Island can reopen on the page you left or always on a section you choose.
+- Dragging images or a video onto Dynamic Island lets you choose between the shelf and the media tools.
+- The screenshot editor can add your own text or image as a watermark, with position, size, transparency and rotation. Thanks to @Logimon.
+- Image conversion can name results with a menu of placeholders and save batches in their own subfolder. Thanks to @ruvelro.
+
+### Changed
+- Capture controls in Dynamic Island collapse while you select and after a few idle seconds, and come back with a click or hover.
+- You can choose how long the pointer needs to stay on Dynamic Island before it opens.
+- Dynamic Island matches each display's menu bar height and shows the track name on screens without a camera cutout. Thanks to @ruvelro.
+- Timers longer than an hour now show hours and minutes wherever the time appears.
+- Compact timers have more room beside the camera and stay there when menu space changes, including in full screen.
+- Recordings in Balanced quality keep the full screen resolution, so text stays as sharp as in the system recorder.
+
+### Fixed
+- Dock Preview and App Switcher keep windows from other desktops available, with an optional Dock filter and no empty flashes during desktop changes.
+- Dynamic Island stays in place when the desktop is revealed after opening on hover.
+- Dynamic Island shows the right headphone icons, keeps device alerts readable and no longer shows a wrong volume alert when switching outputs.
+- Dynamic Island no longer shows playing music at rest when you turned that off, while the music controls remain available.
+- Displays without a camera cutout get a simulated cutout inside the menu bar that keeps its shape when opening. Thanks to @Yahddyyp.
+- Screen captures start on the first drag and keep the selector and magnifier smooth while the controls are in Dynamic Island. Thanks to @ruvelro.
+- Saved, copied and shared screenshots open at their real size and stay as sharp as system screenshots.
+- Screenshot previews take the keyboard when they appear, so ⌘C and ⌘S work right after a capture, with a switch in More options.
+- Screen recordings no longer fail to save when the microphone or system audio changes format while recording.
+- Image conversion applies the chosen watermark transparency and centers previews. Thanks to @ruvelro.
+
+## [3.4.0-beta.2] - 2026-09-16
+
+### Summary
+Dynamic Island can hide until you hover, reopen where you choose and keep capture controls out of the way while you select. This beta also adds screenshot watermarks, makes screenshots and recordings sharper, and fixes Dock previews, timers, music, alerts and recording audio.
+
+### Added
+- Dynamic Island can stay completely hidden and appear only when you move the pointer to the top of the screen.
+- Dynamic Island can reopen on the page you left or always on a section you choose.
+- Dragging images or a video onto Dynamic Island lets you choose between the shelf and the media tools.
+- The screenshot editor can add your own text or image as a watermark, with position, size, transparency and rotation. Thanks to @Logimon.
+- Image conversion can name results with a menu of placeholders and save batches in their own subfolder. Thanks to @ruvelro.
+
+### Changed
+- Capture controls in Dynamic Island collapse while you select and after a few idle seconds, and come back with a click or hover.
+- You can choose how long the pointer needs to stay on Dynamic Island before it opens.
+- Dynamic Island matches each display's menu bar height and shows the track name on screens without a camera cutout. Thanks to @ruvelro.
+- Timers longer than an hour now show hours and minutes wherever the time appears.
+- Compact timers have more room beside the camera and stay there when menu space changes, including in full screen.
+- Recordings in Balanced quality keep the full screen resolution, so text stays as sharp as in the system recorder.
+
+### Fixed
+- Dock Preview and App Switcher keep windows from other desktops available, with an optional Dock filter and no empty flashes during desktop changes.
+- Dynamic Island stays in place when the desktop is revealed after opening on hover.
+- Dynamic Island shows the right headphone icons, keeps device alerts readable and no longer shows a wrong volume alert when switching outputs.
+- Dynamic Island no longer shows playing music at rest when you turned that off, while the music controls remain available.
+- Displays without a camera cutout get a simulated cutout inside the menu bar that keeps its shape when opening. Thanks to @Yahddyyp.
+- Screen captures start on the first drag and keep the selector and magnifier smooth while the controls are in Dynamic Island. Thanks to @ruvelro.
+- Saved, copied and shared screenshots open at their real size and stay as sharp as system screenshots.
+- Screenshot previews take the keyboard when they appear, so ⌘C and ⌘S work right after a capture, with a switch in More options.
+- Screen recordings no longer fail to save when the microphone or system audio changes format while recording.
+- Image conversion applies the chosen watermark transparency and centers previews. Thanks to @ruvelro.
+
+## [3.4.0-beta.1] - 2026-09-15
+
+### Summary
+Dynamic Island is the focus of this update, bringing music, timers, calendar, notifications, downloads, files and everyday controls beside the camera. Improvements also cover App Switcher, clipboard, captures, recordings and cleaning.
+
+### Dynamic Island
+- An optional island for Macs with or without a camera cutout, with customizable layouts, hover expansion, gestures and trackpad feedback.
+- Music controls include seeking, synchronized lyrics and the player's queue, with music apps taking priority over browser videos.
+- Drag floating shortcuts beside or below the island, and reach its sections through a searchable gallery and keyboard navigation.
+- Timers and configurable focus cycles stay accurate through sleep, with repeating sound alerts for up to five minutes.
+- Browse appointments by month and mirror new notifications, with an optional inbox that clears when the Mac locks.
+- Follow downloads from a chosen folder, organize shelf files, create ZIP archives, convert media and open the camera mirror.
+- Volume, brightness, keyboard light and accessory alerts share a black surface that stays consistent across appearances.
+- Online lyric lookup needs separate consent and sends only the title, artist, album and duration, never audio.
+
+### Added
+- Dynamic Island brings music, timers, calendar, notifications, downloads, files and controls beside the camera, off until you turn it on in Settings.
+- Shelf accepts attachments dragged from other apps, preserving complete files and original names. Thanks to @Borisserz.
+- Display brightness gains optional custom shortcuts for the primary display or the display under the pointer. Thanks to @EugeneCarldotme.
+- App Switcher can show only windows on the display under the pointer, staying closed on empty displays. Thanks to @EugeneCarldotme.
+- Scratchpad tabs can be created with Command-T and closed with Command-W, keeping confirmation for notes with text. Thanks to @Borisserz.
+- Screenshot gains custom editor shortcuts and optional keyboard focus for previews. Thanks to @santi-ug.
+
+### Changed
+- The App Switcher opens more smoothly when many windows are open. Thanks to @bebricoOOOOOOf.
+
+### Fixed
+- Clipboard History skips expired copies, reports failed writes and avoids automatic paste after failure. Thanks to @MaximilianMauroner.
+- Fan Control keeps trying to take over stopped fans on Macs that lack the firmware unlock key. Thanks to @Yash121l.
+- Power keeps the system reading legible beside its graph while editing the panel. Thanks to @COMEBACKISREAL.
+- Screenshots respect editor and pinned-image visibility when switching capture tools, while recordings keep capture windows hidden. Thanks to @anandghegde.
+- App Updates clears missing-source warnings only when the catalog can verify the app, preserving incomplete checks otherwise. Thanks to @iltonandrew.
+- App Switcher keeps its icon row steady and selected windows visible during searches and window closures. Thanks to @shlok1806.
+- Uninstaller reports completed removals accurately, counts recovered space once and keeps real failures visible. Thanks to @Borisserz.
+- Screen recordings keep video, audio, cursor effects and typing zooms aligned through startup and pauses, without blank openings. Thanks to @EugeneCarldotme and @fakepooh.
+- Menu bar icon recovery waits for placement, preserves full-size content and avoids overlapping attempts. Thanks to @Borisserz.
+- Panels and App Switcher stay open when typing with the Accessibility Keyboard, including the first use. Thanks to @fermincasagrande.
+- Quit on close keeps incoming calls connected when their app has no open window. Thanks to @Borisserz.
+- Cleaner preserves installed customizations and localization folders during manual and scheduled cleanup. Thanks to @EugeneCarldotme and @ywu73.
+- App Switcher keeps newly opened windows focused and makes more apps available in crowded window lists. Thanks to @akune.
+- The App Switcher no longer shows blank entries for hidden helper windows that apps keep out of window cycling. Thanks to @EugeneCarldotme.
+- The menu bar panel keeps one continuous background up to the small arrow at its top. Thanks to @iltonandrew.
+
+## [3.3.5] - 2026-09-06
+
+### Summary
+Hotfix update for Dock actions, window focus, video presets, temperature readings and the menu bar icon. Extra brightness can now be toggled from the Displays panel, and the full feature update is included below.
+
+### Changed
+- Extra brightness can be switched on and off directly from the Displays panel.
+
+### Fixed
+- Dock previews and click actions work while recording the screen or using overlays that let pointer input pass through.
+- Focus follows mouse keeps working through recording overlays while respecting windows that actually receive input.
+- Video editor presets restore added images with their position, size and opacity for the whole video, independently of the original recording.
+- CPU temperature readings are back on Macs where the System panel had stopped showing them.
+- The menu bar icon stays visible after updating and keeps the spot you arranged.
+
+### Everything from 3.3.3
+Window controls, recording tools and everyday shortcuts gain more options, with less background work and stronger protection for saved content. This stable release brings together the improvements since 3.3.2, including the full beta cycle and the final reliability fixes.
+
+### Performance
+- Dock previews: 50% shorter default opening wait, from 400 to 200 ms; 60% shorter app-switching wait, from 250 to 100 ms.
+- CPU: less repeated work in window previews, mouse controls, search and cleaning; Quit on close stops causing excess CPU use in watched apps.
+- Memory and graphics: fewer retained images and icons, more efficient recording effects, and less repeated work when adjusting watermarks or extra brightness.
+- Background activity: fewer unnecessary checks and history writes; unused keyboard and mouse listeners are released when features turn off.
+
+The Dock figures describe configured waits, not total loading time. Battery-life gains and overall CPU, memory or GPU savings have not been measured against 3.3.2.
+
+### Feature highlights
+- Protect against accidental quitting and closing, arrange windows with pointer gestures, and drag Dock previews to move windows.
+- Blur private details in recordings, add picture overlays, and compress videos or GIFs to a chosen file size.
+- Automate Keep Awake for selected apps, switch Bluetooth off during sleep, and customize fan speeds on supported Macs.
+- Find more app updates, manage app shortcuts in one place, and create separate radial menus for different tasks.
+
+### Safety and reliability
+- Safer saves preserve recordings, captures and notes when operations fail; personal content uses private storage, and cleanup reports files left behind.
+- Fixes for unresponsive typing, scrolling, window switching and display controls, plus clearer text and selection in light and dark appearances.
+
+### Details
+The selected changes below cover new options and fixes that affect everyday use. Small cosmetic adjustments, tour changes and build-only maintenance are omitted.
+
+### Added
+- Quit Protection guards Command Q and Command W with a hold, double press or extra modifier, configurable per app. Thanks to @RuanMD and @PathGao.
+- Window Layout offers eight-direction pointer placement, adjustable gaps, selectable snap areas and centered half-width windows. Thanks to @Bald-M, @marcelharinck, @levelupimprovement and @Borisserz.
+- Drag Dock previews to move windows, including minimized windows and windows on other desktops. Thanks to @PathGao.
+- Dock Preview and App Switcher offer minimal previews; middle-clicking a card closes its window.
+- Dock Preview can quit an app from its close button, with an adjustable opening delay. Thanks to @arefshal and @PathGao.
+- App Switcher offers screen selection, appearance delay and minimized or fullscreen window visibility options. Thanks to @noahjstewart, @yasinozmeen and @itsofirk.
+- Recording tools add timed blur, picture overlays with nine positions, and filmstrip scrubbing with drag-to-cut selection. Thanks to @saminton.
+- Video and GIF compression can target a file size you choose. Thanks to @FlowSync0.
+- Capture tools offer separate shortcuts, optional mode menus, adjustable magnification and precise keyboard pixel selection. Thanks to @wiidede, @PathGao, @RecoilGaming, @EugeneCarldotme and @ruvelro.
+- Recent captures can open directly with a shortcut; recognized text can be joined into one paragraph. Thanks to @ywu73.
+- Keep Awake can run for selected apps and pause while the Mac is locked. Thanks to @Borisserz and @Advaith3600.
+- Bluetooth on sleep disconnects sleeping Macs from accessories and restores Bluetooth on wake only if it turned it off. Thanks to @marcfusch.
+- Mouse controls add acceleration disabling, worn-button click filtering and button-drag gestures for desktops and window overviews. Thanks to @CrowKiller and @iltonandrew.
+- Super key supports right-side modifiers, input-source switching and exceptions for selected apps. Thanks to @JoanLaRosa, @BenjaminD2023 and @Borisserz.
+- Keyboard shortcuts can adjust keyboard backlight brightness one step at a time. Thanks to @EugeneCarldotme.
+- App shortcuts, aliases and pinned favorites have one searchable management page.
+- Command Bar adds compact mode, argument-free script shortcuts and an app restart command. Thanks to @kobebrylant, @rhukster and @CSkjolden.
+- Radial Menu adds custom profiles, themes, triggers, an interactive editor and a Now Playing card. Thanks to @ruvelro and @PathGao.
+- Clipboard history supports 10,000 items or unlimited retention, multiple-item deletion and clearing unpinned items with confirmation. Thanks to @ElPotara and @CSkjolden.
+- Text snippets offer a visual date and time builder with timezones and live previews. Thanks to @tenbux.
+- Shelf adds file sharing, media thumbnails and optional clearing on close. Thanks to @tenbux and @bilalnoork.
+- Kill Process can find, restart or end processes and their children, with confirmation before ending them. Thanks to @naveenkrdy.
+- Battery temperature alerts, disk ejection exceptions and a visible-screen Cleaning Mode offer more control. Thanks to @ywu73 and @PathGao.
+- Liquid Glass effects can be switched off on macOS 26 and later; the app icon supports system appearance styles. Thanks to @divisionseven.
+
+### Changed
+- Fan Control adds continuous manual speeds and editable temperature curves, with current and target fan speeds on supported Macs.
+- Power brings battery charge, health, history, temperature, accessories and energy-consuming apps together; System adds compressed memory and cached files.
+- App Updates checks publisher feeds and a public catalog, preserves partial results and identifies apps that could not be fully checked.
+- Uninstaller and Cleaner find more verified leftovers and clearly identify files they could not remove. Thanks to @PathGao.
+- Clean URL offers editable site-specific tracking rules and shows what it removed. Thanks to @PathGao.
+- Sound Mixer groups devices, can hide inactive apps and offers finer keyboard volume steps. Thanks to @ruvelro.
+- Command Bar remembers choices, tolerates short typos and expands emoji search; Settings search opens matching sections. Thanks to @MaximilianMauroner and @pergioa.
+- Window Layout maximizes at the top edge and moves windows between displays when left or right shortcuts repeat.
+- Smooth scrolling offers adjustable speed and response across standard and high-refresh displays.
+- Window switching, Dock previews, recording effects, cleaning and file organization avoid repeated work. Thanks to @PathGao.
+- Quit on close avoids elevated CPU use in watched apps. Thanks to @iltonandrew.
+- Clipboard and Shelf show richer image previews; Shelf waits briefly before expanding during a drag.
+- Personal clipboard content, Shelf files, recordings and share records use private storage. Thanks to @ThomasWaldmann.
+- Scratchpad notes use private storage, stay out of settings backups and preserve unreadable originals. Thanks to @CSkjolden.
+- Settings backups preserve local exceptions without exporting machine-specific paths. Thanks to @iltonandrew.
+- Disk image installation shows progress and offers to remove the download after installing.
+
+### Fixed
+- Typing and shortcuts stay responsive while App Switcher collects windows from slow apps. Thanks to @MaximilianMauroner.
+- Clipboard operations no longer freeze Command Bar or quick tools when copied content stalls. Thanks to @PathGao and @atomsbaza.
+- Clicks and scrolling stay responsive with mouse controls enabled; focus follows mouse respects held keys, buttons and excluded apps. Thanks to @khichinho.
+- Input features step aside during account switching and recover afterward. Thanks to @PathGao and @iltonandrew.
+- App Switcher handles more window types, restores native shortcuts after crashes and keeps reverse switching reliable. Thanks to @PathGao, @BenjaminD2023, @owendaw and @justin-chiam.
+- App Switcher and Dock previews discard closed windows and show alternate icons consistently. Thanks to @atomsbaza, @iltonandrew, @EugeneCarldotme and @hash00.
+- Dock actions bring restored windows forward, stay on the current desktop and respect fullscreen apps. Thanks to @pboucher, @PathGao and @iltonandrew.
+- Quit on close detects windows created late; moving windows between displays preserves their size. Thanks to @iltonandrew and @DiogoDuart3.
+- Super key preserves held modifiers, restores its source key after crashes and sends Escape correctly. Thanks to @victoraraujo01, @gatzifratzi, @PathGao and @hash00.
+- Shortcut recording respects keyboard layouts, detects conflicts and accepts native switcher combinations. Thanks to @PathGao, @alexis-morain, @arsarsars1, @jtprogru and @owendaw.
+- Clipboard and snippet searches support input-method composition; multiline snippets preserve every line and rich clipboard content. Thanks to @PathGao and @fermincasagrande.
+- Clipboard keyboard navigation stays stable, large previews remain responsive and stored history stays readable. Thanks to @andreisuslov and @naveenkrdy.
+- Shelf preserves saved items when its list cannot be fully read. Thanks to @PathGao.
+- Capture history preserves images when its list cannot be read or saved.
+- Recording saves preserve existing files if export fails or is canceled, and reject incomplete edits or damaged pointer data.
+- Recordings avoid doubled mixer audio; stopping while typing no longer risks a crash. Thanks to @PathGao.
+- Recording trim handles work from the start; other capture shortcuts leave active recordings alone. Thanks to @lmilojevicc.
+- Window captures include dialogs and cross-display windows; scrolling captures avoid repeated footers. Thanks to @iltonandrew.
+- Screenshot editing uses full-resolution copied images, and quick previews leave keyboard focus alone. Thanks to @iltonandrew.
+- Capture guides stay readable and color picking matches the sampled pixel. Thanks to @nik-2002, @I-Have-No-Idea-What-Im-Doing-Right-Now, @PathGao and @MaksimEgorov.
+- Temporary capture links stop appearing available after expiring during sleep. Thanks to @PathGao.
+- Sound Mixer recognizes helper audio and prevents stale-audio stutters. Thanks to @PathGao.
+- Display controls avoid freezes and restore brightness to the correct monitor after reconnection. Thanks to @ozimosko, @bayujo, @PathGao and @iltonandrew.
+- Network readings recover without false spikes; speed tests report server errors and Wi-Fi commands stay responsive. Thanks to @mugurc.
+- Memory, processor temperature and per-app resource readings are more accurate. Thanks to @pergioa and @PathGao.
+- App installation opens the installed copy; stalled package jobs no longer freeze controls. Thanks to @PathGao.
+- Automatic cleaning leaves protected files alone and reports failures; uninstalling restores closed-lid sleep. Thanks to @PathGao and @mugurc.
+- Cut files can move into protected folders with system approval; cancellation preserves unfinished moves. Thanks to @aesophor.
+- Mouse acceleration settings survive reconnection, and app exceptions recognize more running programs. Thanks to @iltonandrew.
+- Keep Awake handles rapid closed-lid changes and more account names. Thanks to @Tr1meputiNe, @iltonandrew and @dhruvsaxena1998.
+- Scratchpad reports save failures; Settings and floating panels keep usable sizes and readable controls. Thanks to @AB-boi and @PathGao.
+- Light-mode selection, regional numbers, search and translations are clearer across supported languages. Thanks to @PathGao and @watain666.
+- Restarting reliably reopens the app, and login settings explain when automatic startup is disabled. Thanks to @PathGao and @wenujacodes.
+
+## [3.3.3] - 2026-09-06
+
+### Summary
+Window controls, recording tools and everyday shortcuts gain more options, with less background work and stronger protection for saved content. This stable release brings together the improvements since 3.3.2, including the full beta cycle and the final reliability fixes.
+
+### Performance
+- Dock previews: 50% shorter default opening wait, from 400 to 200 ms; 60% shorter app-switching wait, from 250 to 100 ms.
+- CPU: less repeated work in window previews, mouse controls, search and cleaning; Quit on close stops causing excess CPU use in watched apps.
+- Memory and graphics: fewer retained images and icons, more efficient recording effects, and less repeated work when adjusting watermarks or extra brightness.
+- Background activity: fewer unnecessary checks and history writes; unused keyboard and mouse listeners are released when features turn off.
+
+The Dock figures describe configured waits, not total loading time. Battery-life gains and overall CPU, memory or GPU savings have not been measured against 3.3.2.
+
+### Feature highlights
+- Protect against accidental quitting and closing, arrange windows with pointer gestures, and drag Dock previews to move windows.
+- Blur private details in recordings, add picture overlays, and compress videos or GIFs to a chosen file size.
+- Automate Keep Awake for selected apps, switch Bluetooth off during sleep, and customize fan speeds on supported Macs.
+- Find more app updates, manage app shortcuts in one place, and create separate radial menus for different tasks.
+
+### Safety and reliability
+- Safer saves preserve recordings, captures and notes when operations fail; personal content uses private storage, and cleanup reports files left behind.
+- Fixes for unresponsive typing, scrolling, window switching and display controls, plus clearer text and selection in light and dark appearances.
+
+### Details
+The selected changes below cover new options and fixes that affect everyday use. Small cosmetic adjustments, tour changes and build-only maintenance are omitted.
+
+### Added
+- Quit Protection guards Command Q and Command W with a hold, double press or extra modifier, configurable per app. Thanks to @RuanMD and @PathGao.
+- Window Layout offers eight-direction pointer placement, adjustable gaps, selectable snap areas and centered half-width windows. Thanks to @Bald-M, @marcelharinck, @levelupimprovement and @Borisserz.
+- Drag Dock previews to move windows, including minimized windows and windows on other desktops. Thanks to @PathGao.
+- Dock Preview and App Switcher offer minimal previews; middle-clicking a card closes its window.
+- Dock Preview can quit an app from its close button, with an adjustable opening delay. Thanks to @arefshal and @PathGao.
+- App Switcher offers screen selection, appearance delay and minimized or fullscreen window visibility options. Thanks to @noahjstewart, @yasinozmeen and @itsofirk.
+- Recording tools add timed blur, picture overlays with nine positions, and filmstrip scrubbing with drag-to-cut selection. Thanks to @saminton.
+- Video and GIF compression can target a file size you choose. Thanks to @FlowSync0.
+- Capture tools offer separate shortcuts, optional mode menus, adjustable magnification and precise keyboard pixel selection. Thanks to @wiidede, @PathGao, @RecoilGaming, @EugeneCarldotme and @ruvelro.
+- Recent captures can open directly with a shortcut; recognized text can be joined into one paragraph. Thanks to @ywu73.
+- Keep Awake can run for selected apps and pause while the Mac is locked. Thanks to @Borisserz and @Advaith3600.
+- Bluetooth on sleep disconnects sleeping Macs from accessories and restores Bluetooth on wake only if it turned it off. Thanks to @marcfusch.
+- Mouse controls add acceleration disabling, worn-button click filtering and button-drag gestures for desktops and window overviews. Thanks to @CrowKiller and @iltonandrew.
+- Super key supports right-side modifiers, input-source switching and exceptions for selected apps. Thanks to @JoanLaRosa, @BenjaminD2023 and @Borisserz.
+- Keyboard shortcuts can adjust keyboard backlight brightness one step at a time. Thanks to @EugeneCarldotme.
+- App shortcuts, aliases and pinned favorites have one searchable management page.
+- Command Bar adds compact mode, argument-free script shortcuts and an app restart command. Thanks to @kobebrylant, @rhukster and @CSkjolden.
+- Radial Menu adds custom profiles, themes, triggers, an interactive editor and a Now Playing card. Thanks to @ruvelro and @PathGao.
+- Clipboard history supports 10,000 items or unlimited retention, multiple-item deletion and clearing unpinned items with confirmation. Thanks to @ElPotara and @CSkjolden.
+- Text snippets offer a visual date and time builder with timezones and live previews. Thanks to @tenbux.
+- Shelf adds file sharing, media thumbnails and optional clearing on close. Thanks to @tenbux and @bilalnoork.
+- Kill Process can find, restart or end processes and their children, with confirmation before ending them. Thanks to @naveenkrdy.
+- Battery temperature alerts, disk ejection exceptions and a visible-screen Cleaning Mode offer more control. Thanks to @ywu73 and @PathGao.
+- Liquid Glass effects can be switched off on macOS 26 and later; the app icon supports system appearance styles. Thanks to @divisionseven.
+
+### Changed
+- Fan Control adds continuous manual speeds and editable temperature curves, with current and target fan speeds on supported Macs.
+- Power brings battery charge, health, history, temperature, accessories and energy-consuming apps together; System adds compressed memory and cached files.
+- App Updates checks publisher feeds and a public catalog, preserves partial results and identifies apps that could not be fully checked.
+- Uninstaller and Cleaner find more verified leftovers and clearly identify files they could not remove. Thanks to @PathGao.
+- Clean URL offers editable site-specific tracking rules and shows what it removed. Thanks to @PathGao.
+- Sound Mixer groups devices, can hide inactive apps and offers finer keyboard volume steps. Thanks to @ruvelro.
+- Command Bar remembers choices, tolerates short typos and expands emoji search; Settings search opens matching sections. Thanks to @MaximilianMauroner and @pergioa.
+- Window Layout maximizes at the top edge and moves windows between displays when left or right shortcuts repeat.
+- Smooth scrolling offers adjustable speed and response across standard and high-refresh displays.
+- Window switching, Dock previews, recording effects, cleaning and file organization avoid repeated work. Thanks to @PathGao.
+- Quit on close avoids elevated CPU use in watched apps. Thanks to @iltonandrew.
+- Clipboard and Shelf show richer image previews; Shelf waits briefly before expanding during a drag.
+- Personal clipboard content, Shelf files, recordings and share records use private storage. Thanks to @ThomasWaldmann.
+- Scratchpad notes use private storage, stay out of settings backups and preserve unreadable originals. Thanks to @CSkjolden.
+- Settings backups preserve local exceptions without exporting machine-specific paths. Thanks to @iltonandrew.
+- Disk image installation shows progress and offers to remove the download after installing.
+
+### Fixed
+- Typing and shortcuts stay responsive while App Switcher collects windows from slow apps. Thanks to @MaximilianMauroner.
+- Clipboard operations no longer freeze Command Bar or quick tools when copied content stalls. Thanks to @PathGao and @atomsbaza.
+- Clicks and scrolling stay responsive with mouse controls enabled; focus follows mouse respects held keys, buttons and excluded apps. Thanks to @khichinho.
+- Input features step aside during account switching and recover afterward. Thanks to @PathGao and @iltonandrew.
+- App Switcher handles more window types, restores native shortcuts after crashes and keeps reverse switching reliable. Thanks to @PathGao, @BenjaminD2023, @owendaw and @justin-chiam.
+- App Switcher and Dock previews discard closed windows and show alternate icons consistently. Thanks to @atomsbaza, @iltonandrew, @EugeneCarldotme and @hash00.
+- Dock actions bring restored windows forward, stay on the current desktop and respect fullscreen apps. Thanks to @pboucher, @PathGao and @iltonandrew.
+- Quit on close detects windows created late; moving windows between displays preserves their size. Thanks to @iltonandrew and @DiogoDuart3.
+- Super key preserves held modifiers, restores its source key after crashes and sends Escape correctly. Thanks to @victoraraujo01, @gatzifratzi, @PathGao and @hash00.
+- Shortcut recording respects keyboard layouts, detects conflicts and accepts native switcher combinations. Thanks to @PathGao, @alexis-morain, @arsarsars1, @jtprogru and @owendaw.
+- Clipboard and snippet searches support input-method composition; multiline snippets preserve every line and rich clipboard content. Thanks to @PathGao and @fermincasagrande.
+- Clipboard keyboard navigation stays stable, large previews remain responsive and stored history stays readable. Thanks to @andreisuslov and @naveenkrdy.
+- Shelf preserves saved items when its list cannot be fully read. Thanks to @PathGao.
+- Capture history preserves images when its list cannot be read or saved.
+- Recording saves preserve existing files if export fails or is canceled, and reject incomplete edits or damaged pointer data.
+- Recordings avoid doubled mixer audio; stopping while typing no longer risks a crash. Thanks to @PathGao.
+- Recording trim handles work from the start; other capture shortcuts leave active recordings alone. Thanks to @lmilojevicc.
+- Window captures include dialogs and cross-display windows; scrolling captures avoid repeated footers. Thanks to @iltonandrew.
+- Screenshot editing uses full-resolution copied images, and quick previews leave keyboard focus alone. Thanks to @iltonandrew.
+- Capture guides stay readable and color picking matches the sampled pixel. Thanks to @nik-2002, @I-Have-No-Idea-What-Im-Doing-Right-Now, @PathGao and @MaksimEgorov.
+- Temporary capture links stop appearing available after expiring during sleep. Thanks to @PathGao.
+- Sound Mixer recognizes helper audio and prevents stale-audio stutters. Thanks to @PathGao.
+- Display controls avoid freezes and restore brightness to the correct monitor after reconnection. Thanks to @ozimosko, @bayujo, @PathGao and @iltonandrew.
+- Network readings recover without false spikes; speed tests report server errors and Wi-Fi commands stay responsive. Thanks to @mugurc.
+- Memory, processor temperature and per-app resource readings are more accurate. Thanks to @pergioa and @PathGao.
+- App installation opens the installed copy; stalled package jobs no longer freeze controls. Thanks to @PathGao.
+- Automatic cleaning leaves protected files alone and reports failures; uninstalling restores closed-lid sleep. Thanks to @PathGao and @mugurc.
+- Cut files can move into protected folders with system approval; cancellation preserves unfinished moves. Thanks to @aesophor.
+- Mouse acceleration settings survive reconnection, and app exceptions recognize more running programs. Thanks to @iltonandrew.
+- Keep Awake handles rapid closed-lid changes and more account names. Thanks to @Tr1meputiNe, @iltonandrew and @dhruvsaxena1998.
+- Scratchpad reports save failures; Settings and floating panels keep usable sizes and readable controls. Thanks to @AB-boi and @PathGao.
+- Light-mode selection, regional numbers, search and translations are clearer across supported languages. Thanks to @PathGao and @watain666.
+- Restarting reliably reopens the app, and login settings explain when automatic startup is disabled. Thanks to @PathGao and @wenujacodes.
 
 ## [3.3.3-beta.4] - 2026-09-03
 
