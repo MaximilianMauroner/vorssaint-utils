@@ -15,7 +15,7 @@ struct WindowFocusHistory {
 
     private enum Use: Equatable {
         case app(Request)
-        case window(CGWindowID)
+        case window(CGWindowID, Request? = nil)
     }
 
     private var recent: [Use] = []
@@ -23,12 +23,10 @@ struct WindowFocusHistory {
     private(set) var revision = UUID()
 
     mutating func activate(_ pid: pid_t, recording: Bool = true) -> Request? {
+        if !recording, let current { invalidate(current.pid, keepingActivation: true) }
+        invalidate(pid)
         current = recording ? Request(pid: pid) : nil
         if let current {
-            recent.removeAll { use in
-                if case .app(let request) = use { return request.pid == pid }
-                return false
-            }
             promote(.app(current))
         }
         return current
@@ -41,36 +39,41 @@ struct WindowFocusHistory {
                 if case .app(let pending) = use { return pending.pid == request.pid }
                 return false
             }
-            promote(.window(window))
+            promote(.window(window, request))
             return true
         }
-        // The AX query began while this activation was current, but another
-        // app won focus before it answered. Resolve only that activation's
-        // placeholder, in place, so the actual window is remembered without
-        // moving it ahead of anything the user did in the meantime.
-        guard let placeholder = recent.firstIndex(of: .app(request)) else { return false }
-        if recent.contains(.window(window)) {
-            recent.remove(at: placeholder)
-        } else {
-            recent[placeholder] = .window(window)
+        // Keep the activation identity after its first answer, so an in-flight
+        // focus change can still land at that activation's latest window.
+        guard let anchor = recent.firstIndex(where: { use in
+            switch use {
+            case .app(let pending): return pending == request
+            case .window(_, let pending): return pending == request
+            }
+        }) else { return false }
+        // Never move a window behind a newer confirmed use. Otherwise insert
+        // it at the anchor and discard its older occurrence, retaining the
+        // previous window's place when this is an intra-app focus change.
+        recent.insert(.window(window, request), at: anchor)
+        var seen = Set<CGWindowID>()
+        recent = recent.filter { use in
+            switch use {
+            case .app(let pending): return pending != request
+            case .window(let id, _): return seen.insert(id).inserted
+            }
         }
+        if recent.count > WindowUseOrder.limit { recent.removeLast() }
         revision = UUID()
         return true
     }
 
     mutating func switched(to window: CGWindowID?, pid: pid_t, previous: CGWindowID?) {
-        if let current, previous != nil {
-            recent.removeAll { $0 == .app(current) }
-        }
         // Invalidate an AX read already in flight before the explicit switch.
+        if let current { invalidate(current.pid, keepingActivation: previous == nil) }
+        invalidate(pid)
         let request = Request(pid: pid)
         current = request
         if let previous { promote(.window(previous)) }
-        recent.removeAll { use in
-            if case .app(let request) = use { return request.pid == pid }
-            return false
-        }
-        if let window { promote(.window(window)) }
+        if let window { promote(.window(window, request)) }
         else { promote(.app(request)) }
     }
 
@@ -79,7 +82,7 @@ struct WindowFocusHistory {
         guard revision == capturedRevision else { return }
         recent.removeAll {
             switch $0 {
-            case .window(let id): return !windows.contains(id)
+            case .window(let id, _): return !windows.contains(id)
             // The running-app snapshot can predate a launch notification.
             // Only an actual termination removes activation evidence.
             case .app: return false
@@ -88,10 +91,7 @@ struct WindowFocusHistory {
     }
 
     mutating func terminated(_ pid: pid_t) {
-        recent.removeAll { use in
-            if case .app(let request) = use { return request.pid == pid }
-            return false
-        }
+        invalidate(pid)
         if current?.pid == pid { current = nil }
         revision = UUID()
     }
@@ -104,7 +104,7 @@ struct WindowFocusHistory {
         for use in recent {
             let index = baseline.first { index in
                 switch use {
-                case .window(let id): return entries[index].windowID == id
+                case .window(let id, _): return entries[index].windowID == id
                 case .app(let request): return entries[index].pid == request.pid
                 }
             }
@@ -114,9 +114,26 @@ struct WindowFocusHistory {
         return result
     }
 
+    /// Superseded requests lose their anchors, but confirmed history remains.
+    private mutating func invalidate(_ pid: pid_t, keepingActivation: Bool = false) {
+        recent = recent.compactMap { use in
+            switch use {
+            case .app(let request):
+                guard request.pid == pid else { return use }
+                return keepingActivation ? .app(Request(pid: pid)) : nil
+            case .window(let id, let request):
+                return request?.pid == pid ? .window(id) : use
+            }
+        }
+    }
+
     private mutating func promote(_ use: Use) {
         revision = UUID()
-        recent.removeAll { $0 == use }
+        recent.removeAll { existing in
+            if case .window(let id, _) = use,
+               case .window(let existingID, _) = existing { return id == existingID }
+            return existing == use
+        }
         recent.insert(use, at: 0)
         if recent.count > WindowUseOrder.limit { recent.removeLast() }
     }
