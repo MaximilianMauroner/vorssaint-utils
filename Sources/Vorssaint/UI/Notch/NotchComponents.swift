@@ -164,8 +164,9 @@ struct NotchArtwork: View {
 }
 
 /// Items fill each column top to bottom and continue sideways, so a short
-/// island scrolls to the side and never down. Columns spread across the full
-/// width whenever everything fits without scrolling.
+/// island scrolls to the side and never down. Whenever everything fits
+/// without scrolling, the items read left to right instead, in rows of equal
+/// cells across the full width, and a short last row sits centered.
 struct NotchRail<Item: Identifiable, Content: View>: View {
     let items: [Item]
     let rows: Int
@@ -177,9 +178,11 @@ struct NotchRail<Item: Identifiable, Content: View>: View {
     @ViewBuilder let content: (Item) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var columns: Int { NotchLayout.railColumns(count: items.count, rows: rows) }
     private var starts: [Int] { Array(stride(from: 0, to: items.count, by: max(1, rows))) }
+    private var rowStarts: [Int] { Array(stride(from: 0, to: items.count, by: max(1, columns))) }
     private var fits: Bool {
-        CGFloat(starts.count) * itemWidth + CGFloat(max(0, starts.count - 1)) * spacing <= width
+        NotchLayout.railFits(columns: columns, itemWidth: itemWidth, spacing: spacing, width: width)
     }
 
     // Scroll to the column itself: its identity is known before lazy children
@@ -191,8 +194,9 @@ struct NotchRail<Item: Identifiable, Content: View>: View {
 
     var body: some View {
         if fits {
-            HStack(alignment: .top, spacing: spacing) {
-                ForEach(starts, id: \.self) { start in column(start).frame(maxWidth: .infinity) }
+            let cell = (width - CGFloat(max(0, columns - 1)) * spacing) / CGFloat(max(1, columns))
+            VStack(spacing: rowSpacing) {
+                ForEach(rowStarts, id: \.self) { start in row(start, cell: cell) }
             }
         } else {
             ScrollViewReader { proxy in
@@ -202,8 +206,9 @@ struct NotchRail<Item: Identifiable, Content: View>: View {
                     LazyHStack(alignment: .top, spacing: spacing) {
                         ForEach(starts, id: \.self) { start in column(start).frame(width: itemWidth).id(start) }
                     }
+                    .contentShape(Rectangle())
                 }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.never)
                 .onAppear {
                     if let targetColumn { proxy.scrollTo(targetColumn, anchor: .center) }
                 }
@@ -217,6 +222,15 @@ struct NotchRail<Item: Identifiable, Content: View>: View {
         }
     }
 
+    private func row(_ start: Int, cell: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: spacing) {
+            ForEach(items[start..<min(items.count, start + max(1, columns))]) { item in
+                content(item).frame(width: cell)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     private func column(_ start: Int) -> some View {
         VStack(spacing: rowSpacing) {
             ForEach(items[start..<min(items.count, start + max(1, rows))]) { item in
@@ -226,7 +240,81 @@ struct NotchRail<Item: Identifiable, Content: View>: View {
     }
 }
 
-/// The base remains opaque black. Optional glass belongs to controls alone.
+private struct NotchGlassSurfaceKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var notchGlassSurface: Bool {
+        get { self[NotchGlassSurfaceKey.self] }
+        set { self[NotchGlassSurfaceKey.self] = newValue }
+    }
+}
+
+/// The native host publishes the same path used by its animated mask. Keeping
+/// this in canvas coordinates avoids scaling the glass's corners independently.
+final class NotchBackdropPresentation: ObservableObject {
+    @Published var contour = Path()
+    @Published var usesGlass = false
+}
+
+struct NotchBackdropShape: Shape {
+    var contour: Path
+    func path(in rect: CGRect) -> Path { contour }
+}
+
+struct NotchWindowBackground: View {
+    @ObservedObject var presentation: NotchBackdropPresentation
+    @AppStorage(DefaultsKey.liquidGlassEnabled) private var glass = false
+
+    var body: some View {
+        NotchSurfaceBackground(presentation: presentation, glass: glass)
+    }
+}
+
+/// Keep the upper content dark and open the lower surface into a refractive lip.
+struct NotchSurfaceBackground: View {
+    @ObservedObject var presentation: NotchBackdropPresentation
+    let glass: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        Group {
+#if compiler(>=6.2)
+            if #available(macOS 26, *), glass, presentation.usesGlass, !reduceTransparency {
+                let shape = NotchBackdropShape(contour: presentation.contour)
+                Color.clear
+                    .glassEffect(.clear, in: shape)
+                    .environment(\.appearsActive, true)
+                    .materialActiveAppearance(.active)
+                    .overlay {
+                        let stops = (0...64).map { index in
+                            let t = Double(index) / 64
+                            return Gradient.Stop(
+                                color: .black.opacity(1 - (contrast == .increased ? 0.10 : 0.45) * pow(t, 2.5)),
+                                location: t)
+                        }
+                        LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
+                            .frame(height: presentation.contour.boundingRect.height)
+                            .frame(maxHeight: .infinity, alignment: .top)
+                            .mask(shape)
+                    }
+            } else {
+                Color.black
+            }
+#else
+            Color.black
+#endif
+        }
+        .environment(\.colorScheme, .dark)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Controls on the glass shell use quiet translucent fills, leaving the
+/// refraction to the island rather than stacking separate glass lenses.
 struct NotchControlSurface: ViewModifier {
     let cornerRadius: CGFloat
     var selected = false
@@ -234,20 +322,30 @@ struct NotchControlSurface: ViewModifier {
     @AppStorage(DefaultsKey.liquidGlassEnabled) private var glass = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.notchGlassSurface) private var glassSurface
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         Group {
-#if compiler(>=6.2)
-            if #available(macOS 26, *), glass, !reduceTransparency {
-                content.background(.white.opacity(selected ? 0.12 : 0.065), in: shape)
-                    .glassEffect(.regular.interactive(interactive), in: shape)
+            if glassSurface {
+                content
+                    .background(.white.opacity(selected ? 0.11 : 0.045), in: shape)
+                    .overlay {
+                        shape.strokeBorder(.white.opacity(selected ? 0.16 : 0.065), lineWidth: 0.5)
+                            .allowsHitTesting(false)
+                    }
             } else {
-                content.background(.white.opacity(selected ? 0.12 : 0.065), in: shape)
-            }
+#if compiler(>=6.2)
+                if #available(macOS 26, *), glass, !reduceTransparency {
+                    content.background(.white.opacity(selected ? 0.12 : 0.065), in: shape)
+                        .glassEffect(.regular.interactive(interactive), in: shape)
+                } else {
+                    content.background(.white.opacity(selected ? 0.12 : 0.065), in: shape)
+                }
 #else
-            content.background(.white.opacity(selected ? 0.12 : 0.065), in: shape)
+                content.background(.white.opacity(selected ? 0.12 : 0.065), in: shape)
 #endif
+            }
         }
         .overlay {
             shape.strokeBorder(.white.opacity(contrast == .increased ? 0.5 : 0), lineWidth: 0.75)

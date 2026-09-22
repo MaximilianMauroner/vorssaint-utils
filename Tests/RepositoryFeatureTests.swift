@@ -452,9 +452,23 @@ enum RepositoryFeatureTests {
         expectEqual(HomebrewAnalytics.url(kind: .cask).absoluteString,
                     "https://formulae.brew.sh/api/analytics/cask-install/homebrew-cask/30d.json",
                     "Homebrew cask popularity uses cask install analytics")
-        expectEqual(HomebrewAnalytics.compactCount(999), "999", "Homebrew popularity under 1K stays plain")
-        expectEqual(HomebrewAnalytics.compactCount(1_250), "1.2K", "Homebrew popularity compacts thousands")
-        expectEqual(HomebrewAnalytics.compactCount(1_200_000), "1.2M", "Homebrew popularity compacts millions")
+        do {
+            let originalLocale = MetricFormat.locale
+            defer { MetricFormat.locale = originalLocale }
+            // Run independently of both the Mac's region and other suites.
+            for (region, thousands, millions) in [
+                ("en_US_POSIX", "1.2K", "1.2M"),
+                ("pt_BR", "1,2K", "1,2M"),
+            ] {
+                MetricFormat.locale = Locale(identifier: region)
+                expectEqual(HomebrewAnalytics.compactCount(999), "999",
+                            "Homebrew popularity under 1K stays plain in \(region)")
+                expectEqual(HomebrewAnalytics.compactCount(1_250), thousands,
+                            "Homebrew popularity compacts thousands in \(region)")
+                expectEqual(HomebrewAnalytics.compactCount(1_200_000), millions,
+                            "Homebrew popularity compacts millions in \(region)")
+            }
+        }
         let shellSetupCommand = HomebrewCommandBuilder.shellConfigCommand(brewPath: brewPath,
                                                                           homeDirectory: "/Users/test",
                                                                           shellPath: "/bin/zsh")
@@ -1204,17 +1218,16 @@ enum RepositoryFeatureTests {
                "uninstall sources read back for uninstallation alignment check")
         let queryHabitSupportSource = repository.source(
             at: "Sources/Vorssaint/Services/CommandBar/CommandBarSupport.swift")
-        suite.expect(selfUninstallSource.contains("CommandBarQueryHabits.removeInstallationKey()")
-                && queryHabitSupportSource.contains("installationKeyCache.stopAndRemove {")
-                && queryHabitSupportSource.contains("SecItemDelete([")
-                && queryHabitSupportSource.contains("kSecClass: kSecClassGenericPassword")
-                && queryHabitSupportSource.contains("kSecAttrService: keyService")
-                && queryHabitSupportSource.contains("kSecAttrAccount: keyAccount")
-                && queryHabitSupportSource.contains("keyService = installationKeyService(")
-                && queryHabitSupportSource.contains("keyAccount = \"hmac-key\"")
-                && uninstallScriptSource.contains("/usr/bin/security delete-generic-password")
-                && uninstallScriptSource.contains("-s \"$BUNDLE.command-bar-query-habits\" -a \"hmac-key\""),
-               "both uninstall paths remove only the query-learning Keychain item")
+        let queryHabitServiceSource = repository.source(
+            at: "Sources/Vorssaint/Services/CommandBar/CommandBarService.swift")
+        suite.expect(!queryHabitSupportSource.isEmpty
+                && !queryHabitServiceSource.isEmpty
+                && !queryHabitSupportSource.contains("SecItem")
+                && !queryHabitSupportSource.contains("import Security")
+                && !selfUninstallSource.contains("removeInstallationKey")
+                && !uninstallScriptSource.contains("delete-generic-password")
+                && !queryHabitServiceSource.contains("DefaultsKey.commandBarQueryHabits"),
+               "query learning and uninstall never access Keychain or persist query habits")
         let requiredSubpaths = ["Library/Application Support", "Library/Caches", "Library/HTTPStorages"]
         for subpath in requiredSubpaths {
             suite.expect(selfUninstallSource.contains(subpath) && uninstallScriptSource.contains(subpath),

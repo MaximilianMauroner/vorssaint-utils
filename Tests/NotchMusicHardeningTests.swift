@@ -26,6 +26,8 @@ enum NotchLyricsContract {
         func invalidateAndCancel() { cancelled = true }
     }
     final class Window {
+        struct Level { let rawValue: Int }
+        var level = Level(rawValue: 26)
         var isVisible = true
         var attached = false
         var focused = false
@@ -34,7 +36,10 @@ enum NotchLyricsContract {
     typealias NSWindow = Window
     enum NSApplication { enum ModalResponse { case OK, cancel } }
     final class Panel {
+        static weak var current: Panel?
+        var level = Window.Level(rawValue: 0)
         var cancelled = false
+        var focused = false
         var allowedContentTypes: [UTType] = []
         var allowsMultipleSelection = true
         var canChooseDirectories = true
@@ -42,13 +47,13 @@ enum NotchLyricsContract {
         var url: URL?
         weak var parent: Window?
         private var completed: ((NSApplication.ModalResponse) -> Void)?
-        func beginSheetModal(for parent: Window, completionHandler: @escaping (NSApplication.ModalResponse) -> Void) {
-            self.parent = parent
-            parent.attached = true
+        func begin(completionHandler: @escaping (NSApplication.ModalResponse) -> Void) {
+            Self.current = self
             completed = completionHandler
         }
+        func makeKeyAndOrderFront(_ sender: Any?) { focused = true }
         func finish(_ response: NSApplication.ModalResponse) {
-            parent?.attached = false
+            Self.current = nil
             completed?(response)
             parent?.focused = false
         }
@@ -89,7 +94,7 @@ enum NotchLyricsContract {
     final class Application {
         func activate(ignoringOtherApps: Bool) {
             let notch = NotchService.shared
-            if notch.presentationWindow?.attached != true, !notch.pinned { notch.expanded = false }
+            if Panel.current == nil, !notch.pinned { notch.expanded = false }
         }
     }
     static func resetPresentation() {
@@ -108,6 +113,10 @@ enum NotchQueueContract {
 /// and a recording pipe, without a player process or a window.
 enum NotchMusicCommandContract {
     enum NotchQueueSupport { static func isEnabled() -> Bool { true } }
+    enum NotchLyricsService {
+        static let shared = Reader()
+        final class Reader { func playbackChanged(_ playback: NotchPlayback?) {} }
+    }
     final class Scheduler {
         var jobs: [() -> Void] = []
         func async(execute action: @escaping () -> Void) { jobs.append(action) }
@@ -134,6 +143,7 @@ enum NotchMusicHardeningTests {
 
     static func run(_ suite: TestSuite) {
         sourcePriority(suite)
+        sourceSwitching(suite)
         NotchPlaybackRoutingTests.run(suite)
         lyricExpansion(suite)
         lyricLifecycle(suite)
@@ -143,6 +153,48 @@ enum NotchMusicHardeningTests {
         pendingCommands(suite)
         controlLifecycle(suite)
         NotchMusicAutomationTests.run(suite)
+    }
+
+    private static func sourceSwitching(_ suite: TestSuite) {
+        let service = NotchMusicCommandContract.Service()
+        service.start()
+        var current = playback("music")
+        current.commandContext = NotchPlaybackContext(pid: 42, revision: UUID())
+        current.canSendCommandsDirectly = true
+        service.playback = current
+        let browser = NotchPlaybackSource(pid: 202, bundleIdentifier: "test.browser", isMusicApp: false,
+                                          isPlaying: true, hasTrack: true)
+        service.sources = [browser]
+        service.selectSource(.init(pid: 202, bundleIdentifier: "missing.app"))
+        suite.expect(service.playback == current && service.queue.jobs.isEmpty,
+                     "an obsolete source menu cannot clear playback or queue a selection")
+        service.selectSource(browser.selection)
+        suite.expect(service.playback == nil && service.awaitingPlayback && !service.queueVisible,
+                     "source switching retires the old controls and queue until new playback arrives")
+        suite.expect(!service.send(.toggle, context: current.commandContext),
+                     "a control rendered before the source switch cannot send to the old player")
+        service.queue.drain()
+        let request = service.input?.fileHandleForWriting.written.last.flatMap {
+            String(data: $0, encoding: .utf8).flatMap { NotchPlaybackRequest(message: $0.trimmingCharacters(in: .newlines)) }
+        }
+        suite.expect(request == NotchPlaybackRequest(command: .source(browser.selection)),
+                     "the production writer preserves the exact source chosen by the user")
+        service.awaitingPlayback = false
+        let count = service.input?.fileHandleForWriting.written.count ?? 0
+        service.selectSource(browser.selection)
+        service.queue.drain()
+        suite.expect(service.awaitingPlayback && service.input?.fileHandleForWriting.written.count == count + 1,
+                     "a discovered source is selectable from the empty playback state")
+        suite.expect(!service.send(.toggle) && !service.send(.next) && !service.send(.seek(10)),
+                     "allowing source selection without playback never enables transport commands")
+        service.selectSource(nil)
+        service.queue.drain()
+        let automatic = service.input?.fileHandleForWriting.written.last.flatMap {
+            String(data: $0, encoding: .utf8).flatMap { NotchPlaybackRequest(message: $0.trimmingCharacters(in: .newlines)) }
+        }
+        suite.expect(automatic == NotchPlaybackRequest(command: .source(nil)),
+                     "a selected source that is not responding can be released from the empty state")
+        service.stop()
     }
 
     private static func sourcePriority(_ suite: TestSuite) {
@@ -164,6 +216,40 @@ enum NotchMusicHardeningTests {
         suite.expect(choose([browser, paused]) == browser,
                "the same holds on a first read, with nothing remembered")
         let idleBrowser = source(20, music: false, playing: false)
+        suite.expect(NotchPlaybackSource.preferred(in: [music, browser], previousPID: 10, systemPID: 10,
+                                                   selection: browser.selection) == browser,
+                     "an explicit browser selection overrides simultaneous music playback")
+        suite.expect(NotchPlaybackSource.preferred(in: [music, idleBrowser], previousPID: 20, systemPID: 10,
+                                                   selection: browser.selection) == idleBrowser,
+                     "pausing a chosen browser keeps its resume control reachable")
+        suite.expect(NotchPlaybackSource.preferred(in: [music], previousPID: 20, systemPID: 10,
+                                                   selection: browser.selection) == music,
+                     "closing the chosen source restores automatic selection")
+        suite.expect(NotchPlaybackSource.preferred(in: [music, source(20, music: false, track: false)],
+                                                   previousPID: 20, systemPID: 10, selection: browser.selection) == music,
+                     "a chosen source that loses its track no longer hides available playback")
+        let decoded = NotchPlaybackSource.decode([browser.reply, music.reply, browser.reply])
+        suite.expect(decoded == [music, browser], "source replies have stable ordering and reject duplicate processes")
+        var helper = browser
+        helper.displayName = "Safari"
+        suite.expect(NotchPlaybackSource.decode([helper.reply]) == [helper] && helper.selection == browser.selection,
+                     "a browser helper displays its owning app without changing the command destination")
+        helper.displayName = String(repeating: "x", count: 257)
+        suite.expect(NotchPlaybackSource.decode([helper.reply]).first?.displayName == nil,
+                     "unbounded source names fall back to the local application name")
+        var malformed = browser.reply
+        malformed["pid"] = true
+        suite.expect(NotchPlaybackSource.decode([malformed]).isEmpty
+                     && NotchPlaybackSource.decode(Array(repeating: browser.reply, count: 17)).isEmpty,
+                     "invalid and unbounded source replies cannot populate the chooser")
+        for command in [NotchPlaybackCommand.source(browser.selection), .source(nil)] {
+            let request = NotchPlaybackRequest(command: command)
+            suite.expect(request.message.flatMap(NotchPlaybackRequest.init(message:)) == request,
+                         "source selection round-trips without borrowing a playback revision")
+        }
+        for message in ["source 0 YXBw", "source 20 !!!", "source 20 ", "source-auto extra"] {
+            suite.expect(NotchPlaybackRequest(message: message) == nil, "malformed source choices are rejected")
+        }
         suite.expect(choose([idleBrowser, paused], previous: 10) == paused,
                "pausing music keeps its resume control reachable once nothing is playing")
         suite.expect(choose([idleBrowser, paused]) == paused, "reopening the music surface can still reach paused music")
@@ -287,8 +373,9 @@ enum NotchMusicHardeningTests {
                 service.update(playback: playback("same-song"), visible: true)
                 service.importLyrics()
                 guard let panel = service.importPanel else { suite.expect(false, "a visible lyrics surface can choose a file"); continue }
-                suite.expect(panel.parent === parent && parent.attached && notch.expanded && notch.pinned == pinned,
-                       "lyrics imports attach before activation and preserve the existing pin")
+                suite.expect(panel.parent == nil && !parent.attached && panel.focused && panel.level.rawValue > parent.level.rawValue
+                       && notch.expanded && notch.pinned == pinned,
+                       "lyrics imports focus a standalone chooser above the island without moving it or changing its pin")
                 panel.url = file
                 panel.finish(.OK)
                 suite.expect(!parent.focused && service.lyrics == nil,

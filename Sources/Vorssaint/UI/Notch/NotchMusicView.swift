@@ -102,14 +102,18 @@ struct NotchMusicView: View {
                 .frame(width: 76, height: 76)
                 .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             VStack(alignment: .leading, spacing: 6) {
-                Text(text.mediaNothingPlaying).font(.system(size: 17, weight: .semibold))
+                if !service.sources.isEmpty || !service.sourceIsAutomatic {
+                    sourcePicker(nil)
+                } else {
+                    Text(text.mediaNothingPlaying).font(.system(size: 17, weight: .semibold))
+                }
                 Text(FeatureStrings.notch(l10n.language).musicHint)
                     .font(.system(size: 12)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(height: height)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     private func extraButton(_ target: MusicExtra, title: String, symbol: String) -> some View {
@@ -157,6 +161,9 @@ struct NotchMusicView: View {
                         .font(.system(size: roomy ? 20 : 16, weight: .semibold))
                         .lineLimit(titleLines).help(playback.track.title ?? text.mediaNowPlaying)
                     Spacer(minLength: 0)
+                    if service.sources.count > 1 || !service.sourceIsAutomatic {
+                        sourcePicker(playback)
+                    }
                     if playback.isPlaying {
                         NotchLiveEqualizerBars(bars: 3, barWidth: 2.5, height: 12, tint: accent)
                             .transition(.opacity)
@@ -175,6 +182,38 @@ struct NotchMusicView: View {
         }
         .fixedSize(horizontal: false, vertical: true)
     }
+
+    private func sourcePicker(_ playback: NotchPlayback?) -> some View {
+        let extras = FeatureStrings.notchMusicExtras(l10n.language)
+        let pid = playback?.track.appPID
+        let name = service.sources.first(where: { $0.pid == pid })?.displayName
+            ?? pid.flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName }
+            ?? playback?.track.appBundleIdentifier ?? extras.playbackSource
+        return Menu {
+            Button { service.selectSource(nil) } label: {
+                if service.sourceIsAutomatic { Label(extras.automaticSource, systemImage: "checkmark") }
+                else { Text(extras.automaticSource) }
+            }
+            Divider()
+            ForEach(service.sources, id: \.pid) { source in
+                let title = source.displayName ?? NSRunningApplication(processIdentifier: source.pid)?.localizedName ?? source.bundleIdentifier
+                Button { service.selectSource(source.selection) } label: {
+                    if !service.sourceIsAutomatic, source.pid == pid {
+                        Label(title, systemImage: "checkmark")
+                    } else { Text(title) }
+                }
+            }
+        } label: {
+            Text(name).lineLimit(1).truncationMode(.tail)
+        }
+        .menuStyle(.borderlessButton)
+        .frame(maxWidth: 110)
+        .fixedSize()
+        .font(.system(size: 10, weight: .medium))
+        .foregroundStyle(.secondary)
+        .accessibilityLabel(extras.playbackSource)
+        .help(extras.playbackSource)
+    }
 }
 
 private struct NotchMusicTransport: View {
@@ -192,6 +231,7 @@ private struct NotchMusicTransport: View {
     var body: some View {
         if !playback.canSendCommandsDirectly, service.automationAvailability?.access != .granted {
             HStack(spacing: 10) {
+                toggleButton
                 if service.automationAvailability?.access == .consent {
                     Button(FeatureStrings.notchMusicExtras(l10n.language).allowPlayback) { service.requestAutomationAccess() }
                         .disabled(service.requestingAutomation)
@@ -213,24 +253,33 @@ private struct NotchMusicTransport: View {
     private var transportButtons: some View {
         HStack(spacing: compact ? 14 : 22) {
             playbackButton("backward.end.fill", title: text.mediaPrevious, command: .previous)
-            Button { service.send(.toggle, context: playback.commandContext) } label: {
-                Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: compact ? 14 : 17, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .contentTransition(.symbolEffect(.replace))
-                    .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: playback.isPlaying)
-                    .frame(width: height, height: height)
-                    .background(.white, in: Circle())
-                    .contentShape(Circle())
-            }
-            .buttonStyle(NotchButtonStyle(cornerRadius: height / 2))
-            .disabled(!service.canPerform(.toggle))
-            .keyboardShortcut(.space, modifiers: [])
-            .accessibilityLabel(text.mediaPlayPause)
-            .help(text.mediaPlayPause)
+            toggleButton
             playbackButton("forward.end.fill", title: text.mediaNext, command: .next)
         }
         .frame(height: height)
+    }
+
+    private var toggleButton: some View {
+        Button {
+            if service.canPerform(.toggle) { service.send(.toggle, context: playback.commandContext) }
+            else { service.requestAutomationAccess() }
+        } label: {
+            Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: compact ? 14 : 17, weight: .semibold))
+                .foregroundStyle(.black)
+                .contentTransition(.symbolEffect(.replace))
+                .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: playback.isPlaying)
+                .frame(width: height, height: height)
+                .background(.white, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(NotchButtonStyle(cornerRadius: height / 2))
+        .disabled(!service.canPerform(.toggle)
+                  && (service.automationAvailability?.access != .consent || service.requestingAutomation))
+        .keyboardShortcut(.space, modifiers: [])
+        .accessibilityLabel(text.mediaPlayPause)
+        .help(service.automationAvailability?.access == .consent
+              ? FeatureStrings.notchMusicExtras(l10n.language).allowPlayback : text.mediaPlayPause)
     }
 
     private func playbackButton(_ symbol: String, title: String, command: NotchMusicService.Command) -> some View {
