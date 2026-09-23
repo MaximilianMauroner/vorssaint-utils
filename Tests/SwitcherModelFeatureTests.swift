@@ -1597,16 +1597,16 @@ enum SwitcherModelFeatureTests {
         // decision above is made consciously, never by omission.
         let releasePlist = NSDictionary(contentsOfFile: "Resources/Info.plist")
         let plistVersion = (releasePlist?["CFBundleShortVersionString"] as? String) ?? ""
-        suite.expect(plistVersion == "3.4.0-beta.2.1",
+        suite.expect(plistVersion == "3.4.0-beta.4",
                "bumping the app version requires re-deciding the support prompt pin above")
         let plistBuild = (releasePlist?["CFBundleVersion"] as? String) ?? ""
-        suite.expect(plistBuild == "89",
+        suite.expect(plistBuild == "91",
                "every app version needs its own incremented bundle build")
         suite.expect(SupportUpdateIntroInfo.releaseVersion == "3.3.2",
                "the support prompt remains deliberately pinned to 3.3.2")
         suite.expect(UpdateHighlightsInfo.releaseVersion == "3.4.0-beta.1",
                "the prepared tour belongs to the first 3.4 beta without changing the installed version")
-        for version in ["3.4.0-beta.1", "3.4.0-beta.2", "3.4.0-beta.2.1", "3.4.0-beta.10"] {
+        for version in ["3.4.0-beta.1", "3.4.0-beta.2", "3.4.0-beta.2.1", "3.4.0-beta.3", "3.4.0-beta.4", "3.4.0-beta.10"] {
             suite.expect(UpdateHighlightsInfo.shouldShow(appVersion: version, lastSeenVersion: nil)
                    && UpdateHighlightsInfo.shouldShow(appVersion: version, lastSeenVersion: "3.3.3"),
                    "the notch tour introduces this beta cycle to new and returning users")
@@ -2157,6 +2157,100 @@ enum SwitcherModelFeatureTests {
                    "an on-screen icon does not keep waiting")
             statusDefaults.removePersistentDomain(forName: statusPlacementSuite)
         }
+
+        // MARK: An item macOS never placed is not "on screen" (issue #1394)
+
+        // Measured on macOS 26 with the app switched off under System Settings
+        // > Menu Bar > "Allow in the Menu Bar": AppKit builds the status window
+        // at the bottom-left origin of the main display (AX reports it at
+        // -1,1295 38x24) and never moves it. That rectangle intersects the
+        // screen, which is all the recovery used to ask, so it logged
+        // "appeared" for an icon nobody could see and never said why.
+        let tahoeMain = CGRect(x: 0, y: 0, width: 2304, height: 1296)
+        let tahoePortrait = CGRect(x: -1080, y: -173, width: 1080, height: 1920)
+        let tahoeScreens = [tahoeMain, tahoePortrait]
+        let unplacedFrame = CGRect(x: -1, y: -23, width: 38, height: 24)
+        suite.expect(tahoeMain.intersects(unplacedFrame),
+               "the unplaced frame does intersect the main screen, which is why intersection alone passed it")
+        suite.expect(!StatusItemAnchorSupport.isSettlingStatusFrame(unplacedFrame),
+               "the unplaced frame has real size, so the settling grace does not cover it")
+        suite.expect(!StatusItemPlacementSupport.isPlacedStatusFrame(unplacedFrame, screenFrames: tahoeScreens),
+               "a status window parked at the bottom-left origin is not a placed icon")
+        suite.expect(StatusItemPlacementSupport.isPlacedStatusFrame(CGRect(x: 1792, y: 1269, width: 38, height: 24),
+                                                                    screenFrames: tahoeScreens),
+               "the same item placed in the main display's menu bar is")
+        suite.expect(StatusItemPlacementSupport.isPlacedStatusFrame(CGRect(x: -900, y: 1710, width: 38, height: 24),
+                                                                    screenFrames: tahoeScreens),
+               "a placement in the portrait display's own menu bar counts too")
+        suite.expect(!StatusItemPlacementSupport.isPlacedStatusFrame(CGRect(x: 1792, y: 1269, width: 0, height: 0),
+                                                                     screenFrames: tahoeScreens),
+               "a sizeless frame is not a placement")
+        let iconIsOnScreenCode = stripCommentLines((statusAnchorAppDelegateSource
+            .components(separatedBy: "private func iconIsOnScreen() -> Bool {").last ?? "")
+            .components(separatedBy: "\n    }").first ?? "")
+        suite.expect(iconIsOnScreenCode.contains("StatusItemPlacementSupport.isPlacedStatusFrame("),
+               "the recovery judges placement by the menu bar band, not by screen intersection")
+
+        // macOS 26 lets the person switch an app's menu bar items off per app,
+        // and remembers the choice in Control Center's group container. The
+        // app cannot override it, so recovery must recognise it and say so
+        // instead of resetting the item's identity for nothing.
+        func tracked(_ bundleID: String, allowed: Bool?) -> [[String: Any]] {
+            var entry: [String: Any] = ["location": ["bundle": ["_0": bundleID]],
+                                        "menuItemLocations": [["bundle": ["_0": bundleID]]]]
+            if let allowed { entry["isAllowed"] = allowed }
+            return [["bundle": ["_0": bundleID]], entry]
+        }
+        let trackedApplications: [Any] = tracked("com.lowtechguys.Clop", allowed: true)
+            + tracked("com.vorssaint.utils", allowed: false)
+            + tracked("com.vorssaint.utils.dev", allowed: true)
+            + tracked("com.example.legacy", allowed: nil)
+        suite.expect(MenuBarAllowanceSupport.allowance(forBundleID: "com.vorssaint.utils",
+                                                       trackedApplications: trackedApplications) == .disallowed,
+               "an app switched off under Allow in the Menu Bar reads as disallowed")
+        suite.expect(MenuBarAllowanceSupport.allowance(forBundleID: "com.vorssaint.utils.dev",
+                                                       trackedApplications: trackedApplications) == .allowed,
+               "a sibling bundle id with its own entry does not bleed over")
+        suite.expect(MenuBarAllowanceSupport.allowance(forBundleID: "com.example.legacy",
+                                                       trackedApplications: trackedApplications) == .unknown,
+               "an entry without the flag is unknown, never a verdict")
+        suite.expect(MenuBarAllowanceSupport.allowance(forBundleID: "com.example.absent",
+                                                       trackedApplications: trackedApplications) == .unknown,
+               "an app Control Center has never tracked is unknown")
+        suite.expect(MenuBarAllowanceSupport.allowance(forBundleID: "com.vorssaint.utils",
+                                                       trackedApplications: ["garbage", 3]) == .unknown,
+               "a malformed store is unknown rather than a crash or a verdict")
+        // The on-disk shape: an outer plist whose trackedApplications value is
+        // itself a binary plist, serialized as data.
+        let innerData = try? PropertyListSerialization.data(fromPropertyList: trackedApplications,
+                                                            format: .binary, options: 0)
+        let outerData = innerData.flatMap {
+            try? PropertyListSerialization.data(fromPropertyList: ["trackedApplications": $0,
+                                                                   "showSpotlight": false],
+                                                format: .binary, options: 0)
+        }
+        suite.expect(outerData.map {
+                MenuBarAllowanceSupport.allowance(forBundleID: "com.vorssaint.utils", groupContainerPlist: $0)
+            } == .disallowed,
+               "the nested Control Center store decodes down to the per-app verdict")
+        suite.expect(MenuBarAllowanceSupport.allowance(forBundleID: "com.vorssaint.utils",
+                                                       groupContainerPlist: Data([0x00, 0x01])) == .unknown,
+               "an unreadable store is unknown")
+        let verifyIconCode = stripCommentLines((statusAnchorAppDelegateSource
+            .components(separatedBy: "private func verifyIconReappeared(").last ?? "")
+            .components(separatedBy: "\n    }").first ?? "")
+        suite.expect(verifyIconCode.contains("MenuBarAllowanceSupport.currentAllowance(")
+                    && verifyIconCode.contains("menuBarIconDisallowedBody"),
+               "recovery names the Allow in the Menu Bar setting instead of blaming a full bar")
+        let allowanceCheck = verifyIconCode.range(of: "MenuBarAllowanceSupport.currentAllowance(")
+        let identityReset = verifyIconCode.range(of: "resetStatusItemPlacementIdentity()")
+        suite.expect(allowanceCheck != nil && identityReset != nil
+                    && allowanceCheck!.lowerBound < identityReset!.lowerBound,
+               "the setting is checked before the identity reset burns the arranged spot")
+        suite.expect(!Strings.enUS.menuBarIconDisallowedBody.isEmpty
+                    && !Strings.ptBR.menuBarIconDisallowedBody.isEmpty
+                    && Strings.enUS.menuBarIconDisallowedBody.contains("Allow in the Menu Bar"),
+               "the hint names the System Settings switch by its own label")
         suite.expect(registeredDefaults[DefaultsKey.panelControlAutoQuit] as? Bool == true,
                "panel auto quit control is visible by default")
         suite.expect(registeredDefaults[DefaultsKey.panelControlShelf] as? Bool == true,
@@ -3804,6 +3898,40 @@ enum SwitcherModelFeatureTests {
                && appGroups[0].windowCount == 2
                && appGroups[1].representativeIndex == 2,
                "App Switcher icon-row mode keeps one row entry per app")
+        let windowlessApps = [SwitcherItem.appOnly(appName: "Gamma", pid: 303),
+                              SwitcherItem.appOnly(appName: "Delta", pid: 404)]
+        let dividerViewSource = switcherCardSource
+            .replacingOccurrences(of: #"(?s)/\*.*?\*/|//[^\n]*"#, with: "", options: .regularExpression)
+            .filter { !$0.isWhitespace }
+        suite.expect(dividerViewSource.contains("SwitcherSupport.windowlessAppDividerPIDs("),
+               "the switcher view uses the windowless-app boundary decision")
+        let dividerPresentation = sourceBody(of: dividerViewSource, from: ".separatorColor", to: ".onHover")
+        suite.expect(dividerPresentation.contains(".allowsHitTesting(false)")
+               && dividerPresentation.contains(".accessibilityHidden(true)"),
+               "the switcher renders a system-colored windowless-app divider without pointer or accessibility targets")
+        suite.expect(SwitcherSupport.windowlessAppDividerPIDs(items: []) == [],
+               "an empty app row has no windowless divider")
+        suite.expect(SwitcherSupport.windowlessAppDividerPIDs(items: groupedSwitcherItems) == []
+               && SwitcherSupport.windowlessAppDividerPIDs(items: windowlessApps) == [],
+               "a row with only one kind of app has no divider")
+        suite.expect(SwitcherSupport.windowlessAppDividerPIDs(items: groupedSwitcherItems + windowlessApps) == [303],
+               "windowless apps are separated once after all windows of the preceding apps")
+        suite.expect(SwitcherSupport.windowlessAppDividerPIDs(items: [groupedSwitcherItems[0],
+                                                               windowlessApps[0],
+                                                               groupedSwitcherItems[2],
+                                                               windowlessApps[1]]) == [303, 202, 404],
+               "dividers follow each windowless boundary without changing recent-use order")
+        suite.expect(SwitcherSupport.windowlessAppDividerPIDs(items: [windowlessApps[0],
+                                                               groupedSwitcherItems[0]]) == [101],
+               "a leading windowless group has a divider after it, never before the first icon")
+        let dividerHiddenWindow = SwitcherItem.window(id: 4, title: "Hidden", appName: "Hidden", pid: 505,
+                                                      isOnScreen: false, isAppHidden: true, frame: .zero)
+        suite.expect(SwitcherSupport.windowlessAppDividerPIDs(items: [groupedSwitcherItems[0].withMinimized(true),
+                                                               dividerHiddenWindow] + windowlessApps) == [303],
+               "minimized and hidden windows still belong to apps with windows")
+        suite.expect(SwitcherSupport.windowlessAppDividerPIDs(items: [SwitcherItem.appOnly(appName: "Alpha", pid: 101)]
+                                                        + groupedSwitcherItems + windowlessApps) == [303],
+               "an app with any real window is never marked windowless by an app-only entry")
         var cappedAppWindows: [SwitcherItem] = []
         var cappedAppRepresentatives: [SwitcherItem] = []
         for appIndex in 1...25 {
@@ -3962,6 +4090,8 @@ enum SwitcherModelFeatureTests {
         let afterSecondSwitch = WindowUseOrder.promoting(1, previous: 2, in: afterFirstSwitch)
         suite.expect(afterSecondSwitch == [1, 2],
                "App Switcher use history toggles back after two consecutive switcher uses")
+
+        WindowFocusHistoryTests.run { suite.expect($0, $1) }
 
         // Issue #388: the switcher put the app the user had just used far down
         // the list. The order used to come from a history that only the

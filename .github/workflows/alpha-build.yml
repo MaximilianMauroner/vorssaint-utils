@@ -1,0 +1,50 @@
+name: Alpha build
+
+on:
+  push:
+    branches: [alpha]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpha-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Unit tests
+        run: ./build.sh --test
+
+      - name: Build alpha app
+        run: ./build.sh --dev
+
+      - name: Verify alpha app
+        run: |
+          test -d 'build/stage.noindex/Vorssaint - Alpha.app'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' 'build/stage.noindex/Vorssaint - Alpha.app/Contents/Info.plist')" = 'com.vorssaint.utils.dev'
+          codesign --verify --deep --strict 'build/stage.noindex/Vorssaint - Alpha.app'
+          ./build/VorssaintAlpha --selftest
+
+      - name: Package alpha app
+        run: |
+          ditto -c -k --keepParent 'build/stage.noindex/Vorssaint - Alpha.app' 'Vorssaint-Alpha.zip'
+          shasum -a 256 'Vorssaint-Alpha.zip' > SHA256SUMS
+
+      - name: Upload alpha build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Vorssaint-Alpha-${{ github.sha }}
+          path: |
+            Vorssaint-Alpha.zip
+            SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14

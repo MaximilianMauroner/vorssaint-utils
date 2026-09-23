@@ -3,7 +3,7 @@
 
 import SwiftUI
 
-/// The history as cards running sideways, with everything the panel's list
+/// The history as a vertical list of cards, with everything the panel's list
 /// and the quick panel offer on each: paste or copy, pin, move, delete, and
 /// the recent ones cleared in one go from the search row.
 struct NotchClipboardView: View {
@@ -17,9 +17,8 @@ struct NotchClipboardView: View {
     @State private var copiedID: UUID?
     @State private var pinnedOnly = false
     @FocusState private var searching: Bool
+    @Environment(\.notchSettingsPreview) private var preview
     private var text: ClipboardFeatureStrings { FeatureStrings.clipboard(l10n.language) }
-    private static let cardWidth: CGFloat = 168
-    private static let searchHeight: CGFloat = 36
 
     private var entries: [ClipboardHistoryEntry] {
         history.filteredEntries(matching: query).filter { !pinnedOnly || $0.isPinned }
@@ -49,7 +48,7 @@ struct NotchClipboardView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .frame(height: Self.searchHeight)
+            .frame(height: NotchLayout.clipboardSearchHeight)
             .modifier(NotchControlSurface(cornerRadius: 14))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -57,6 +56,8 @@ struct NotchClipboardView: View {
                     .allowsHitTesting(false)
             }
             .animation(.easeOut(duration: 0.15), value: searching)
+            // Typing filters the history as soon as the page opens, as in Explore.
+            .onAppear { if !preview { searching = true } }
             if !enabled, history.entries.isEmpty {
                 // The panel offers the switch beside its caption; the page
                 // says why it is empty and turns the history on from here.
@@ -74,14 +75,14 @@ struct NotchClipboardView: View {
                                message: query.isEmpty && !pinnedOnly ? text.empty : text.noResults)
                     .frame(maxHeight: .infinity)
             } else {
-                let height = max(0, size.height - Self.searchHeight - NotchLayout.rowSpacing)
-                let rows = NotchLayout.railRows(count: entries.count,
-                                                perRow: NotchLayout.railCapacity(width: size.width, itemWidth: Self.cardWidth, spacing: 8),
-                                                rowHeight: 96, spacing: 8, height: height)
-                let cardHeight = (height - CGFloat(rows - 1) * 8) / CGFloat(rows)
-                NotchRail(items: entries, rows: rows, itemWidth: Self.cardWidth, width: size.width) { entry in
-                    card(entry).frame(height: cardHeight)
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(entries) { entry in
+                            card(entry).frame(height: NotchLayout.clipboardCardHeight)
+                        }
+                    }
                 }
+                .scrollIndicators(.automatic)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -101,6 +102,7 @@ struct NotchClipboardView: View {
             Button { activate(entry) } label: {
                 preview(entry)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .clipped()
                     .contentShape(Rectangle())
             }
             .buttonStyle(NotchButtonStyle(lifts: false))
@@ -111,6 +113,9 @@ struct NotchClipboardView: View {
                 Text(entry.copiedAt, style: .time)
                     .font(.system(size: 9.5)).foregroundStyle(.tertiary).lineLimit(1)
                 Spacer(minLength: 0)
+                if entry.kind == .image, AppFeature.screenshot.isAvailable {
+                    NotchIconButton(symbol: "pencil", title: text.edit) { history.editImage(entry) }
+                }
                 NotchIconButton(symbol: copiedID == entry.id ? "checkmark" : "doc.on.doc",
                                 title: copiedID == entry.id ? text.copied : text.copy) { copy(entry) }
                 NotchIconButton(symbol: entry.isPinned ? "pin.fill" : "pin",
@@ -212,6 +217,7 @@ struct NotchClipboardView: View {
         case .text:
             Text(entry.preview)
                 .font(.system(size: 12))
+                .lineLimit(3)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         }

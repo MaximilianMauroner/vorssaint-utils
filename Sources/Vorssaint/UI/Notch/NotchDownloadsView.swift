@@ -36,6 +36,7 @@ struct NotchDownloadsView: View {
     @ObservedObject private var downloads = NotchDownloadService.shared
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(DefaultsKey.notchDownloadsEnabled) private var enabled = false
+    @Environment(\.notchSettingsPreview) private var preview
     private var text: NotchFilesStrings { FeatureStrings.notchFiles(l10n.language) }
 
     var body: some View {
@@ -61,17 +62,20 @@ struct NotchDownloadsView: View {
                     NotchEmptyView(symbol: "arrow.down.circle", message: text.waiting)
                         .frame(maxHeight: .infinity)
                 } else {
-                    let height = max(0, size.height - 20 - NotchLayout.rowSpacing)
-                    let rows = NotchLayout.railRows(count: downloads.items.count,
-                                                    perRow: NotchLayout.railCapacity(width: size.width, itemWidth: 220, spacing: 8),
-                                                    rowHeight: 76, spacing: 8, height: height)
-                    let cardHeight = (height - CGFloat(rows - 1) * 8) / CGFloat(rows)
-                    NotchRail(items: downloads.items, rows: rows, itemWidth: 220, width: size.width) { item in
-                        downloadCard(item).frame(height: cardHeight)
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(downloads.items) { item in
+                                downloadCard(item)
+                            }
+                        }
                     }
+                    .scrollIndicators(.automatic)
                 }
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Another section or a collapse takes the page away; its chooser
+        // could no longer return the folder here. Settings keeps its own.
+        .onDisappear { if !preview { downloads.cancelNotchFolderChoice() } }
     }
 
     private func downloadCard(_ item: NotchDownloadItem) -> some View {
@@ -96,7 +100,7 @@ struct NotchDownloadsView: View {
                 }
             }
             if item.completed {
-                Text(text.completed).font(.caption).foregroundStyle(.secondary)
+                Text(text.saved).font(.caption).foregroundStyle(.secondary)
             } else {
                 if let fraction = item.fraction {
                     NotchMeter(value: fraction)

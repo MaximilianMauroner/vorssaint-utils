@@ -25,17 +25,27 @@ struct MetricsTests {
             ("mixer", {
                 MixerNativeDragTests.run(suite)
                 MixerOutputAdjustmentContract.run(suite)
+                SoundOutputSwitchContract.run(suite)
                 MixerInputVolumeContract.run(suite)
                 MixerFeatureTests.run(suite)
             }),
             ("shelf", { ShelfFeatureTests.run(suite) }),
-            ("updates", { UpdateFeatureTests.run(suite) }),
+            ("updates", {
+                UpdateFeatureTests.run(suite)
+                PostUpdateStatusItemRecoveryTests.run(suite)
+            }),
             ("repository", { RepositoryFeatureTests.run(suite) }),
             ("screenshots", {
+                ScreenshotPreviewHoverTests.run(suite)
                 ScreenshotWatermarkTests.run(suite)
                 ScreenshotFeatureTests.run(suite)
             }),
-            ("recorder", { RecorderFeatureTests.run(suite) }),
+            ("recorder", {
+                RecorderFeatureTests.run(suite)
+                RecorderZoomAimingTests.run(suite)
+                RecorderExportSpeedTests.run(suite)
+                RecorderExportRenderingTests.run(suite)
+            }),
             ("command-bar", { CommandBarFeatureTests.run(suite) }),
             ("notch", {
                 NotchTests.run(suite)
@@ -43,8 +53,12 @@ struct MetricsTests {
                 NotchVolumeKeyTests.run(suite)
             }),
             ("switcher-model", { SwitcherModelFeatureTests.run(suite) }),
+            ("agents", { NotchAgentTests.run(suite) }),
             ("features", { FeatureCatalogTests.run(suite) }),
-            ("utilities", { UtilitiesFeatureTests.run(suite) }),
+            ("utilities", {
+                UtilitiesFeatureTests.run(suite)
+                PortManagerRefreshTests.run(suite)
+            }),
             ("settings", {
                 SettingsFeatureTests.run(suite)
                 SettingsWindowTests.run { suite.expect($0, $1) }
@@ -80,7 +94,10 @@ struct MetricsTests {
                 LocalizationFeatureContractTests.run(suite)
             }),
             ("cleaner", { CleanerEligibilityTests.run(suite) }),
-            ("uninstaller", { UninstallerFlowTests.run(suite) }),
+            ("uninstaller", {
+                UninstallerFlowTests.run(suite)
+                SelfUninstallContract.run(suite)
+            }),
             ("launcher", { QuickLauncherContract.run(suite) }),
             ("dock-autohide", {
                 DockAutohideHoldTests.run(suite)
@@ -93,6 +110,7 @@ struct MetricsTests {
             }),
             ("keep-awake", {
                 KeepAwakeCatalogContract.run(suite)
+                MenuPanelToggleLabelContract.run(suite)
                 KeepAwakeLidSleepTests.run { suite.expect($0, $1) }
                 KeepAwakeTimerHandoffTests.run { suite.expect($0, $1) }
             }),

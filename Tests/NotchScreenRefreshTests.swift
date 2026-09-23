@@ -58,6 +58,8 @@ enum NotchScreenRefreshContract {
         func resignKey() { resignations += 1 }
     }
     class State {
+        var hiddenInFullscreen = false
+        func fullscreenEnvironmentDidChange() {}
         var running = true
         var suspended = false
         var expanded = false
@@ -134,6 +136,17 @@ enum NotchScreenRefreshContract {
         service.screenParametersDidChange()
         suite.expect(service.preferenceSyncs == 2 && DispatchQueue.main.pending == 0,
                "stopping the island makes queued and later screen notifications inert")
+
+        let fullscreen = Service()
+        fullscreen.syncMenuSpaceMonitoring()
+        let fullscreenTimer = fullscreen.menuSpaceTimer
+        fullscreen.hiddenInFullscreen = true
+        fullscreen.syncMenuSpaceMonitoring()
+        suite.expect(fullscreen.menuSpaceTimer == nil && fullscreenTimer?.invalidated == true,
+                     "fullscreen hiding stops menu polling")
+        fullscreen.hiddenInFullscreen = false
+        fullscreen.syncMenuSpaceMonitoring()
+        suite.expect(fullscreen.menuSpaceTimer != nil, "leaving fullscreen restores menu monitoring")
 
         let virtual = Service()
         virtual.geometry.compactSideRoom = nil
@@ -245,6 +258,20 @@ enum NotchScreenRefreshContract {
         covering.syncMenuSpaceMonitoring()
         suite.expect(covering.menuSpaceTimer != nil && covering.reads == 1,
                "giving way to the menus again resumes the existing reader")
+
+        let idleSimulated = Service()
+        idleSimulated.geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1440, height: 900),
+                                               safeAreaTop: 0, cameraWidth: 0)
+        idleSimulated.idleContent = .none
+        idleSimulated.accessibilityGranted = false
+        idleSimulated.coversMenus = true
+        idleSimulated.syncMenuSpaceMonitoring()
+        suite.expect(idleSimulated.appliedRooms.isEmpty && idleSimulated.geometry.compactSideRoom == nil,
+               "a simulated cutout with nothing to show still gives way to the menus")
+        idleSimulated.compactActivity = true
+        idleSimulated.syncMenuSpaceMonitoring()
+        suite.expect(idleSimulated.geometry.compactSideRoom.map { $0 > 0 } == true,
+               "compact activity on a simulated cutout covers the menus")
 
         let physical = Service()
         physical.idleContent = .none
