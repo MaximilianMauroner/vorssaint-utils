@@ -135,20 +135,32 @@ final class WindowLayoutService: ObservableObject {
         shortcutConflictTitle(shortcut, excluding: nil)
     }
 
-    func shortcutConflictTitle(_ shortcut: GlobalShortcut, excluding excluded: WindowLayoutAction?) -> String? {
-        guard AppFeature.windowLayout.isAvailable,
-              UserDefaults.standard.bool(forKey: DefaultsKey.windowLayoutShortcutsEnabled) else { return nil }
-        let text = FeatureStrings.windowLayout(L10n.shared.language)
-        return WindowLayoutAction.shortcutActions.first {
-            $0 != excluded && $0.savedShortcut == shortcut
-        }?.title(text)
+    func shortcutConflictTitle(_ shortcut: GlobalShortcut, excluding excluded: WindowLayoutAction?,
+                               includingDirectional: Bool = true) -> String? {
+        guard AppFeature.windowLayout.isAvailable else { return nil }
+        let actionsEnabled = UserDefaults.standard.bool(forKey: DefaultsKey.windowLayoutShortcutsEnabled)
+        let directional = includingDirectional
+            && UserDefaults.standard.bool(forKey: DefaultsKey.windowDirectionalEnabled)
+            ? UserDefaults.standard.string(forKey: DefaultsKey.windowDirectionalShortcut)
+                .flatMap(GlobalShortcut.init(storageValue:)) : nil
+        guard actionsEnabled || directional != nil else { return nil }
+        switch WindowLayoutShortcutConflict.find(shortcut, directional: directional,
+                                                 excluding: excluded,
+                                                 actionShortcut: { actionsEnabled ? $0.savedShortcut : nil }) {
+        case .directional:
+            return WindowDirectionalStrings.localized(L10n.shared.language).title
+        case .action(let action):
+            return action.title(FeatureStrings.windowLayout(L10n.shared.language))
+        case nil:
+            return nil
+        }
     }
 
     func directionalShortcutConflictTitle(_ shortcut: GlobalShortcut) -> String? {
         if let role = GlobalShortcutRole.conflict(for: shortcut, excluding: nil) {
             return role.title(L10n.shared.s)
         }
-        return shortcutConflictTitle(shortcut)
+        return shortcutConflictTitle(shortcut, excluding: nil, includingDirectional: false)
     }
 
     @discardableResult
@@ -235,14 +247,12 @@ final class WindowLayoutService: ObservableObject {
                                           current: target.frame,
                                           visibleFrame: screen.visibleFrame).rect,
                     action: action),
-           let destination = sidewaysScreen(to: screen,
-                                            screens: screens,
-                                            movingRight: crossing.movingRight) {
-            // The window is already parked on that side, so the same shortcut
-            // keeps pushing in the same direction: over to the display beside
-            // it, snapped against the edge it came in through. Without a
-            // display on that side the placement below simply leaves it where
-            // it is.
+           let destination = neighbourScreen(to: screen,
+                                             screens: screens,
+                                             direction: crossing.direction) {
+            // The window is already parked on that half, so the same shortcut
+            // keeps pushing in the same direction. Without a display there,
+            // the placement below keeps its normal repeated-action behavior.
             return applyPlacement(crossing.action,
                                   to: target,
                                   visibleFrame: destination.visibleFrame,
@@ -586,7 +596,10 @@ final class WindowLayoutService: ObservableObject {
     private func shouldUseMaximizeFallback(for action: WindowLayoutAction) -> Bool {
         switch action {
         case .leftHalf, .rightHalf, .topHalf, .bottomHalf, .centerHalf,
-                .leftThird, .centerThird, .rightThird, .leftTwoThirds, .rightTwoThirds,
+                .leftThird, .centerThird, .rightThird, .leftTwoThirds, .rightTwoThirds, .centerTwoThirds,
+                .topThird, .middleThird, .bottomThird, .topTwoThirds, .bottomTwoThirds,
+                .topQuarter, .upperMiddleQuarter, .lowerMiddleQuarter, .bottomQuarter,
+                .leftQuarter, .leftMiddleQuarter, .rightMiddleQuarter, .rightQuarter,
                 .topLeftSixth, .topCenterSixth, .topRightSixth,
                 .bottomLeftSixth, .bottomCenterSixth, .bottomRightSixth,
                 .topLeft, .topRight, .bottomLeft, .bottomRight, .marginMaximize:
@@ -667,6 +680,7 @@ final class WindowLayoutService: ObservableObject {
                                              &ref)
             if status == noErr, let ref {
                 hotKeyRefs[action] = ref
+                SystemShortcutTakeover.claim(action.shortcutKey, shortcut: shortcut)
             } else {
                 failures.insert(action)
             }
@@ -717,8 +731,9 @@ final class WindowLayoutService: ObservableObject {
     func suspendShortcuts() { unregisterHotkeys() }
 
     private func unregisterHotkeys() {
-        for ref in hotKeyRefs.values {
+        for (action, ref) in hotKeyRefs {
             UnregisterEventHotKey(ref)
+            SystemShortcutTakeover.release(action.shortcutKey)
         }
         hotKeyRefs.removeAll()
         registeredShortcuts.removeAll()
@@ -742,13 +757,17 @@ final class WindowLayoutService: ObservableObject {
             directionalHotKeyRef = ref
             registeredDirectionalShortcut = shortcut
             directionalShortcutRegistrationFailed = false
+            SystemShortcutTakeover.claim(DefaultsKey.windowDirectionalShortcut, shortcut: shortcut)
         } else {
             directionalShortcutRegistrationFailed = true
         }
     }
 
     private func unregisterDirectionalHotkey() {
-        if let directionalHotKeyRef { UnregisterEventHotKey(directionalHotKeyRef) }
+        if let directionalHotKeyRef {
+            UnregisterEventHotKey(directionalHotKeyRef)
+            SystemShortcutTakeover.release(DefaultsKey.windowDirectionalShortcut)
+        }
         directionalHotKeyRef = nil
         registeredDirectionalShortcut = nil
         directionalShortcutRegistrationFailed = false
@@ -759,11 +778,12 @@ final class WindowLayoutService: ObservableObject {
         guard directionalSession == nil,
               let target = focusedTarget(for: .leftHalf),
               let screen = bestScreen(for: target.frame) else { return }
-        directionalSession = WindowDirectionalSession(target: target,
-                                                      visibleFrame: screen.visibleFrame,
-                                                      pointerOrigin: NSEvent.mouseLocation,
-                                                      action: nil,
-                                                      manualOverride: nil)
+        directionalSession = WindowDirectionalSession(
+            target: target,
+            visibleFrame: screen.visibleFrame,
+            pointerOrigin: NSEvent.mouseLocation,
+            action: nil,
+            manualOverride: nil)
         showDirectionalIndicator(at: NSEvent.mouseLocation, action: nil)
         directionalTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) {
             [weak self] _ in self?.updateDirectionalGesture()
@@ -841,19 +861,26 @@ final class WindowLayoutService: ObservableObject {
 
         if type == .keyDown {
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+            let isAutorepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+            let allowManual = WindowDirectionalGestureSupport.shouldApplyKeyboardManualOverride(
+                isAutorepeat: isAutorepeat)
             if keyCode == 49 || keyCode == 36 || keyCode == 126 { // Space, Return, Up
-                session.manualOverride = .maximize
-                directionalSession = session
-                updateDirectionalIndicator(action: .maximize)
-                let preview = placement(for: .maximize, current: session.target.frame,
-                                        visibleFrame: session.visibleFrame).rect
-                showEdgeSnapPreview(frame: preview)
+                if allowManual {
+                    session.manualOverride = .maximize
+                    directionalSession = session
+                    updateDirectionalIndicator(action: .maximize)
+                    let preview = placement(for: .maximize, current: session.target.frame,
+                                            visibleFrame: session.visibleFrame).rect
+                    showEdgeSnapPreview(frame: preview)
+                }
                 return nil
             } else if keyCode == 46 || keyCode == 125 { // M, Down
-                session.manualOverride = .minimize
-                directionalSession = session
-                updateDirectionalIndicator(action: .minimize)
-                hideEdgeSnapPreview(immediately: true)
+                if allowManual {
+                    session.manualOverride = .minimize
+                    directionalSession = session
+                    updateDirectionalIndicator(action: .minimize)
+                    hideEdgeSnapPreview(immediately: true)
+                }
                 return nil
             } else if keyCode == 53 { // Escape
                 cancelDirectionalGesture()
@@ -1877,14 +1904,14 @@ final class WindowLayoutService: ObservableObject {
         return screens[destinationIndex]
     }
 
-    private func sidewaysScreen(to current: NSScreen,
-                                screens: [NSScreen],
-                                movingRight: Bool) -> NSScreen? {
+    private func neighbourScreen(to current: NSScreen,
+                                 screens: [NSScreen],
+                                 direction: WindowLayoutGeometry.DisplayDirection) -> NSScreen? {
         guard let currentIndex = screens.firstIndex(where: { $0 === current }),
-              let destinationIndex = WindowLayoutGeometry.horizontalNeighbourIndex(
+              let destinationIndex = WindowLayoutGeometry.neighbourIndex(
                 currentIndex: currentIndex,
                 frames: screens.map(\.frame),
-                movingRight: movingRight
+                direction: direction
               )
         else { return nil }
         return screens[destinationIndex]
