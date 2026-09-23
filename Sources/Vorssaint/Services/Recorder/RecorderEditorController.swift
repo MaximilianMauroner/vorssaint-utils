@@ -37,6 +37,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
     /// over: a HUD naming a folder is not the same as giving somebody the file.
     @Published private(set) var lastExportedURL: URL?
     @Published private(set) var editPresets: [RecorderEditPreset] = []
+    @Published private(set) var isUpdatingPreset = false
     @Published private(set) var audioWaveforms: [RecorderAudioSource: [Float]] = [:]
     @Published var document: RecorderEditDocument {
         didSet { documentDidChange(from: oldValue) }
@@ -351,6 +352,15 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
     }
 
     private func documentDidChange(from previous: RecorderEditDocument) {
+        // Undo, a look or a preset can take the selected zoom away. A
+        // selection left pointing at nothing turns aiming into a click that
+        // does nothing; clearing it also ends aiming and restores the preview.
+        if let selectedZoomID, zoom(selectedZoomID) == nil { self.selectedZoomID = nil }
+        // The same goes for a blur whose area is being drawn.
+        if let selectedBlurID, !document.blurs.contains(where: { $0.id == selectedBlurID }) {
+            self.selectedBlurID = nil
+            endPickingBlurArea()
+        }
         guard !suppressUndo, previous != document else { return }
         undoStack.append(previous)
         redoStack.removeAll()
@@ -371,7 +381,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
         previewTask?.cancel()
         // While an area is being drawn the stage shows the recording as
         // captured; whatever changed meanwhile is drawn when the drawing ends.
-        guard duration > 0, sourceSize.width > 0, !isPickingBlurArea else { return }
+        guard duration > 0, sourceSize.width > 0, !isPickingBlurArea, !isAimingZoom else { return }
         let document = document
         let track = pointerTrack
         let sourceSize = sourceSize
@@ -443,32 +453,89 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
     }
 
     func applyPreset(_ preset: RecorderEditPreset) {
+        guard !isUpdatingPreset, duration > 0 else { return }
+        guard let images = preset.images, !images.isEmpty else {
+            finishApplyingPreset(preset)
+            return
+        }
+        isUpdatingPreset = true
+        let store = RecorderPresetImageStore()
+        let take = self.take
+        let duration = self.duration
+        Task { @MainActor [weak self] in
+            let restored = await Task.detached(priority: .userInitiated) {
+                store.restore(images, into: take, duration: duration)
+            }.value
+            guard let self else { return }
+            self.isUpdatingPreset = false
+            guard let restored else {
+                self.reportPresetImageFailure()
+                return
+            }
+            var prepared = preset
+            prepared.images = restored
+            self.finishApplyingPreset(prepared)
+        }
+    }
+
+    private func finishApplyingPreset(_ preset: RecorderEditPreset) {
         document = preset.applying(to: document)
             .restoringAutomaticZooms(clicks: pointerTrack.clicks,
                                      typingTimes: typingTimes,
                                      duration: duration)
             .sanitized(duration: duration)
+        if let selectedImageID, !document.images.contains(where: { $0.id == selectedImageID }) {
+            self.selectedImageID = nil
+        }
     }
 
     func savePreset(named name: String) {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return }
-        if let index = editPresets.firstIndex(where: {
-            $0.name.compare(clean, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
-        }) {
-            editPresets[index] = RecorderEditPreset(id: editPresets[index].id,
-                                                    name: clean,
-                                                    document: document)
-        } else {
-            editPresets.append(RecorderEditPreset(name: clean, document: document))
-            editPresets = Array(editPresets.suffix(12))
+        guard !clean.isEmpty, !isUpdatingPreset else { return }
+        isUpdatingPreset = true
+        let snapshot = document
+        let store = RecorderPresetImageStore()
+        Task { @MainActor [weak self] in
+            let images = await Task.detached(priority: .userInitiated) {
+                store.capture(snapshot.images)
+            }.value
+            guard let self else {
+                if let images { store.remove(images) }
+                return
+            }
+            self.isUpdatingPreset = false
+            guard let images else {
+                self.reportPresetImageFailure()
+                return
+            }
+            var prepared = snapshot
+            prepared.images = images
+            self.loadEditPresets()
+            if !self.savePreset(named: clean, document: prepared) {
+                store.remove(images)
+                self.reportPresetImageFailure()
+            }
         }
-        persistEditPresets()
+    }
+
+    private func savePreset(named name: String, document: RecorderEditDocument) -> Bool {
+        var presets = editPresets
+        if let index = presets.firstIndex(where: {
+            $0.name.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }) {
+            presets[index] = RecorderEditPreset(id: presets[index].id,
+                                                name: name, document: document)
+        } else {
+            presets.append(RecorderEditPreset(name: name, document: document))
+            presets = Array(presets.suffix(12))
+        }
+        return persistEditPresets(presets)
     }
 
     func removePreset(_ preset: RecorderEditPreset) {
-        editPresets.removeAll { $0.id == preset.id }
-        persistEditPresets()
+        guard !isUpdatingPreset else { return }
+        loadEditPresets()
+        _ = persistEditPresets(editPresets.filter { $0.id != preset.id })
     }
 
     private func loadEditPresets() {
@@ -478,9 +545,22 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
         editPresets = Array(presets.suffix(12))
     }
 
-    private func persistEditPresets() {
-        guard let data = try? JSONEncoder().encode(editPresets) else { return }
+    private func persistEditPresets(_ presets: [RecorderEditPreset]) -> Bool {
+        guard let data = try? JSONEncoder().encode(presets) else { return false }
         UserDefaults.standard.set(data, forKey: DefaultsKey.recorderEditorPresets)
+        let retainedPaths = Set(presets.flatMap { $0.images ?? [] }.map(\.path))
+        let retiredImages = editPresets.flatMap { $0.images ?? [] }
+            .filter { !retainedPaths.contains($0.path) }
+        editPresets = presets
+        DispatchQueue.global(qos: .utility).async {
+            RecorderPresetImageStore().remove(retiredImages)
+        }
+        return true
+    }
+
+    private func reportPresetImageFailure() {
+        QuickToolHUD.show(icon: "photo",
+                         message: FeatureStrings.recorder(L10n.shared.language).imageImportFailed)
     }
 
     /// The edit lives next to the master, so reopening a recording finds it
@@ -563,7 +643,9 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
 
     // MARK: - Zooms
 
-    @Published var selectedZoomID: UUID?
+    @Published var selectedZoomID: UUID? {
+        didSet { if selectedZoomID != oldValue { endAiming() } }
+    }
     /// A drag is one edit, not one per mouse-moved: the document changes
     /// freely while the finger is down and the whole thing lands on the undo
     /// stack once, when it is let go.
@@ -695,6 +777,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
     /// pointer, which is what an automatic one does.
     func setSelectedZoomFocus(_ focus: CGPoint?) {
         guard let id = selectedZoomID else { return }
+        defer { if focus == nil { endAiming() } }
         beginInteraction()
         var next = document
         next.zoomSegments = next.zoomSegments.map { segment -> RecorderTimeline.ZoomSegment in
@@ -738,18 +821,27 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
 
     /// True while the next click on the picture sets where the selected zoom
     /// looks, instead of playing or pausing.
-    @Published var isAimingZoom = false
+    @Published private(set) var isAimingZoom = false
 
     func beginAiming() {
         guard selectedZoomID != nil else { return }
         pause()
+        endPickingBlurArea()
+        previewTask?.cancel()
+        player.currentItem?.videoComposition = nil
         isAimingZoom = true
+    }
+
+    func endAiming() {
+        guard isAimingZoom else { return }
+        isAimingZoom = false
+        rebuildPreview()
     }
 
     /// A click on the stage, turned into a spot in the recorded area's own
     /// 0...1 space so a later change of shape or quality cannot invalidate it.
     func aim(at location: CGPoint, in viewSize: CGSize) {
-        defer { isAimingZoom = false }
+        defer { endAiming() }
         guard let point = RecorderSupport.unitPoint(at: location,
                                                     in: viewSize,
                                                     sourceSize: sourceSize),
@@ -1097,6 +1189,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
     func beginPickingBlurArea() {
         guard selectedBlurID != nil else { return }
         pause()
+        endAiming()
         previewTask?.cancel()
         player.currentItem?.videoComposition = nil
         isPickingBlurArea = true
@@ -1666,7 +1759,7 @@ final class RecorderEditorController: NSObject, NSWindowDelegate {
                     return nil
                 }
                 if self.model.isAimingZoom {
-                    self.model.isAimingZoom = false
+                    self.model.endAiming()
                     return nil
                 }
                 if self.model.isPickingBlurArea {

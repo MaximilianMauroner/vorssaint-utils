@@ -25,9 +25,9 @@ enum WindowFocusHistoryTests {
         }
         expect(windows(history) == [20, 10, 30, 11],
                "rapid A then B activation selects A next even when both AX reads are missing")
-        expect(!history.focus(10, for: a) && windows(history) == [20, 10, 30, 11],
-               "a late AX response from A cannot displace B")
-        expect(history.focus(20, for: b) && windows(history) == [20, 10, 30, 11],
+        expect(history.focus(11, for: a) && windows(history) == [20, 11, 30, 10],
+               "a late AX response resolves A in place without displacing B")
+        expect(history.focus(20, for: b) && windows(history) == [20, 11, 30, 10],
                "B resolving its window retains the unresolved activation of A")
         let againA = history.activate(1)!
         expect(!history.focus(10, for: a), "returning to the same PID does not accept its old request")
@@ -45,6 +45,35 @@ enum WindowFocusHistoryTests {
         _ = history.activate(99, recording: false)
         expect(!history.focus(11, for: afterSwitch) && windows(history) == [10, 11, 20, 30],
                "the app's own activation handoff invalidates callbacks without changing history")
+
+        var returning = WindowFocusHistory()
+        let firstA = returning.activate(1)!
+        _ = returning.focus(10, for: firstA)
+        let c = returning.activate(3)!
+        _ = returning.focus(30, for: c)
+        let returnedA = returning.activate(1)!
+        _ = returning.activate(2)
+        expect(returning.focus(10, for: returnedA) && windows(returning) == [20, 10, 30, 11],
+               "late focus moves a previously used window to its new activation rank")
+        expect(!returning.focus(11, for: firstA),
+               "a resolved older activation cannot overwrite a newer same-app activation")
+
+        var changing = WindowFocusHistory()
+        let changingA = changing.activate(1)!
+        _ = changing.focus(10, for: changingA)
+        _ = changing.activate(2)
+        expect(changing.focus(11, for: changingA) && windows(changing) == [20, 11, 10, 30],
+               "late intra-app focus uses the last confirmed rank and retains the previous window")
+        changing.terminated(1)
+        expect(!changing.focus(10, for: changingA),
+               "termination invalidates a resolved activation's late focus")
+
+        var explicit = WindowFocusHistory()
+        let source = explicit.activate(1)!
+        _ = explicit.focus(10, for: source)
+        explicit.switched(to: 20, pid: 2, previous: 10)
+        expect(!explicit.focus(11, for: source) && windows(explicit) == [20, 10, 30, 11],
+               "cross-app explicit switches invalidate resolved source requests")
 
         var windowless = WindowFocusHistory()
         _ = windowless.activate(4)
