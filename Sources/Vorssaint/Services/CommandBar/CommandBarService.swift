@@ -305,7 +305,6 @@ final class CommandBarService: ObservableObject {
 
     private func show(promptingFor stableKey: String?) {
         guard AppFeature.commandBar.isAvailable else { return }
-        CommandBarQueryHabits.warmInstallationKey()
         let panel = ensurePanel()
         if AppFeature.textSnippets.isAvailable {
             TextSnippetService.shared.setCommandBarVisible(true)
