@@ -15,6 +15,8 @@ concurrency:
 jobs:
   compatibility:
     name: Swift 6.0.3 compatibility
+    # Verify the older toolchain on main before release; PRs retain the full macOS 26 gate.
+    if: github.event_name == 'push'
     runs-on: macos-15
     timeout-minutes: 30
     env:
