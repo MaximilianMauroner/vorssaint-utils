@@ -165,8 +165,14 @@ enum CommandBarEmojiContract {
         let shortcut = Service()
         shortcut.isVisible = false
         shortcut.query = ""
+        // An empty argument prompt can retain its completed query after close.
+        // Running a different row from its shortcut must not teach that query.
+        shortcut.queryBeforeCompletion = "vol"
+        let habitsBeforeShortcut = shortcut.queryHabitStore.store
         shortcut.finish(row, value: nil)
         suite.expect(shortcut.queryMemory == CommandBarQueryMemory()
+                     && shortcut.queryHabitStore.store == habitsBeforeShortcut
+                     && Service().queryHabitStore.store == habitsBeforeShortcut
                      && CommandBarUsage.decode(defaults.string(forKey: DefaultsKey.commandBarUsage))[thumbID]?.count == 2,
                      "a hidden shortcut counts usage without learning an unseen search")
         let argument = Service()
