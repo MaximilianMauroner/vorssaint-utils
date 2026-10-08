@@ -6,6 +6,7 @@ import Foundation
 enum NotchVolumeKeyTests {
     static func run(_ suite: TestSuite) {
         NotchVolumeFeedbackTests.run(suite)
+        NotchVolumeRoutingTests.run(suite)
         var gate = NotchVolumeKeyGate()
         func press(_ key: Int32 = 0, state: Int = 0x0a, enabled: Bool = true, visible: Bool = true,
                    volume: Bool = true, mute: Bool = true, option: Bool = false,
@@ -34,6 +35,15 @@ enum NotchVolumeKeyTests {
         suite.expect(press(7, repeated: true) == .consume, "holding mute cannot oscillate between muted and unmuted")
         suite.expect(press(7, state: 0x0b) == .consume, "mute releases without toggling twice")
         suite.expect(press(state: 0) == .passThrough, "unknown system-key states pass through")
+        suite.expect(NotchVolumeKeyGate.playsFeedback(setting: true, option: false, shift: false)
+                     && !NotchVolumeKeyGate.playsFeedback(setting: false, option: false, shift: false),
+                     "island volume steps follow the system volume feedback setting")
+        suite.expect(!NotchVolumeKeyGate.playsFeedback(setting: true, option: false, shift: true)
+                     && NotchVolumeKeyGate.playsFeedback(setting: false, option: false, shift: true),
+                     "Shift inverts volume feedback like the native keys")
+        suite.expect(NotchVolumeKeyGate.playsFeedback(setting: true, option: true, shift: true)
+                     && !NotchVolumeKeyGate.playsFeedback(setting: false, option: true, shift: true),
+                     "fine Option-Shift steps keep the feedback setting")
 
         for key: Int32 in [0, 1, 7] {
             let action: NotchVolumeKeyGate.Action = key == 7 ? .toggleMute : .step(key == 0 ? 1 : -1)

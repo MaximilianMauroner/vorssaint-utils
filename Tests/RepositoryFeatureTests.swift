@@ -12,6 +12,34 @@ import ImageIO
 import VMStatisticsCompat
 
 enum RepositoryFeatureTests {
+    /// Run the production `result` and `copy` of the manual cleaner in
+    /// Settings and in the menu panel, with a cleaner whose rules the test
+    /// changes, recording what reaches the clipboard.
+    final class URLCleanerManualCleaner {
+        var rules = URLCleaning.Rules.none
+        var copied: [String] = []
+        func clean(_ text: String) -> URLCleaning.Result? { URLCleaning.clean(text, rules: rules) }
+        func copy(_ urlString: String) { copied.append(urlString) }
+    }
+    protocol URLCleanerManualSurface: AnyObject {
+        var cleaner: URLCleanerManualCleaner { get }
+        var input: String { get set }
+        func copy()
+    }
+    final class URLCleanerManualSettings: URLCleanerManualSurface {
+        let cleaner = URLCleanerManualCleaner()
+        var input = ""
+        var copied: String?
+    }
+    final class URLCleanerManualPanel: URLCleanerManualSurface {
+        let cleaner = URLCleanerManualCleaner()
+        var input = ""
+        var copied: String?
+        var globalNames = ""
+        var siteNames = ""
+        var disabledNames = ""
+    }
+
     private struct SourceRead: Sendable {
         let path: String
         let source: String?
@@ -29,6 +57,51 @@ enum RepositoryFeatureTests {
 
         func sortedReads() -> [SourceRead] {
             lock.withLock { reads.sorted { $0.path < $1.path } }
+        }
+    }
+
+    /// Runs the production `pollPasteboard` against a pasteboard the test
+    /// fills, recording what would be written back.
+    enum URLCleanerPollHost {
+        struct Kind: Equatable {
+            let rawValue: String
+            static let string = Kind(rawValue: "public.utf8-plain-text")
+            static let html = Kind(rawValue: "public.html")
+            static let source = Kind(rawValue: "org.nspasteboard.source")
+        }
+        final class Pasteboard {
+            static let general = Pasteboard()
+            var changeCount = 1
+            var types: [Kind]? = []
+            var items = 1
+            var text = ""
+            var html = ""
+            var copiedDuringRead = false
+            var source: String?
+            var onRead: ((Kind) -> Void)?
+            var pasteboardItems: [Int]? { Array(repeating: 0, count: items) }
+            func string(forType type: Kind) -> String? {
+                if copiedDuringRead { changeCount += 1 }
+                onRead?(type)
+                return type == .string ? text : type == .html ? html : type == .source ? source : nil
+            }
+        }
+        typealias NSPasteboard = Pasteboard
+        final class PollToken { var isCancelled = false }
+        struct PollResult {
+            let changeCount: Int
+            let cleaned: URLCleaning.Result?
+        }
+        static let urlType = Kind(rawValue: "public.url")
+        static var rules: URLCleaning.Rules { .none }
+        static var written: [String] = []
+        static var writtenSources: [String?] = []
+        static var writtenRemote: [Bool] = []
+        static func writeToPasteboard(_ urlString: String, source: String? = nil, remote: Bool = false) -> Int {
+            written.append(urlString)
+            writtenSources.append(source)
+            writtenRemote.append(remote)
+            return 0
         }
     }
 
@@ -117,6 +190,14 @@ enum RepositoryFeatureTests {
         }
     }
 
+    /// Runs the production site switch and name removal of the rules list
+    /// against stored names the test reads back.
+    final class URLCleanerSiteSwitchHost {
+        var globalNames = ""
+        var siteNames = ""
+        var disabledNames = ""
+    }
+
     static func run(_ suite: TestSuite) {
         func expectEqual(_ actual: String, _ expected: String, _ label: String,
                          file: StaticString = #filePath, line: UInt = #line) {
@@ -142,7 +223,9 @@ enum RepositoryFeatureTests {
             "Sources/Vorssaint/Services/QuickTools/RecentCaptureStore.swift",
             "Sources/Vorssaint/Services/SelfUninstall.swift",
             "Sources/Vorssaint/Services/Shelf/ShelfService.swift",
+            "Sources/Vorssaint/Services/URLCleanerService.swift",
             "Sources/Vorssaint/Support/Uninstaller.swift",
+            "Sources/Vorssaint/UI/MenuPanel/PanelURLCleanerView.swift",
             "Sources/Vorssaint/UI/Settings/URLCleanerSettings.swift",
             "Sources/Vorssaint/UI/Theme.swift",
         ]
@@ -189,6 +272,53 @@ enum RepositoryFeatureTests {
         suite.expect(urlCleanerSettingsSource.components(separatedBy: "TextField(").count
                 == urlCleanerSettingsSource.components(separatedBy: ".labelsHidden()").count,
                "every Clean URL field hides its label so the field owns the row")
+
+        // The manual result is worked out from the field, so editing the link
+        // or the rules can never leave an older result for Copy to take.
+        let manualSurfaces: [(String, URLCleanerManualSurface)] = [
+            ("Settings", URLCleanerManualSettings()), ("menu panel", URLCleanerManualPanel()),
+        ]
+        for (surface, host) in manualSurfaces {
+            host.input = "https://youtu.be/abc?si=x"
+            host.copy()
+            host.input = "https://example.com/?utm_source=a&keep=1"
+            host.copy()
+            host.cleaner.rules = URLCleaning.rules(globalNames: "keep", siteNames: nil, disabledNames: nil)
+            host.copy()
+            suite.expect(host.cleaner.copied == ["https://youtu.be/abc", "https://example.com/?keep=1",
+                                                 "https://example.com/"],
+                   "\(surface) Copy takes the field's link under the current rules: \(host.cleaner.copied)")
+        }
+        // The result reads the stored rules through the service, so each
+        // surface has to observe every key they come from and read it where
+        // the body works the result out. SwiftUI only redraws for a stored
+        // value the last render read, so a rule changed in Settings beside
+        // the open menu panel would leave the panel showing a link Copy no
+        // longer takes.
+        func memberText(_ lines: [String], _ prefix: String) -> String {
+            lines.firstIndex { $0.hasPrefix(prefix) }.map { start in
+                lines[start...].prefix { $0 != "    }" }.joined(separator: "\n")
+            } ?? ""
+        }
+        let storedRules = memberText(repository.lines(at: "Sources/Vorssaint/Services/URLCleanerService.swift"),
+                                     "    private static var rules: URLCleaning.Rules {")
+        let ruleKeys = storedRules.components(separatedBy: "DefaultsKey.").dropFirst()
+            .map { rest in String(rest.prefix { $0.isLetter || $0.isNumber }) }
+        for (surface, path) in [("Settings", "Sources/Vorssaint/UI/Settings/URLCleanerSettings.swift"),
+                                ("menu panel", "Sources/Vorssaint/UI/MenuPanel/PanelURLCleanerView.swift")] {
+            let lines = repository.lines(at: path)
+            let reads = memberText(lines, "    private var result:") + "\n" + memberText(lines, "    private var rules:")
+            let unobserved = ruleKeys.filter { key in
+                guard let declaration = lines.first(where: { $0.contains("@AppStorage(DefaultsKey.\(key)) private var ") }),
+                      let name = declaration.components(separatedBy: "private var ").last?
+                        .prefix(while: { $0.isLetter || $0.isNumber }),
+                      !name.isEmpty else { return true }
+                // A value read, not an argument label of the same name.
+                return reads.range(of: "(?<![\\w.])\(name)(?![\\w:])", options: .regularExpression) == nil
+            }
+            suite.expect(!ruleKeys.isEmpty && unobserved.isEmpty,
+                   "\(surface) redraws its result when a rule changes: \(ruleKeys), unobserved \(unobserved)")
+        }
 
         // Rules are stored as a difference from the built-in tables, never as
         // a copy of them, so names a later version adds still reach someone
@@ -246,6 +376,48 @@ enum RepositoryFeatureTests {
             .flatMap(\.entries).map(\.name).filter { $0 != $0.lowercased() }
         suite.expect(upperCaseBuiltIns.isEmpty,
                "built-in names are lowercase, since matching and switched off names are: \(upperCaseBuiltIns)")
+        let siteSwitch = URLCleanerSiteSwitchHost()
+        siteSwitch.siteNames = "weibo.com|sudaref"
+        siteSwitch.disabledNames = "youtube.com|si"
+        func switchedRules() -> URLCleaning.Rules {
+            URLCleaning.rules(globalNames: siteSwitch.globalNames, siteNames: siteSwitch.siteNames,
+                              disabledNames: siteSwitch.disabledNames)
+        }
+        func switchedGroup(_ site: String) -> URLCleaning.RuleGroup? {
+            URLCleaning.ruleGroups(rules: switchedRules()).first { $0.site == site }
+        }
+        let youtubeLink = "https://www.youtube.com/watch?v=a&si=x&feature=y"
+        for site in ["weibo.com", "youtube.com"] {
+            switchedGroup(site).map { siteSwitch.setSite($0, enabled: false) }
+        }
+        suite.expect(switchedGroup("weibo.com")?.entries.map(\.name) == ["sudaref"]
+                && switchedGroup("weibo.com")?.enabledCount == 0
+                && URLCleaning.clean("https://weibo.com/a?sudaref=x", rules: switchedRules())?.removed == [],
+               "switching a site off keeps the name the user added to it, switched off")
+        suite.expect(switchedGroup("youtube.com")?.enabledCount == 0
+                && URLCleaning.clean(youtubeLink, rules: switchedRules())?.removed == [],
+               "switching a built-in site off switches off every built-in name: \(siteSwitch.disabledNames)")
+        for site in ["weibo.com", "youtube.com"] {
+            switchedGroup(site).map { siteSwitch.setSite($0, enabled: true) }
+        }
+        let youtubeAllOn = switchedGroup("youtube.com")
+            .map { !$0.entries.isEmpty && $0.enabledCount == $0.entries.count } ?? false
+        suite.expect(siteSwitch.disabledNames.isEmpty && youtubeAllOn
+                && URLCleaning.clean("https://weibo.com/a?sudaref=x", rules: switchedRules())?.removed == ["sudaref"]
+                && URLCleaning.clean(youtubeLink, rules: switchedRules())?.removed == ["si", "feature"],
+               "switching a site back on turns on every name it lists, one off before included: \(siteSwitch.disabledNames)")
+        // A name deleted while its row is off goes from the switched off
+        // names too, or adding it again later would bring it back off.
+        siteSwitch.globalNames = "keep"
+        for site in ["weibo.com", URLCleaning.allSites] {
+            switchedGroup(site).map { siteSwitch.setSite($0, enabled: false) }
+        }
+        siteSwitch.remove("sudaref", from: "weibo.com")
+        siteSwitch.remove("keep", from: URLCleaning.allSites)
+        let leftOff = URLCleaning.tokens(from: siteSwitch.disabledNames)
+        suite.expect(siteSwitch.siteNames.isEmpty && siteSwitch.globalNames.isEmpty
+                && leftOff["weibo.com"] == nil && leftOff[URLCleaning.allSites]?.contains("keep") != true,
+               "deleting a name the user added drops it from the switched off names too: \(siteSwitch.disabledNames)")
         expectEqual(URLCleaning.siteKey(from: " https://WWW.Weibo.com/path?x=1 ") ?? "",
                     "weibo.com", "the site field takes a pasted link and keeps the host")
         suite.expect(URLCleaning.siteKey(from: "not a host") == nil,
@@ -296,6 +468,77 @@ enum RepositoryFeatureTests {
                     "https://www.reddit.com/r/swift/comments/abc/?sort=new",
                     "URL cleaner strips Reddit's deep-link tracking in either spelling")
 
+        // MARK: URL cleaning is a pure deletion
+
+        // Cleaning a link is only allowed to take parameters out of it. The
+        // query is therefore filtered while it is still percent-encoded and
+        // the survivors are put back byte for byte. Decoding them and writing
+        // them back through `queryItems` re-encodes with a much wider allowed
+        // set, so the cleaner respells a value it was never asked to touch —
+        // and on a link with nothing to remove it respells the whole query
+        // and then reports a clean.
+        let wrappedLink = "https://example.com/?redirect=https%3A%2F%2Fexample.org%2F%3Futm_source%3Dkeepme%26z%3D9&gclid=1"
+        let wrappedClean = URLCleaning.clean(wrappedLink)
+        expectEqual(wrappedClean?.url ?? "",
+                    "https://example.com/?redirect=https%3A%2F%2Fexample.org%2F%3Futm_source%3Dkeepme%26z%3D9",
+                    "cleaning a wrapper link takes the tracker out and leaves the wrapped target encoded")
+        suite.expect(wrappedClean?.removed == ["gclid"],
+               "a wrapper link reports only the tracker it really removed")
+        // A link with nothing to remove must come back identical, or the
+        // clipboard poll replaces the user's copy with a different, wrong one
+        // and the UI calls it a clean.
+        let nothingToRemove = "https://example.com/url?q=https%3A%2F%2Fexample.com%2Fpage%3Fa%3D1%26utm_source%3Dnews&sa=U"
+        suite.expect(URLCleaning.clean(nothingToRemove)?.url == nothingToRemove
+               && URLCleaning.outcome(for: URLCleaning.clean(nothingToRemove), input: nothingToRemove) == .unchanged,
+               "a link with no tracked parameter is returned byte for byte and reads as unchanged")
+        for untouched in [
+            "https://example.com/",
+            "https://example.com/?",
+            "https://example.com/path?a=1&a=2",
+            "https://example.com/?q=a+b&r=%5B%5D&s=%20x",
+            "https://user:pw@example.com:8443/p?id=1",
+            "https://[::1]:8443/p?id=1",
+        ] {
+            suite.expect(URLCleaning.clean(untouched)?.url == untouched,
+                   "a link with no tracked parameter is never re-encoded, reordered or normalised: \(untouched)")
+        }
+        expectEqual(URLCleaning.clean("https://example.com/?flag&utm_medium&utm_source=news&id=1")?.url ?? "",
+                    "https://example.com/?flag&id=1",
+                    "a pair with no equals sign is judged by its whole text and a valueless tracker still goes")
+        expectEqual(URLCleaning.clean("https://example.com/?%75tm_source=news&id=1")?.url ?? "",
+                    "https://example.com/?id=1",
+                    "a tracker name spelled percent-encoded is decoded before it is matched")
+        suite.expect(URLCleaning.clean("https://example.com/?utm_source=a&fbclid=b&utm_source=c")?.removed
+                == ["utm_source", "fbclid"],
+               "a name repeated in one link is still reported once")
+
+        let unicodeURL = "https://éxample.com/cafe\u{0301}?x=%2f&q=é#re\u{0301}sume\u{0301}"
+        let unchangedUnicode = URLCleaning.clean(unicodeURL)
+        suite.expect(unchangedUnicode?.url.utf8.elementsEqual(unicodeURL.utf8) == true
+               && unchangedUnicode?.removed.isEmpty == true,
+               "a no-op preserves Unicode spelling and existing escapes byte for byte")
+        let preservedURLCases = [
+            ("https://example.com/p?x=%2f&q=é&utm_source=x", "https://example.com/p?x=%2f&q=é"),
+            ("https://éxample.com/cafe\u{0301}?x=%2f&utm_source=x#re\u{0301}sume\u{0301}",
+             "https://éxample.com/cafe\u{0301}?x=%2f#re\u{0301}sume\u{0301}"),
+            ("https://example.com/p?utm_source=x&\u{0301}id=1", "https://example.com/p?\u{0301}id=1"),
+            ("https://example.com/p?fbclid=\u{0301}x&id=1", "https://example.com/p?id=1"),
+            ("https://example.com/p?\u{0301}id=1&utm_source=x", "https://example.com/p?\u{0301}id=1"),
+            ("https://example.com/p?utm_source=x#\u{0301}keep?utm_medium=y", "https://example.com/p#\u{0301}keep?utm_medium=y"),
+            ("https://example.com/p?utm_source=x#", "https://example.com/p#"),
+            ("https://example.com/p?utm_source=x&", "https://example.com/p?"),
+            ("https://example.com/p?&utm_source=x&&id=%26%3D%3F%23", "https://example.com/p?&&id=%26%3D%3F%23"),
+            ("https://example.com/p#fragment?utm_source=x", "https://example.com/p#fragment?utm_source=x"),
+        ]
+        for (input, expected) in preservedURLCases {
+            suite.expect(URLCleaning.clean(input)?.url.utf8.elementsEqual(expected.utf8) == true,
+                   "cleaning preserves every surviving byte, including delimiters beside combining marks: \(input)")
+        }
+        for separator in ["\n", "\r\n", "\t", " ", "\u{00A0}"] {
+            suite.expect(URLCleaning.clean("https://a.example/x?utm_source=x\(separator)https://b.example/y") == nil,
+                   "automatic URL cleaning cannot discard a second link from a separated text copy")
+        }
+
         suite.expect(URLCleaning.canRewritePasteboard(types: [
             "public.utf8-plain-text", "public.url", "public.url-name",
             "NSStringPboardType", "NSURLPboardType",
@@ -334,6 +577,163 @@ enum RepositoryFeatureTests {
         ]) && !URLCleaning.canRewritePasteboard(types: [
             "public.utf8-plain-text", "org.nspasteboard.TransientType",
         ]), "a concealed or transient copy is never rewritten")
+
+        // Automatic cleaning replaces the whole copy, so it only does so when
+        // the copy is this one link and is still on the pasteboard.
+        let pollLink = "https://x.com/a/status/1?s=20&t=x"
+        let chromiumTypes = ["public.html", "Apple HTML pasteboard type", "public.utf8-plain-text",
+                             "NSStringPboardType", "org.chromium.internal.source-rfh-token",
+                             "org.chromium.source-url"]
+        for (types, items, html, copiedDuringRead, expected, copy) in [
+            (["public.utf8-plain-text"], 1, "", false, true, "a plain link"),
+            (["public.utf8-plain-text"], 2, "", false, false, "two copied items"),
+            (["public.utf8-plain-text"], 1, "", true, false, "a link another app replaced during the read"),
+            (chromiumTypes, 1, "<meta charset='utf-8'><a href=\"\(pollLink.replacingOccurrences(of: "&", with: "&amp;"))\">"
+                + "\(pollLink)</a>", false, true, "a Chromium app's link copy (#1643)"),
+            (chromiumTypes, 1, "<meta charset='utf-8'><img src=\"\(pollLink)\">", false, false,
+             "a picture's markup with its address as the text"),
+            (chromiumTypes, 1, "<a href=\"\(pollLink)\">A post</a>", false, true, "a link under a title"),
+            (chromiumTypes, 1, "<a href=\"https://example.com/\">\(pollLink)</a>", false, false,
+             "a link pointing somewhere else"),
+        ] {
+            let pasteboard = URLCleanerPollHost.Pasteboard.general
+            pasteboard.types = types.map(URLCleanerPollHost.Kind.init(rawValue:))
+            pasteboard.items = items
+            pasteboard.text = pollLink
+            pasteboard.html = html
+            pasteboard.copiedDuringRead = copiedDuringRead
+            URLCleanerPollHost.written = []
+            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: URLCleanerPollHost.PollToken())
+            suite.expect(URLCleanerPollHost.written == (expected ? ["https://x.com/a/status/1"] : []),
+                   "automatic cleaning \(expected ? "rewrites" : "leaves alone") \(copy): \(URLCleanerPollHost.written)")
+        }
+        // The app a copy names as its source stays named after the rewrite,
+        // so the clipboard history does not credit the link to the app in front.
+        do {
+            let pasteboard = URLCleanerPollHost.Pasteboard.general
+            pasteboard.types = ["public.utf8-plain-text", "org.nspasteboard.source"].map(URLCleanerPollHost.Kind.init(rawValue:))
+            pasteboard.items = 1
+            pasteboard.text = pollLink
+            pasteboard.html = ""
+            pasteboard.copiedDuringRead = false
+            pasteboard.source = "com.example.writer"
+            URLCleanerPollHost.written = []
+            URLCleanerPollHost.writtenSources = []
+            URLCleanerPollHost.writtenRemote = []
+            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: URLCleanerPollHost.PollToken())
+            pasteboard.source = nil
+            suite.expect(URLCleanerPollHost.written == ["https://x.com/a/status/1"]
+                    && URLCleanerPollHost.writtenSources == ["com.example.writer"]
+                    && URLCleanerPollHost.writtenRemote == [false],
+                   "automatic cleaning keeps the source a copy names: \(URLCleanerPollHost.writtenSources)")
+            pasteboard.types = ["public.utf8-plain-text", "com.apple.is-remote-clipboard"].map(URLCleanerPollHost.Kind.init(rawValue:))
+            URLCleanerPollHost.written = []
+            URLCleanerPollHost.writtenRemote = []
+            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: URLCleanerPollHost.PollToken())
+            suite.expect(URLCleanerPollHost.written == ["https://x.com/a/status/1"] && URLCleanerPollHost.writtenRemote == [true],
+                   "automatic cleaning keeps a copy from another device marked as one: \(URLCleanerPollHost.writtenRemote)")
+        }
+
+        // A title over the same link, an href the browser resolved and a
+        // head or text that is never shown all go with the rewrite. Shown
+        // text beyond the link, or far more markup than a link copy needs,
+        // stays.
+        let escapedPollLink = pollLink.replacingOccurrences(of: "&", with: "&amp;")
+        let unicodeLink = "https://example.com/wiki/北京?utm_source=x"
+        let titledCopy = "<meta charset='utf-8'><a href=\"\(escapedPollLink)\">Example page title</a>"
+        let encodedCopy = "<meta charset='utf-8'><a href=\"https://example.com/wiki/%E5%8C%97%E4%BA%AC?utm_source=x\">"
+            + "\(unicodeLink)</a>"
+        let documentCopy = "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.0//EN\">\n<html><head>"
+            + "<meta charset=\"utf-8\" /><title>Untitled</title><style type=\"text/css\">\n"
+            + "p, li { white-space: pre-wrap; }\n</style></head><body style=\" font-family:sans-serif;\">\n"
+            + "<!--StartFragment-->\(escapedPollLink)<!--EndFragment--></body></html>"
+        let linkedDocumentCopy = "<html><head><meta http-equiv=Content-Type content=\"text/html; charset=utf-8\">"
+            + "<link rel=File-List href=\"file:///tmp/clip_filelist.xml\"><style>p { margin: 0; }</style></head>"
+            + "<body><p><a href=\"\(escapedPollLink)\">\(escapedPollLink)</a></p></body></html>"
+        let oversizedCopy = "<meta charset='utf-8'><a href=\"\(escapedPollLink)\">\(escapedPollLink)</a>"
+            + String(repeating: " ", count: 64 * 1024)
+        let markupCases: [(text: String, html: String, expected: [String], copy: String)] = [
+            (pollLink, titledCopy, ["https://x.com/a/status/1"],
+             "an address bar copy that writes the link under the page title"),
+            (unicodeLink, encodedCopy, ["https://example.com/wiki/北京"],
+             "a selected non-ASCII link whose href the browser wrote percent-encoded"),
+            ("https://example.com?utm_source=x",
+             "<a href=\"https://example.com/?utm_source=x\">https://example.com?utm_source=x</a>",
+             ["https://example.com"], "a link to a site's root whose href the browser wrote with a slash"),
+            (pollLink, documentCopy, ["https://x.com/a/status/1"],
+             "a rich-text document copy whose title and stylesheet are not shown"),
+            (pollLink, "<meta charset='utf-8'><style>p { margin: 0; }</style><p>\(escapedPollLink)</p>",
+             ["https://x.com/a/status/1"], "a fragment copy that carries its stylesheet"),
+            (pollLink, linkedDocumentCopy, ["https://x.com/a/status/1"],
+             "a document copy whose head links the document's own files"),
+            (pollLink, "<meta charset='utf-8'><p>Read this: \(escapedPollLink)</p>", [],
+             "formatted text that shows more than the link"),
+            (pollLink, oversizedCopy, [], "a link copy with far more markup than one link needs"),
+            ("https://example.com/Report?utm_source=x", "<a href='https://example.com/report?utm_source=x'>Report</a>", [],
+             "an anchor whose case-sensitive path points to a different resource"),
+            ("https://example.com/?id=ABC&utm_source=x", "<a href='https://example.com/?id=abc&amp;utm_source=x'>Report</a>", [],
+             "an anchor whose case-sensitive query points to a different resource"),
+            ("https://EXAMPLE.com/Report?utm_source=x", "<a href='https://example.com/Report?utm_source=x'>Report</a>",
+             ["https://EXAMPLE.com/Report"], "an anchor whose host differs only in case"),
+            (pollLink, "<a href = 'https://example.com/'>\(escapedPollLink)</a>", [],
+             "an anchor with whitespace around its different destination"),
+            (pollLink, "<a href=\(escapedPollLink)>A post</a>", ["https://x.com/a/status/1"],
+             "a link under a title with an unquoted destination"),
+            ("https://example.com/Report?utm_source=x", "<p>https://example.com/report?utm_source=x</p>", [],
+             "formatted text that spells a case-sensitive path differently"),
+        ]
+        for markupCase in markupCases {
+            let pasteboard = URLCleanerPollHost.Pasteboard.general
+            pasteboard.types = chromiumTypes.map(URLCleanerPollHost.Kind.init(rawValue:))
+            pasteboard.items = 1
+            pasteboard.text = markupCase.text
+            pasteboard.html = markupCase.html
+            pasteboard.copiedDuringRead = false
+            URLCleanerPollHost.written = []
+            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: URLCleanerPollHost.PollToken())
+            suite.expect(URLCleanerPollHost.written == markupCase.expected,
+                   "automatic cleaning \(markupCase.expected.isEmpty ? "leaves alone" : "rewrites") "
+                       + "\(markupCase.copy): \(URLCleanerPollHost.written)")
+        }
+
+        // Delayed providers can answer after the cleaner was turned off or
+        // another app copied. The final source read must not reopen that race.
+        for scenario in ["copy during source", "cancel during source", "cancel during HTML"] {
+            let pasteboard = URLCleanerPollHost.Pasteboard.general
+            let token = URLCleanerPollHost.PollToken()
+            pasteboard.types = chromiumTypes.map(URLCleanerPollHost.Kind.init(rawValue:))
+            pasteboard.items = 1
+            pasteboard.text = pollLink
+            pasteboard.html = titledCopy
+            pasteboard.copiedDuringRead = false
+            pasteboard.onRead = { kind in
+                if scenario == "copy during source", kind == .source { pasteboard.changeCount += 1 }
+                if scenario == "cancel during source", kind == .source { token.isCancelled = true }
+                if scenario == "cancel during HTML", kind == .html { token.isCancelled = true }
+            }
+            URLCleanerPollHost.written = []
+            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: token)
+            pasteboard.onRead = nil
+            suite.expect(URLCleanerPollHost.written.isEmpty,
+                         "automatic cleaning preserves the clipboard after \(scenario)")
+        }
+
+        // The poll holds the queue every pasteboard feature shares, so markup
+        // that never closes is read once rather than once per '<'.
+        for (html, shape) in [(String(repeating: "<", count: 20_000), "unclosed tags"),
+                              (String(repeating: "<style>", count: 6_000), "unclosed elements")] {
+            let pasteboard = URLCleanerPollHost.Pasteboard.general
+            pasteboard.types = chromiumTypes.map(URLCleanerPollHost.Kind.init(rawValue:))
+            pasteboard.items = 1
+            pasteboard.text = pollLink
+            pasteboard.html = html
+            pasteboard.copiedDuringRead = false
+            URLCleanerPollHost.written = []
+            let started = Date()
+            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: URLCleanerPollHost.PollToken())
+            let elapsed = Date().timeIntervalSince(started)
+            suite.expect(elapsed < 0.25, "automatic cleaning reads a copy of \(shape) in one pass: \(elapsed) s")
+        }
 
         // MARK: Homebrew command building and parsing
 
@@ -494,6 +894,96 @@ enum RepositoryFeatureTests {
                 && alternateShellSetupCommand.contains("/bin/mkdir -p /Users/test/.config/fish")
                 && alternateShellSetupCommand.hasSuffix("; eval (/opt/homebrew/bin/brew shellenv fish); brew --version"),
                "Homebrew shell setup creates and activates the interactive shell config")
+
+        // The login shell's exports reach brew through an allowlist (issue #1290).
+        let loginShell = HomebrewEnvironment.loginShellCommand(shellPath: "/bin/zsh")
+        suite.expect(loginShell.executable == "/bin/zsh"
+                && loginShell.arguments.contains("-l")
+                && loginShell.arguments.contains("-i")
+                && (loginShell.arguments.last?.hasSuffix("/usr/bin/env -0") ?? false)
+                && (loginShell.arguments.last?.contains(HomebrewEnvironment.dumpMarker) ?? false),
+               "Homebrew asks the user's shell as a login and interactive shell, so ~/.zshrc is read too, "
+               + "and marks where the NUL-separated environment starts")
+        let envDump = Data(("HOME=/Users/test\0https_proxy=http://127.0.0.1:7890\0MULTI=a\nb\0"
+                            + "EQUALS=x=y\0EMPTY=\0noequals\0Welcome back\nHOMEBREW_API_DOMAIN=https://mirror.example/api\0").utf8)
+        let parsedEnvironment = HomebrewEnvironment.parse(nullSeparated: envDump)
+        expectEqual(parsedEnvironment["https_proxy"] ?? "", "http://127.0.0.1:7890",
+                    "Homebrew environment parser reads a NAME=value entry")
+        expectEqual(parsedEnvironment["MULTI"] ?? "", "a\nb",
+                    "Homebrew environment parser keeps a newline inside a value; NUL is the only separator")
+        expectEqual(parsedEnvironment["EQUALS"] ?? "", "x=y",
+                    "Homebrew environment parser splits on the first equals sign only")
+        suite.expect(parsedEnvironment["EMPTY"] == "" && parsedEnvironment["noequals"] == nil,
+               "Homebrew environment parser keeps an empty value and drops an entry without one")
+        suite.expect(!parsedEnvironment.keys.contains { $0.contains("Welcome") || $0.hasPrefix("HOMEBREW_") },
+               "Homebrew environment parser drops an entry whose name is not an identifier, "
+               + "such as startup output glued to the variable behind it")
+        // What a real `bash -i` does: "no job control in this shell" on the shared
+        // pipe, with no NUL of its own, so the first variable rides in behind it.
+        let noisyDump = Data(("bash: no job control in this shell\nWelcome back\n"
+                              + HomebrewEnvironment.dumpMarker
+                              + "https_proxy=http://127.0.0.1:7890\0HOMEBREW_API_DOMAIN=https://mirror.example/api\0").utf8)
+        let parsedNoisy = HomebrewEnvironment.parse(nullSeparated: noisyDump)
+        expectEqual(parsedNoisy["https_proxy"] ?? "", "http://127.0.0.1:7890",
+                    "Homebrew keeps the first variable of the dump when a startup file printed before it")
+        expectEqual(parsedNoisy["HOMEBREW_API_DOMAIN"] ?? "", "https://mirror.example/api",
+                    "Homebrew reads the rest of a dump that startup output preceded")
+        suite.expect(parsedNoisy.count == 2,
+               "Homebrew takes nothing a startup file printed as a variable, found \(parsedNoisy.keys.sorted())")
+        let echoedMarker = Data(("startup echoed " + HomebrewEnvironment.dumpMarker + " itself\n"
+                                 + HomebrewEnvironment.dumpMarker + "no_proxy=localhost\0").utf8)
+        expectEqual(HomebrewEnvironment.parse(nullSeparated: echoedMarker)["no_proxy"] ?? "", "localhost",
+                    "Homebrew takes the last marker, so a startup file echoing it cannot cut the dump short")
+        let passedThrough = HomebrewEnvironment.passthrough([
+            "PATH": "/tmp/evil:/usr/bin", "DYLD_INSERT_LIBRARIES": "/tmp/evil.dylib", "HOME": "/Users/test",
+            "SHELL": "/bin/zsh", "HTTP_PROXY": "http://127.0.0.1:7890", "https_proxy": "http://127.0.0.1:7890",
+            "ALL_PROXY": "socks5://127.0.0.1:7891", "no_proxy": "localhost", "HOMEBREW_API_DOMAIN": "https://mirror.example/api",
+            "HOMEBREW_BOTTLE_DOMAIN": "https://mirror.example", "HOMEBREWX": "no", "homebrew_lower": "no",
+        ])
+        suite.expect(Set(passedThrough.keys) == ["https_proxy", "ALL_PROXY", "no_proxy",
+                                           "HOMEBREW_API_DOMAIN", "HOMEBREW_BOTTLE_DOMAIN"],
+               "Homebrew passes through only the proxy names brew itself keeps and HOMEBREW_* settings, "
+               + "found \(passedThrough.keys.sorted())")
+        suite.expect(HomebrewEnvironment.exportsFromLoginShell(shellPath: "").isEmpty
+                && HomebrewEnvironment.exportsFromLoginShell(shellPath: "/nonexistent/shell", timeout: 1).isEmpty,
+               "Homebrew contributes nothing when there is no login shell or it cannot start")
+        suite.expect(HomebrewEnvironment.exportsFromLoginShell(shellPath: "/bin/sh").keys
+                .allSatisfy(HomebrewEnvironment.isPassedThrough),
+               "Homebrew never hands a login shell's whole environment to brew")
+        let plainLogin = HomebrewEnvironment.loginShellCommand(shellPath: "/bin/zsh", interactive: false)
+        suite.expect(plainLogin.arguments.contains("-l") && !plainLogin.arguments.contains("-i")
+                && plainLogin.arguments.last == loginShell.arguments.last,
+               "Homebrew's fallback asks for the same dump from a plain login shell")
+        let resolvingEnvironment = HomebrewEnvironment.loginShellEnvironment(base: ["HOME": "/Users/test"])
+        suite.expect(HomebrewEnvironment.resolvingVariable == "VORSSAINT_RESOLVING_ENVIRONMENT"
+                && resolvingEnvironment == ["HOME": "/Users/test", "VORSSAINT_RESOLVING_ENVIRONMENT": "1"],
+               "Homebrew runs the login shell with VORSSAINT_RESOLVING_ENVIRONMENT=1 on top of the app's environment")
+        // A real zsh reading startup files from a scratch ZDOTDIR, so the user's own are never touched.
+        let zdotdir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vorssaint-login-shell-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: zdotdir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: zdotdir) }
+        func startupExports(zshrc: String) -> [String: String] {
+            try? "export HOMEBREW_API_DOMAIN=https://mirror.example/api\n"
+                .write(to: zdotdir.appendingPathComponent(".zprofile"), atomically: true, encoding: .utf8)
+            try? zshrc.write(to: zdotdir.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+            return HomebrewEnvironment.exportsFromLoginShell(
+                shellPath: "/bin/zsh",
+                baseEnvironment: ["HOME": zdotdir.path, "ZDOTDIR": zdotdir.path, "PATH": "/usr/bin:/bin"])
+        }
+        let zshrcExports = startupExports(zshrc: "export https_proxy=http://127.0.0.1:7890\n"
+                                          + "export HOMEBREW_SEEN_RESOLVING=$VORSSAINT_RESOLVING_ENVIRONMENT\n")
+        suite.expect(zshrcExports["HOMEBREW_API_DOMAIN"] == "https://mirror.example/api"
+                && zshrcExports["https_proxy"] == "http://127.0.0.1:7890",
+               "Homebrew reads exports from both ~/.zprofile and ~/.zshrc, found \(zshrcExports.keys.sorted())")
+        expectEqual(zshrcExports["HOMEBREW_SEEN_RESOLVING"] ?? "", "1",
+                    "Homebrew's login shell exposes VORSSAINT_RESOLVING_ENVIRONMENT to startup files")
+        // A multiplexer autostart that fails without a terminal and exits, or an exec into another shell.
+        for takeover in ["multiplexer_autostart_failed_without_a_terminal=1; exit 0", "exec /bin/sh -c true"] {
+            let fallbackExports = startupExports(zshrc: takeover + "\n")
+            expectEqual(fallbackExports["HOMEBREW_API_DOMAIN"] ?? "", "https://mirror.example/api",
+                        "Homebrew falls back to the plain login run when ~/.zshrc ends the shell early: \(takeover)")
+        }
         suite.expectClose(HomebrewProgressParser.progressFraction(in: "######## 42.5%") ?? -1,
                     0.425,
                     "Homebrew progress parser reads percentage output")
@@ -693,8 +1183,24 @@ enum RepositoryFeatureTests {
         """
         let dependencyPackages = (try? HomebrewParser.parseInfoJSON(Data(dependencyJSON.utf8))) ?? []
         let folded = HomebrewDependencyGraph.fold(dependencyPackages, installed: dependencyPackages)
-        suite.expect(folded.rows.map(\.name) == ["cask-app", "app-a", "example/tap/app-b", "orphan-lib"],
-                     "Homebrew keeps requested packages and unneeded dependencies as rows, found \(folded.rows.map(\.name))")
+        let flat = HomebrewDependencyGraph.display(dependencyPackages,
+                                                   installed: dependencyPackages,
+                                                   groupDependencies: false)
+        suite.expect(flat.rows.map(\.id) == dependencyPackages.map(\.id)
+                     && flat.rows.count == dependencyPackages.count
+                     && flat.dependencies.isEmpty
+                     && flat.orphans.isEmpty,
+                     "Homebrew flat mode retains every installed row in its incoming order and shows no nested duplicates or orphans")
+        let grouped = HomebrewDependencyGraph.display(dependencyPackages,
+                                                      installed: dependencyPackages,
+                                                      groupDependencies: true)
+        suite.expect(grouped.rows.map(\.id) == folded.rows.map(\.id)
+                     && Set(grouped.dependencies.keys) == Set(folded.dependencies.keys)
+                     && grouped.orphans.map(\.id) == folded.orphans.map(\.id),
+                     "Homebrew grouped mode preserves the existing dependency layout")
+        suite.expect(folded.rows.map(\.name) == ["cask-app", "app-a", "example/tap/app-b"]
+                     && folded.orphans.map(\.name) == ["orphan-lib"],
+                     "Homebrew keeps requested packages as rows and lists a dependency nothing needs as an orphan, found \(folded.rows.map(\.name)) and \(folded.orphans.map(\.name))")
         suite.expect(folded.dependencies["formula:app-a"]?.map(\.name) == ["deep-lib", "shared-lib"],
                      "Homebrew lists direct and transitive dependencies under a requested formula")
         suite.expect(folded.dependencies["formula:example/tap/app-b"]?.map(\.name)
@@ -711,18 +1217,47 @@ enum RepositoryFeatureTests {
             return package
         })
         let updateFolded = HomebrewDependencyGraph.fold(withUpdate, installed: withUpdate)
-        suite.expect(updateFolded.rows.map(\.name) == ["shared-lib", "cask-app", "app-a", "example/tap/app-b", "orphan-lib"]
+        let flatWithUpdate = HomebrewDependencyGraph.display(withUpdate,
+                                                             installed: withUpdate,
+                                                             groupDependencies: false)
+        suite.expect(flatWithUpdate.rows.map(\.id) == withUpdate.map(\.id)
+                     && flatWithUpdate.rows.first?.name == "shared-lib",
+                     "Homebrew flat mode keeps update-first ordering and includes dependencies as top-level rows")
+        suite.expect(updateFolded.rows.map(\.name) == ["app-a", "example/tap/app-b", "cask-app"]
                      && updateFolded.dependencies["formula:app-a"]?.map(\.name) == ["deep-lib", "shared-lib"],
-                     "Homebrew keeps a reached dependency with an update as its own first row and under its parent, found \(updateFolded.rows.map(\.name))")
+                     "Homebrew keeps a dependency with an update under its parents and moves those parents up, found \(updateFolded.rows.map(\.name))")
+        let orphanUpdate = HomebrewPackageOrdering.updatesFirst(dependencyPackages.map { package in
+            var package = package
+            if package.name == "orphan-lib" {
+                package.update = HomebrewPackageUpdate(kind: .formula, name: "orphan-lib",
+                                                       installedVersions: ["6"], currentVersion: "7", isPinned: false)
+            }
+            return package
+        })
+        let orphanUpdateFolded = HomebrewDependencyGraph.fold(orphanUpdate, installed: orphanUpdate)
+        suite.expect(orphanUpdateFolded.orphans.map(\.name) == ["orphan-lib"]
+                     && !orphanUpdateFolded.rows.contains { $0.name == "orphan-lib" },
+                     "Homebrew keeps an orphan with an update in the unneeded group, found \(orphanUpdateFolded.rows.map(\.name))")
         let formulaOnly = dependencyPackages.filter { $0.kind == .formula }
-        suite.expect(HomebrewDependencyGraph.fold(formulaOnly, installed: dependencyPackages).rows.map(\.name).contains("cask-lib"),
-                     "Homebrew shows a cask's dependency as a row when the filter hides the cask")
+        let flatFormulaOnly = HomebrewDependencyGraph.display(formulaOnly,
+                                                              installed: dependencyPackages,
+                                                              groupDependencies: false)
+        suite.expect(flatFormulaOnly.rows.count == formulaOnly.count
+                     && flatFormulaOnly.rows.allSatisfy { $0.kind == .formula },
+                     "Homebrew flat mode keeps the active filter and its displayed count")
+        let formulaOnlyFolded = HomebrewDependencyGraph.fold(formulaOnly, installed: dependencyPackages)
+        suite.expect(formulaOnlyFolded.rows.map(\.name).contains("cask-lib")
+                     && formulaOnlyFolded.orphans.map(\.name) == ["orphan-lib"],
+                     "Homebrew shows a cask's dependency as a row, not an orphan, when the filter hides the cask")
         let oldBrewPackages = (try? HomebrewParser.parseInfoJSON(Data(dependencyJSON
             .replacingOccurrences(of: "\"installed_on_request\": true,", with: "")
             .replacingOccurrences(of: "\"installed_on_request\": false,", with: "").utf8))) ?? []
         let oldBrewFolded = HomebrewDependencyGraph.fold(oldBrewPackages, installed: oldBrewPackages)
-        suite.expect(oldBrewFolded.rows.count == 8 && oldBrewFolded.dependencies.isEmpty,
+        suite.expect(oldBrewFolded.rows.count == 8 && oldBrewFolded.dependencies.isEmpty && oldBrewFolded.orphans.isEmpty,
                      "Homebrew keeps the flat list when brew does not report installed_on_request, found \(oldBrewFolded.rows.count)")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.homebrewGroupDependencies] as? Bool == true
+                     && SettingsBackupSupport.exportKeys().contains(DefaultsKey.homebrewGroupDependencies),
+                     "Homebrew grouping remains the default and the alternative layout travels with settings backups")
         let searchPackages = HomebrewParser.parseSearchOutput("sample-formula\nbad token\nsample-filter\nsample-tool\n",
                                                               kind: .formula,
                                                               installed: homebrewPackages)
@@ -752,6 +1287,16 @@ enum RepositoryFeatureTests {
                "Homebrew search results sort by popularity first")
         suite.expect(rankedPackages.first?.popularity?.compactCount == "42K",
                "Homebrew search results keep compact popularity")
+        var newlyInstalled = rankedPackages[0]
+        newlyInstalled.installedVersion = "2.0"
+        let afterInstall = HomebrewSearchResults.reconciled(rankedPackages, installed: [newlyInstalled])
+        suite.expect(afterInstall.first?.isInstalled == true
+                     && afterInstall.first?.popularity == rankedPackages.first?.popularity,
+                     "Homebrew search shows an installed package without losing its popularity")
+        let afterUninstall = HomebrewSearchResults.reconciled(afterInstall, installed: [])
+        suite.expect(afterUninstall.first?.isInstalled == false
+                     && afterUninstall.map(\.id) == rankedPackages.map(\.id),
+                     "Homebrew search returns to an installable result after uninstall")
 
         // MARK: Repository-wide source contracts
 
@@ -1303,6 +1848,19 @@ enum RepositoryFeatureTests {
         }
         suite.expect(uninstallScriptSource.contains("Library/Preferences/ByHost"),
                "script uninstall sweeps ByHost preferences")
+        // zsh passes a plain string to a command as one word, so the script
+        // keeps the closed-lid rule names in an array. They must be the files
+        // the app looks for, under the current name and every earlier one.
+        func sudoersRuleFiles(_ text: String) -> Set<String> {
+            Set(text.components(separatedBy: CharacterSet(charactersIn: " \n\t\"(),"))
+                .filter { $0.hasPrefix("/etc/sudoers.d/") })
+        }
+        let appRuleFiles = sudoersRuleFiles(
+            repository.source(at: "Sources/Vorssaint/Services/ShellSupport.swift"))
+        let scriptRuleFiles = sudoersRuleFiles(uninstallScriptSource.components(separatedBy: "\n")
+            .first { $0.hasPrefix("RULES=(") } ?? "")
+        suite.expect(!appRuleFiles.isEmpty && scriptRuleFiles == appRuleFiles,
+               "script uninstall looks for the same closed-lid rule files as the app: \(scriptRuleFiles.sorted())")
         // Restoring sleep used to be fired and forgotten at both exits. A
         // failure there leaves `pmset disablesleep 1` set system-wide, and
         // removal deletes the flag that launch-time recovery reads before it
@@ -1315,14 +1873,28 @@ enum RepositoryFeatureTests {
         suite.expect(!selfUninstallSource.contains("_ = Sudoers.pmsetDisableSleep")
                 && !uninstallerSource.contains("_ = Sudoers.pmsetDisableSleep"),
                "neither uninstall path discards the result of restoring sleep")
-        suite.expect(selfUninstallSource.contains("guard detachFromSystem() else")
+        suite.expect(selfUninstallSource.contains("guard restoreSleepBeforeRemoval() else")
+                && selfUninstallSource.contains("guard detachFromSystem() else")
                 && selfUninstallSource.contains("restoreSleepBeforeRemoval() -> Bool")
-                && selfUninstallSource.contains("guard FanControlService.restoreAndUnregisterForRemoval() else")
+                && selfUninstallSource.contains("guard detachFanControl() else")
+                && selfUninstallSource.contains("FanControlService.restoreAndUnregisterForRemoval()")
                 && selfUninstallSource.contains("adminPromptRecover")
                 && selfUninstallSource.contains("verification.status == 0"),
                "in-app uninstall aborts unless fans and normal sleep are restored before removal")
+        suite.expect(uninstallerSource.contains("SpacesOrderHold.restoreForRemoval()"),
+               "script uninstall puts back the Space rearranging setting before the preferences are deleted")
         suite.expect(uninstallScriptSource.contains("SleepDisabled"),
                "script uninstall reads the sleep setting back for itself")
+        suite.expect(uninstallScriptSource.contains("spaces_read_domain \"$BUNDLE\"")
+                && uninstallScriptSource.contains("spaces_recovery_value \"$spaces_snapshot\" \(DefaultsKey.spacesOrderRestore)")
+                && uninstallScriptSource.contains("spaces_recovery_value \"$spaces_snapshot\" \(DefaultsKey.spacesOrderRestartPending)")
+                && uninstallScriptSource.contains("spaces_read_domain com.apple.dock")
+                && uninstallScriptSource.contains("spaces_stuck == 0")
+                && uninstallScriptSource.contains("spaces_unloaded == 0")
+                && uninstallScriptSource.contains("spaces_unknown == 0")
+                && !uninstallScriptSource.contains("defaults write com.apple.dock")
+                && !uninstallScriptSource.contains("killall"),
+               "script uninstall reads Space rearranging back for itself and never changes it")
         let brightnessSource = repository.source(
             at: "Sources/Vorssaint/Services/Display/BrightnessService.swift")
         let brightnessTapMethod = brightnessSource

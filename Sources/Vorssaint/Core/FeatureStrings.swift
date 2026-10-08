@@ -11,6 +11,7 @@ enum FeatureStrings {
         case .tr: return .tr
         case .ru: return .ru
         case .es: return .es
+        case .sk: return .sk
         case .de: return .de
         case .fr: return .fr
         case .it: return .it
@@ -19,6 +20,7 @@ enum FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .uk: return .uk
         }
     }
 
@@ -29,6 +31,7 @@ enum FeatureStrings {
         case .tr: return .tr
         case .ru: return .ru
         case .es: return .es
+        case .sk: return .sk
         case .de: return .de
         case .fr: return .fr
         case .it: return .it
@@ -37,6 +40,7 @@ enum FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .uk: return .uk
         }
     }
 
@@ -47,6 +51,7 @@ enum FeatureStrings {
         case .tr: return .tr
         case .ru: return .ru
         case .es: return .es
+        case .sk: return .sk
         case .de: return .de
         case .fr: return .fr
         case .it: return .it
@@ -55,6 +60,7 @@ enum FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .uk: return .uk
         }
     }
 
@@ -65,6 +71,7 @@ enum FeatureStrings {
         case .tr: return .tr
         case .ru: return .ru
         case .es: return .es
+        case .sk: return .sk
         case .de: return .de
         case .fr: return .fr
         case .it: return .it
@@ -73,6 +80,7 @@ enum FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .uk: return .uk
         }
     }
 
@@ -83,6 +91,7 @@ enum FeatureStrings {
         case .tr: return .tr
         case .ru: return .ru
         case .es: return .es
+        case .sk: return .sk
         case .de: return .de
         case .fr: return .fr
         case .it: return .it
@@ -91,6 +100,7 @@ enum FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .uk: return .uk
         }
     }
 
@@ -117,6 +127,7 @@ struct MixerFeatureStrings {
     static let tr = MixerFeatureStrings(hideInactiveApps: "Etkin olmayan uygulamaları gizle", pin: "En üste sabitle", unpin: "Sabitlemeyi kaldır", moveUp: "Yukarı taşı", moveDown: "Aşağı taşı", pinFirst: "Başa sabitle", moveLeft: "Sola taşı", moveRight: "Sağa taşı", arrange: "Sıralamak için Command tuşunu basılı tutup sürükleyin", actions: "Eylemler")
     static let ru = MixerFeatureStrings(hideInactiveApps: "Скрывать неактивные приложения", pin: "Закрепить сверху", unpin: "Открепить", moveUp: "Переместить вверх", moveDown: "Переместить вниз", pinFirst: "Закрепить в начале", moveLeft: "Переместить влево", moveRight: "Переместить вправо", arrange: "Удерживайте Command и перетащите для изменения порядка", actions: "Действия")
     static let es = MixerFeatureStrings(hideInactiveApps: "Ocultar apps inactivas", pin: "Fijar arriba", unpin: "Desfijar", moveUp: "Mover hacia arriba", moveDown: "Mover hacia abajo", pinFirst: "Fijar al principio", moveLeft: "Mover a la izquierda", moveRight: "Mover a la derecha", arrange: "Mantén pulsado Command y arrastra para reordenar", actions: "Acciones")
+    static let sk = MixerFeatureStrings(hideInactiveApps: "Skryť neaktívne aplikácie", pin: "Pripnúť navrch", unpin: "Odopnúť", moveUp: "Presunúť nahor", moveDown: "Presunúť nadol", pinFirst: "Pripnúť dopredu", moveLeft: "Presunúť doľava", moveRight: "Presunúť doprava", arrange: "Podržte Command a presuňte myšou pre zmenu poradia", actions: "Akcie")
     static let de = MixerFeatureStrings(hideInactiveApps: "Inaktive Apps ausblenden", pin: "Oben anheften", unpin: "Loslösen", moveUp: "Nach oben bewegen", moveDown: "Nach unten bewegen", pinFirst: "Vorne anheften", moveLeft: "Nach links bewegen", moveRight: "Nach rechts bewegen", arrange: "Zum Anordnen Command gedrückt halten und ziehen", actions: "Aktionen")
     static let fr = MixerFeatureStrings(hideInactiveApps: "Masquer les apps inactives", pin: "Épingler en haut", unpin: "Désépingler", moveUp: "Déplacer vers le haut", moveDown: "Déplacer vers le bas", pinFirst: "Épingler au début", moveLeft: "Déplacer vers la gauche", moveRight: "Déplacer vers la droite", arrange: "Maintenez Command et faites glisser pour réorganiser", actions: "Actions")
     static let it = MixerFeatureStrings(hideInactiveApps: "Nascondi le app inattive", pin: "Fissa in alto", unpin: "Rimuovi fissaggio", moveUp: "Sposta su", moveDown: "Sposta giù", pinFirst: "Fissa all’inizio", moveLeft: "Sposta a sinistra", moveRight: "Sposta a destra", arrange: "Tieni premuto Command e trascina per riordinare", actions: "Azioni")
@@ -158,8 +169,8 @@ extension ClipboardFeatureStrings {
         recent: "최근 항목",
         pin: "고정",
         unpin: "고정 해제",
-        clearRecent: "최근 항목 지우기",
-        clearAll: "고정되지 않은 항목 지우기",
+        clearRecent: "고정되지 않은 항목 지우기",
+        clearRecentKeywords: "최근 항목 지우기",
         empty: "저장한 텍스트가 없습니다",
         disabled: "복사한 텍스트를 저장하려면 기록을 켜세요.",
         search: "복사한 텍스트 검색",
@@ -175,7 +186,6 @@ extension ClipboardFeatureStrings {
         moveUp: "위로 이동",
         moveDown: "아래로 이동",
         noResults: "결과 없음",
-        newestFirst: "최신순",
         active: "새 텍스트 저장 중",
         includeImagesFiles: "복사한 이미지와 파일도 저장",
         includeImagesFilesCaption: "이미지는 기록에 추가되고 파일은 위치 링크로 저장됩니다. 텍스트 항목처럼 고정하고 붙여넣을 수 있습니다.",
@@ -197,7 +207,12 @@ extension ClipboardFeatureStrings {
         menuBarPreview: "메뉴 막대에 최근 복사 항목 표시",
         menuBarPreviewCaption: "아이콘 옆에 최근 복사한 내용의 축약된 미리보기를 표시합니다. 클릭하면 기록이 열립니다.",
         menuBarPreviewLength: "미리보기 길이",
-        menuBarPreviewLengthSuffix: "자"
+        menuBarPreviewLengthSuffix: "자",
+        clearRecentConfirmFormat: "고정되지 않은 항목 %d개를 지울까요?",
+        clearRecentConfirmMessage: "고정된 항목과 이후에 복사한 내용은 유지됩니다. 되돌릴 수 없습니다.",
+        historyLayout: "기록 레이아웃",
+        historyLayoutCards: "카드",
+        historyLayoutList: "목록"
     )
 }
 
@@ -272,15 +287,21 @@ extension WindowLayoutFeatureStrings {
         fullScreen: "전체 화면",
         previousDisplay: "이전 디스플레이",
         edgeSnapEnable: "화면 가장자리에 윈도우 맞추기",
-        edgeSnapCaption: "켜고 아래에서 사용할 영역을 선택한 다음, 윈도우 제목 막대를 그중 한 곳으로 드래그해 놓으세요.",
+        edgeSnapCaption: "켠 다음 윈도우 제목 막대를 아래의 강조된 영역 중 한 곳으로 드래그해 놓으세요. 영역을 클릭하면 윈도우가 놓일 위치를 고를 수 있습니다.",
         edgeSnapSystemConflict: "macOS가 같은 가장자리를 사용 중입니다. 데스크탑 및 Dock에서 윈도우 타일링을 끄면 Vorssaint가 사용할 수 있습니다.",
         edgeSnapOpenSystemSettings: "데스크탑 및 Dock 열기",
         edgeSnapWaitingForSystem: "Vorssaint에서 켜졌습니다. macOS 타일링을 끄면 바로 작동합니다.",
+        edgeSnapUseCorner: "이 모서리 사용",
+        edgeSnapUseEdge: "이 가장자리 사용",
+        edgeSnapAreasOnEdge: "이 가장자리의 영역",
         marginMaximize: "여백 두고 최대화",
+        marginPerEdge: "가장자리별 여백",
         gapsSection: "간격",
         gapsCaption: "스냅된 윈도우 사이, 그리고 윈도우와 화면 가장자리 사이의 간격입니다.",
         windowGap: "윈도우 간격",
         screenGap: "화면 간격",
+        sideRepeatCycle: "왼쪽/오른쪽 반복 시 크기 순환",
+        sideRepeatCycleCaption: "같은 디스플레이에서 절반, 2/3, 1/3 순으로 바뀝니다. 끄면 디스플레이가 여러 개일 때 그 방향의 다음 디스플레이로 이동합니다.",
         gapNone: "없음",
         gapTiny: "아주 작게",
         gapSmall: "작게",
@@ -313,7 +334,7 @@ extension MonitorAlertFeatureStrings {
         cpuTitle: "높은 CPU 사용량",
         cpuBodyFormat: "CPU 사용량이 몇 초 동안 %d%%를 넘었습니다.",
         cpuTemperatureTitle: "CPU 과열",
-        cpuTemperatureBodyFormat: "CPU 온도가 %d °C에 도달했습니다.",
+        cpuTemperatureBodyFormat: "CPU 온도가 %@에 도달했습니다.",
         memoryTitle: "위험한 메모리",
         memoryBody: "메모리 압력이 위험 수준에 도달했습니다.",
         diskTitle: "부족한 디스크 공간",
@@ -323,7 +344,7 @@ extension MonitorAlertFeatureStrings {
         batteryTemperature: "높은 배터리 온도",
         batteryTemperatureThreshold: "온도",
         batteryTemperatureTitle: "배터리 과열",
-        batteryTemperatureBodyFormat: "배터리 온도가 %d °C에 도달했습니다."
+        batteryTemperatureBodyFormat: "배터리 온도가 %@에 도달했습니다."
     )
 }
 
@@ -378,6 +399,15 @@ struct SettingsCategoryStrings {
         utilities: "Utilidades",
         app: "App",
         appManagement: "Gestión de apps"
+    )
+
+    static let sk = SettingsCategoryStrings(
+        essentials: "Základné",
+        windowsControls: "Okná a ovládanie",
+        files: "Súbory",
+        utilities: "Pomôcky",
+        app: "Apka",
+        appManagement: "Správa aplikácií"
     )
 
     static let de = SettingsCategoryStrings(
@@ -464,7 +494,7 @@ struct ClipboardFeatureStrings {
     let pin: String
     let unpin: String
     let clearRecent: String
-    let clearAll: String
+    let clearRecentKeywords: String
     let empty: String
     let disabled: String
     let search: String
@@ -480,7 +510,6 @@ struct ClipboardFeatureStrings {
     let moveUp: String
     let moveDown: String
     let noResults: String
-    let newestFirst: String
     let active: String
     let includeImagesFiles: String
     let includeImagesFilesCaption: String
@@ -503,6 +532,11 @@ struct ClipboardFeatureStrings {
     let menuBarPreviewCaption: String
     let menuBarPreviewLength: String
     let menuBarPreviewLengthSuffix: String
+    let clearRecentConfirmFormat: String
+    let clearRecentConfirmMessage: String
+    let historyLayout: String
+    let historyLayoutCards: String
+    let historyLayoutList: String
 
     static let enUS = ClipboardFeatureStrings(
         title: "Clipboard",
@@ -523,8 +557,8 @@ struct ClipboardFeatureStrings {
         recent: "Recent",
         pin: "Pin",
         unpin: "Unpin",
-        clearRecent: "Clear recent",
-        clearAll: "Clear unpinned",
+        clearRecent: "Clear unpinned",
+        clearRecentKeywords: "Clear recent",
         empty: "No saved text",
         disabled: "Enable history to start saving copied text.",
         search: "Search copied text",
@@ -540,7 +574,6 @@ struct ClipboardFeatureStrings {
         moveUp: "Move up",
         moveDown: "Move down",
         noResults: "No results",
-        newestFirst: "Newest first",
         active: "Saving new text",
         includeImagesFiles: "Also save copied images and files",
         includeImagesFilesCaption: "Images join the history and files are remembered as links to their location. Pin and paste them like any text item.",
@@ -562,7 +595,12 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "Show latest copy in the menu bar",
         menuBarPreviewCaption: "Shows a shortened preview of your last copy next to the icon. Click it to open the history.",
         menuBarPreviewLength: "Preview length",
-        menuBarPreviewLengthSuffix: "characters"
+        menuBarPreviewLengthSuffix: "characters",
+        clearRecentConfirmFormat: "Clear unpinned (%d)?",
+        clearRecentConfirmMessage: "Pinned items stay, and so does anything copied after this. This can’t be undone.",
+        historyLayout: "History layout",
+        historyLayoutCards: "Cards",
+        historyLayoutList: "List"
     )
 
     static let ptBR = ClipboardFeatureStrings(
@@ -584,8 +622,8 @@ struct ClipboardFeatureStrings {
         recent: "Recentes",
         pin: "Fixar",
         unpin: "Desfixar",
-        clearRecent: "Limpar recentes",
-        clearAll: "Limpar não fixados",
+        clearRecent: "Limpar não fixados",
+        clearRecentKeywords: "Limpar recentes",
         empty: "Nenhum texto salvo",
         disabled: "Ative o histórico para começar a guardar textos copiados.",
         search: "Buscar textos copiados",
@@ -601,7 +639,6 @@ struct ClipboardFeatureStrings {
         moveUp: "Mover para cima",
         moveDown: "Mover para baixo",
         noResults: "Nenhum resultado",
-        newestFirst: "Mais recentes primeiro",
         active: "Guardando novos textos",
         includeImagesFiles: "Guardar também imagens e arquivos copiados",
         includeImagesFilesCaption: "Imagens entram no histórico e arquivos são lembrados como links para o local deles. Fixe e cole como qualquer texto.",
@@ -623,7 +660,12 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "Mostrar a última cópia na barra de menus",
         menuBarPreviewCaption: "Mostra uma prévia resumida da sua última cópia ao lado do ícone. Clique nela para abrir o histórico.",
         menuBarPreviewLength: "Tamanho da prévia",
-        menuBarPreviewLengthSuffix: "caracteres"
+        menuBarPreviewLengthSuffix: "caracteres",
+        clearRecentConfirmFormat: "Limpar não fixados (%d)?",
+        clearRecentConfirmMessage: "Os itens fixados ficam, e o que for copiado depois disso também. Não dá para desfazer.",
+        historyLayout: "Layout do histórico",
+        historyLayoutCards: "Cartões",
+        historyLayoutList: "Lista"
     )
 
     static let tr = ClipboardFeatureStrings(
@@ -645,8 +687,8 @@ struct ClipboardFeatureStrings {
         recent: "Son",
         pin: "Sabitle",
         unpin: "Sabitlemeyi kaldır",
-        clearRecent: "Sonları temizle",
-        clearAll: "Sabitlenmeyenleri temizle",
+        clearRecent: "Sabitlenmeyenleri temizle",
+        clearRecentKeywords: "Sonları temizle",
         empty: "Kayıtlı metin yok",
         disabled: "Kopyalanan metinleri kaydetmeye başlamak için geçmişi etkinleştir.",
         search: "Kopyalanan metinlerde ara",
@@ -662,7 +704,6 @@ struct ClipboardFeatureStrings {
         moveUp: "Yukarı taşı",
         moveDown: "Aşağı taşı",
         noResults: "Sonuç yok",
-        newestFirst: "En yeniler önce",
         active: "Yeni metinler kaydediliyor",
         includeImagesFiles: "Kopyalanan görselleri ve dosyaları da kaydet",
         includeImagesFilesCaption: "Görseller geçmişe eklenir, dosyalar konumlarına bağlantı olarak hatırlanır. Metin gibi sabitle ve yapıştır.",
@@ -684,7 +725,12 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "Menü çubuğunda son kopyalananı göster",
         menuBarPreviewCaption: "Simgenin yanında son kopyalananın kısaltılmış bir önizlemesini gösterir. Geçmişi açmak için üzerine tıkla.",
         menuBarPreviewLength: "Önizleme uzunluğu",
-        menuBarPreviewLengthSuffix: "karakter"
+        menuBarPreviewLengthSuffix: "karakter",
+        clearRecentConfirmFormat: "%d sabitlenmemiş öğe temizlensin mi?",
+        clearRecentConfirmMessage: "Sabitlenen öğeler ve bundan sonra kopyalananlar kalır. Bu işlem geri alınamaz.",
+        historyLayout: "Geçmiş yerleşimi",
+        historyLayoutCards: "Kartlar",
+        historyLayoutList: "Liste"
     )
 
     static let ru = ClipboardFeatureStrings(
@@ -706,8 +752,8 @@ struct ClipboardFeatureStrings {
         recent: "Недавние",
         pin: "Закрепить",
         unpin: "Открепить",
-        clearRecent: "Очистить недавнее",
-        clearAll: "Очистить незакреплённые",
+        clearRecent: "Очистить незакреплённые",
+        clearRecentKeywords: "Очистить недавнее",
         empty: "Нет сохранённого текста",
         disabled: "Включите историю, чтобы начать сохранять скопированный текст.",
         search: "Поиск по скопированному тексту",
@@ -723,7 +769,6 @@ struct ClipboardFeatureStrings {
         moveUp: "Вверх",
         moveDown: "Вниз",
         noResults: "Ничего не найдено",
-        newestFirst: "Сначала новые",
         active: "Сохраняет новые элементы",
         includeImagesFiles: "Сохранять также изображения и файлы",
         includeImagesFilesCaption: "Изображения попадают в историю, а файлы запоминаются как ссылки на их расположение. Закрепляйте и вставляйте их как текст.",
@@ -745,7 +790,12 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "Показывать последнюю скопированную запись в строке меню",
         menuBarPreviewCaption: "Показывает сокращённый предпросмотр последней скопированной записи рядом со значком. Нажмите на него, чтобы открыть историю.",
         menuBarPreviewLength: "Длина предпросмотра",
-        menuBarPreviewLengthSuffix: "символов"
+        menuBarPreviewLengthSuffix: "символов",
+        clearRecentConfirmFormat: "Очистить незакреплённые (%d)?",
+        clearRecentConfirmMessage: "Закреплённые останутся, как и всё, что скопировано после этого. Отменить нельзя.",
+        historyLayout: "Макет истории",
+        historyLayoutCards: "Карточки",
+        historyLayoutList: "Список"
     )
 
     static let es = ClipboardFeatureStrings(
@@ -767,8 +817,8 @@ struct ClipboardFeatureStrings {
         recent: "Recientes",
         pin: "Fijar",
         unpin: "Desfijar",
-        clearRecent: "Limpiar recientes",
-        clearAll: "Limpiar no fijados",
+        clearRecent: "Limpiar no fijados",
+        clearRecentKeywords: "Limpiar recientes",
         empty: "No hay texto guardado",
         disabled: "Activa el historial para empezar a guardar texto copiado.",
         search: "Buscar texto copiado",
@@ -784,7 +834,6 @@ struct ClipboardFeatureStrings {
         moveUp: "Subir",
         moveDown: "Bajar",
         noResults: "Sin resultados",
-        newestFirst: "Más recientes primero",
         active: "Guardando nuevo texto",
         includeImagesFiles: "Guardar también imágenes y archivos copiados",
         includeImagesFilesCaption: "Las imágenes entran en el historial y los archivos se recuerdan como enlaces a su ubicación. Fíjalos y pégalos como cualquier texto.",
@@ -806,7 +855,77 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "Mostrar la última copia en la barra de menús",
         menuBarPreviewCaption: "Muestra una vista previa abreviada de tu última copia junto al icono. Haz clic para abrir el historial.",
         menuBarPreviewLength: "Longitud de la vista previa",
-        menuBarPreviewLengthSuffix: "caracteres"
+        menuBarPreviewLengthSuffix: "caracteres",
+        clearRecentConfirmFormat: "¿Limpiar no fijados (%d)?",
+        clearRecentConfirmMessage: "Los fijados se conservan, y también lo que copies después. No se puede deshacer.",
+        historyLayout: "Diseño del historial",
+        historyLayoutCards: "Tarjetas",
+        historyLayoutList: "Lista"
+    )
+
+    static let sk = ClipboardFeatureStrings(
+        title: "Schránka",
+        enable: "Ukladať históriu schránky",
+        caption: "Ukladá skopírovaný text, aby ste ho mohli neskôr znova použiť. Všetko zostáva lokálne a môžete to kedykoľvek vymazať.",
+        localNote: "Všetko zostáva len na tomto Macu. Príliš veľké položky sa ignorujú.",
+        skipSensitive: "Preskočiť text, ktorý vyzerá citlivo",
+        skipSensitiveCaption: "Zabráni uloženiu krátkych reťazcov bez medzier, ktoré vyzerajú ako heslá, tokeny alebo kľúče.",
+        limit: "Limit",
+        limitUnlimited: "Bez obmedzenia",
+        showInPanel: "Zobraziť v paneli",
+        shortcut: "Skratka histórie",
+        shortcutCaption: "Otvorí rýchle okno s vyhľadávaním, pripnutými položkami a skratkami ⌘1 až ⌘9 na prilepenie do predchádzajúcej aplikácie.",
+        shortcutHint: "Kliknutím na riadok ho prilepíte do predchádzajúcej aplikácie. ⌘-klik vyberie viac položiek, ⌘C skopíruje bez prilepenia.",
+        clickRowShortcut: "Kliknutie na riadok",
+        commandClickShortcut: "⌘ klik",
+        pinned: "Pripnuté",
+        recent: "Nedávne",
+        pin: "Pripnúť",
+        unpin: "Odopnúť",
+        clearRecent: "Vymazať nepripnuté",
+        clearRecentKeywords: "Vymazať nedávne",
+        empty: "Žiadny uložený text",
+        disabled: "Históriu zapnite, aby sa začal ukladať skopírovaný text.",
+        search: "Hľadať v skopírovanom texte",
+        copy: "Kopírovať",
+        copied: "Skopírované",
+        delete: "Vymazať položku",
+        selectMultiple: "Pridať do kôpky",
+        unselectMultiple: "Odobrať z kôpky",
+        selectShortcutAction: "Vybrať",
+        pasteSelectedFormat: "Prilepiť %d",
+        copySelectedFormat: "Kopírovať %d",
+        clearSelection: "Zrušiť výber",
+        moveUp: "Presunúť nahor",
+        moveDown: "Presunúť nadol",
+        noResults: "Žiadne výsledky",
+        active: "Ukladá sa nový text",
+        includeImagesFiles: "Ukladať aj skopírované obrázky a súbory",
+        includeImagesFilesCaption: "Obrázky sa pridajú do histórie a súbory sa zapamätajú ako odkazy na ich umiestnenie. Pripínajte a prilepujte ich ako hocijaký text.",
+        imageEntryLabel: "Obrázok",
+        fileCountFormat: "Súbory: %d",
+        pasteImageAsFile: "Prilepiť skopírované obrázky ako súbory",
+        pasteImageAsFileCaption: "Keď je aktívny Finder, ⌘V uloží skopírovaný obrázok ako PNG do aktuálneho priečinka.",
+        previewLabel: "Náhľad",
+        edit: "Upraviť",
+        cancel: "Zrušiť",
+        save: "Uložiť",
+        autoClearEnable: "Automaticky vymazať schránku s oneskorením",
+        autoClearSecondsSuffix: "sekúnd",
+        autoClearOnSleep: "Vymazať schránku pri uspaní Macu",
+        autoClearOnDisplaySleep: "Vymazať schránku pri vypnutí displeja",
+        autoClearOnScreenLock: "Vymazať schránku pri uzamknutí obrazovky",
+        autoClearCaption: "Vymaže iba systémovú schránku. Už uložené položky zostanú v histórii.",
+        deleteSelectedFormat: "Vymazať %d",
+        menuBarPreview: "Zobraziť poslednú kópiu v lište",
+        menuBarPreviewCaption: "Zobrazí skrátený náhľad poslednej kópie vedľa ikony. Kliknutím naň otvoríte históriu.",
+        menuBarPreviewLength: "Dĺžka náhľadu",
+        menuBarPreviewLengthSuffix: "znakov",
+        clearRecentConfirmFormat: "Vymazať nepripnuté (%d)?",
+        clearRecentConfirmMessage: "Pripnuté položky zostanú, rovnako ako všetko, čo skopírujete potom. Nedá sa to vrátiť späť.",
+        historyLayout: "Rozloženie histórie",
+        historyLayoutCards: "Karty",
+        historyLayoutList: "Zoznam"
     )
 
     static let de = ClipboardFeatureStrings(
@@ -828,8 +947,8 @@ struct ClipboardFeatureStrings {
         recent: "Zuletzt",
         pin: "Anheften",
         unpin: "Lösen",
-        clearRecent: "Zuletzt löschen",
-        clearAll: "Nicht angeheftete löschen",
+        clearRecent: "Nicht angeheftete löschen",
+        clearRecentKeywords: "Zuletzt löschen",
         empty: "Kein gespeicherter Text",
         disabled: "Aktiviere den Verlauf, um kopierten Text zu speichern.",
         search: "Kopierten Text suchen",
@@ -845,7 +964,6 @@ struct ClipboardFeatureStrings {
         moveUp: "Nach oben",
         moveDown: "Nach unten",
         noResults: "Keine Ergebnisse",
-        newestFirst: "Neueste zuerst",
         active: "Speichert neuen Text",
         includeImagesFiles: "Auch kopierte Bilder und Dateien speichern",
         includeImagesFilesCaption: "Bilder wandern in den Verlauf, Dateien werden als Verweise auf ihren Ort gemerkt. Anheften und Einsetzen wie bei Text.",
@@ -867,7 +985,12 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "Letzte Kopie in der Menüleiste anzeigen",
         menuBarPreviewCaption: "Zeigt eine gekürzte Vorschau deiner letzten Kopie neben dem Symbol. Klicke darauf, um den Verlauf zu öffnen.",
         menuBarPreviewLength: "Vorschaulänge",
-        menuBarPreviewLengthSuffix: "Zeichen"
+        menuBarPreviewLengthSuffix: "Zeichen",
+        clearRecentConfirmFormat: "Nicht angeheftete löschen (%d)?",
+        clearRecentConfirmMessage: "Angeheftete bleiben, ebenso alles, was du danach kopierst. Das lässt sich nicht widerrufen.",
+        historyLayout: "Verlaufslayout",
+        historyLayoutCards: "Karten",
+        historyLayoutList: "Liste"
     )
 
     static let fr = ClipboardFeatureStrings(
@@ -882,15 +1005,15 @@ struct ClipboardFeatureStrings {
         showInPanel: "Afficher dans le panneau",
         shortcut: "Raccourci de l’historique",
         shortcutCaption: "Ouvre une fenêtre rapide avec recherche, éléments épinglés et raccourcis ⌘1 à ⌘9 pour coller dans l’app précédente.",
-        shortcutHint: "Cliquez sur une ligne pour la coller dans l’app précédente. ⌘+clic en sélectionne plusieurs ; ⌘C copie sans coller.",
+        shortcutHint: "Cliquez sur une ligne pour la coller dans l’app précédente. ⌘+clic en sélectionne plusieurs\u{00A0}; ⌘C copie sans coller.",
         clickRowShortcut: "Cliquer la ligne",
         commandClickShortcut: "⌘ Clic",
         pinned: "Épinglés",
         recent: "Récents",
         pin: "Épingler",
         unpin: "Désépingler",
-        clearRecent: "Effacer les récents",
-        clearAll: "Effacer non épinglés",
+        clearRecent: "Effacer non épinglés",
+        clearRecentKeywords: "Effacer les récents",
         empty: "Aucun texte enregistré",
         disabled: "Activez l’historique pour commencer à enregistrer le texte copié.",
         search: "Rechercher le texte copié",
@@ -906,7 +1029,6 @@ struct ClipboardFeatureStrings {
         moveUp: "Monter",
         moveDown: "Descendre",
         noResults: "Aucun résultat",
-        newestFirst: "Plus récents d’abord",
         active: "Enregistre le nouveau texte",
         includeImagesFiles: "Enregistrer aussi les images et fichiers copiés",
         includeImagesFilesCaption: "Les images rejoignent l’historique et les fichiers sont mémorisés comme des liens vers leur emplacement. Épinglez-les et collez-les comme du texte.",
@@ -928,7 +1050,12 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "Afficher la dernière copie dans la barre des menus",
         menuBarPreviewCaption: "Affiche un aperçu raccourci de votre dernière copie à côté de l’icône. Cliquez dessus pour ouvrir l’historique.",
         menuBarPreviewLength: "Longueur de l’aperçu",
-        menuBarPreviewLengthSuffix: "caractères"
+        menuBarPreviewLengthSuffix: "caractères",
+        clearRecentConfirmFormat: "Effacer non épinglés (%d)\u{00A0}?",
+        clearRecentConfirmMessage: "Les éléments épinglés restent, comme tout ce qui sera copié ensuite. Action irréversible.",
+        historyLayout: "Disposition de l’historique",
+        historyLayoutCards: "Cartes",
+        historyLayoutList: "Liste"
     )
 
     static let it = ClipboardFeatureStrings(
@@ -950,8 +1077,8 @@ struct ClipboardFeatureStrings {
         recent: "Recenti",
         pin: "Fissa",
         unpin: "Sblocca",
-        clearRecent: "Cancella recenti",
-        clearAll: "Cancella non fissati",
+        clearRecent: "Cancella non fissati",
+        clearRecentKeywords: "Cancella recenti",
         empty: "Nessun testo salvato",
         disabled: "Attiva la cronologia per iniziare a salvare il testo copiato.",
         search: "Cerca testo copiato",
@@ -967,7 +1094,6 @@ struct ClipboardFeatureStrings {
         moveUp: "Sposta su",
         moveDown: "Sposta giù",
         noResults: "Nessun risultato",
-        newestFirst: "Più recenti prima",
         active: "Salvataggio nuovo testo",
         includeImagesFiles: "Salva anche immagini e file copiati",
         includeImagesFilesCaption: "Le immagini entrano nella cronologia e i file vengono ricordati come collegamenti alla loro posizione. Fissali e incollali come qualsiasi testo.",
@@ -989,7 +1115,12 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "Mostra l’ultima copia nella barra dei menu",
         menuBarPreviewCaption: "Mostra un’anteprima abbreviata dell’ultima copia accanto all’icona. Fai clic per aprire la cronologia.",
         menuBarPreviewLength: "Lunghezza dell’anteprima",
-        menuBarPreviewLengthSuffix: "caratteri"
+        menuBarPreviewLengthSuffix: "caratteri",
+        clearRecentConfirmFormat: "Cancellare non fissati (%d)?",
+        clearRecentConfirmMessage: "Gli elementi fissati restano, come tutto ciò che copi dopo. Non si può annullare.",
+        historyLayout: "Layout cronologia",
+        historyLayoutCards: "Schede",
+        historyLayoutList: "Elenco"
     )
 
     static let ja = ClipboardFeatureStrings(
@@ -1011,8 +1142,8 @@ struct ClipboardFeatureStrings {
         recent: "最近",
         pin: "固定",
         unpin: "固定解除",
-        clearRecent: "最近を消去",
-        clearAll: "未固定を消去",
+        clearRecent: "未固定を消去",
+        clearRecentKeywords: "最近を消去",
         empty: "保存済みテキストなし",
         disabled: "履歴を有効にすると、コピーしたテキストを保存できます。",
         search: "コピーしたテキストを検索",
@@ -1028,7 +1159,6 @@ struct ClipboardFeatureStrings {
         moveUp: "上へ移動",
         moveDown: "下へ移動",
         noResults: "結果なし",
-        newestFirst: "新しい順",
         active: "新しいテキストを保存中",
         includeImagesFiles: "コピーした画像やファイルも保存",
         includeImagesFilesCaption: "画像は履歴に入り、ファイルは場所へのリンクとして記憶されます。テキストと同じようにピン留めやペーストができます。",
@@ -1050,7 +1180,12 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "メニューバーに直前のコピーを表示",
         menuBarPreviewCaption: "アイコンの横に直前のコピーの短縮プレビューを表示します。クリックすると履歴が開きます。",
         menuBarPreviewLength: "プレビューの長さ",
-        menuBarPreviewLengthSuffix: "文字"
+        menuBarPreviewLengthSuffix: "文字",
+        clearRecentConfirmFormat: "未固定の%d件を消去しますか？",
+        clearRecentConfirmMessage: "固定済みの項目と、このあとにコピーした内容は残ります。元に戻せません。",
+        historyLayout: "履歴のレイアウト",
+        historyLayoutCards: "カード",
+        historyLayoutList: "リスト"
     )
 
     static let zhHans = ClipboardFeatureStrings(
@@ -1072,8 +1207,8 @@ struct ClipboardFeatureStrings {
         recent: "最近",
         pin: "固定",
         unpin: "取消固定",
-        clearRecent: "清除最近项目",
-        clearAll: "清除未固定项目",
+        clearRecent: "清除未固定项目",
+        clearRecentKeywords: "清除最近项目",
         empty: "没有保存的文本",
         disabled: "启用历史记录后即可开始保存拷贝的文本。",
         search: "搜索拷贝的文本",
@@ -1085,11 +1220,10 @@ struct ClipboardFeatureStrings {
         selectShortcutAction: "选择",
         pasteSelectedFormat: "粘贴 %d 项",
         copySelectedFormat: "拷贝 %d 项",
-        clearSelection: "清除选择",
+        clearSelection: "取消选择",
         moveUp: "上移",
         moveDown: "下移",
         noResults: "没有结果",
-        newestFirst: "最新优先",
         active: "正在保存新文本",
         includeImagesFiles: "同时保存拷贝的图片和文件",
         includeImagesFilesCaption: "图片会进入历史记录，文件会以其位置链接的形式被记住。可以像文本一样固定和粘贴。",
@@ -1111,7 +1245,12 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "在菜单栏显示最近拷贝的内容",
         menuBarPreviewCaption: "在图标旁显示最近拷贝内容的简短预览，点击即可打开历史记录。",
         menuBarPreviewLength: "预览长度",
-        menuBarPreviewLengthSuffix: "个字符"
+        menuBarPreviewLengthSuffix: "个字符",
+        clearRecentConfirmFormat: "清除 %d 个未固定项目？",
+        clearRecentConfirmMessage: "已固定的项目和此后拷贝的内容会保留。此操作无法撤销。",
+        historyLayout: "历史布局",
+        historyLayoutCards: "卡片",
+        historyLayoutList: "列表"
     )
 
     static let zhTW = ClipboardFeatureStrings(
@@ -1133,8 +1272,8 @@ struct ClipboardFeatureStrings {
         recent: "最近",
         pin: "釘選",
         unpin: "取消釘選",
-        clearRecent: "清除最近項目",
-        clearAll: "清除未釘選項目",
+        clearRecent: "清除未釘選項目",
+        clearRecentKeywords: "清除最近項目",
         empty: "沒有儲存的文字",
         disabled: "開啟紀錄後，即可開始儲存複製的文字。",
         search: "搜尋複製的文字",
@@ -1146,11 +1285,10 @@ struct ClipboardFeatureStrings {
         selectShortcutAction: "選取",
         pasteSelectedFormat: "貼上 %d 個",
         copySelectedFormat: "拷貝 %d 個",
-        clearSelection: "清除選取項目",
+        clearSelection: "取消選取",
         moveUp: "上移",
         moveDown: "下移",
         noResults: "沒有結果",
-        newestFirst: "最新優先",
         active: "正在儲存新文字",
         includeImagesFiles: "同時保存拷貝的圖片和檔案",
         includeImagesFilesCaption: "圖片會進入歷史記錄，檔案會以其位置連結的形式被記住。可以像文字一樣固定和貼上。",
@@ -1172,7 +1310,12 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "在選單列顯示最近複製的內容",
         menuBarPreviewCaption: "在圖示旁顯示最近複製內容的簡短預覽，點選即可開啟紀錄。",
         menuBarPreviewLength: "預覽長度",
-        menuBarPreviewLengthSuffix: "個字元"
+        menuBarPreviewLengthSuffix: "個字元",
+        clearRecentConfirmFormat: "清除 %d 個未釘選項目？",
+        clearRecentConfirmMessage: "已釘選的項目和之後複製的內容會保留。此動作無法還原。",
+        historyLayout: "剪貼簿紀錄佈局",
+        historyLayoutCards: "卡片",
+        historyLayoutList: "列表"
     )
 
     static let zhHK = ClipboardFeatureStrings(
@@ -1194,8 +1337,8 @@ struct ClipboardFeatureStrings {
         recent: "最近",
         pin: "釘選",
         unpin: "取消釘選",
-        clearRecent: "清除最近項目",
-        clearAll: "清除未釘選項目",
+        clearRecent: "清除未釘選項目",
+        clearRecentKeywords: "清除最近項目",
         empty: "沒有已儲存的文字",
         disabled: "開啟記錄後，即可開始儲存複製的文字。",
         search: "搜尋複製的文字",
@@ -1207,11 +1350,10 @@ struct ClipboardFeatureStrings {
         selectShortcutAction: "選取",
         pasteSelectedFormat: "貼上 %d 個",
         copySelectedFormat: "複製 %d 個",
-        clearSelection: "清除所選項目",
+        clearSelection: "取消選取",
         moveUp: "上移",
         moveDown: "下移",
         noResults: "沒有結果",
-        newestFirst: "最新優先",
         active: "正在儲存新文字",
         includeImagesFiles: "同時儲存拷貝的圖片和檔案",
         includeImagesFilesCaption: "圖片會加入歷史記錄，檔案會以其位置連結的形式被記住。可以像文字一樣固定和貼上。",
@@ -1233,7 +1375,12 @@ struct ClipboardFeatureStrings {
         menuBarPreview: "在選單列顯示最近複製的內容",
         menuBarPreviewCaption: "在圖示旁顯示最近複製內容的簡短預覽，按一下即可開啟記錄。",
         menuBarPreviewLength: "預覽長度",
-        menuBarPreviewLengthSuffix: "個字元"
+        menuBarPreviewLengthSuffix: "個字元",
+        clearRecentConfirmFormat: "清除 %d 個未釘選項目？",
+        clearRecentConfirmMessage: "已釘選的項目和之後複製的內容會保留。此動作無法還原。",
+        historyLayout: "剪貼簿記錄佈局",
+        historyLayoutCards: "卡片",
+        historyLayoutList: "列表"
     )
 }
 
@@ -1311,11 +1458,17 @@ struct WindowLayoutFeatureStrings {
     let edgeSnapSystemConflict: String
     let edgeSnapOpenSystemSettings: String
     let edgeSnapWaitingForSystem: String
+    let edgeSnapUseCorner: String
+    let edgeSnapUseEdge: String
+    let edgeSnapAreasOnEdge: String
     let marginMaximize: String
+    let marginPerEdge: String
     let gapsSection: String
     let gapsCaption: String
     let windowGap: String
     let screenGap: String
+    let sideRepeatCycle: String
+    let sideRepeatCycleCaption: String
     let gapNone: String
     let gapTiny: String
     let gapSmall: String
@@ -1393,15 +1546,21 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "Full Screen",
         previousDisplay: "Previous display",
         edgeSnapEnable: "Snap windows at screen edges",
-        edgeSnapCaption: "Turn this on, choose the highlighted areas below, then drag a window title bar to one and release.",
+        edgeSnapCaption: "Turn this on and drag a window title bar to a highlighted area below. Click an area to choose where the window goes.",
         edgeSnapSystemConflict: "macOS is using the same edges. Turn off window tiling in Desktop & Dock so Vorssaint can take over.",
         edgeSnapOpenSystemSettings: "Open Desktop & Dock",
         edgeSnapWaitingForSystem: "Enabled in Vorssaint. It starts working as soon as macOS tiling is off.",
+        edgeSnapUseCorner: "Use this corner",
+        edgeSnapUseEdge: "Use this edge",
+        edgeSnapAreasOnEdge: "Areas on this edge",
         marginMaximize: "Maximize with Margin",
+        marginPerEdge: "Margin per edge",
         gapsSection: "Gaps",
         gapsCaption: "Space between snapped windows, and between windows and the screen edge.",
         windowGap: "Window gap",
         screenGap: "Screen gap",
+        sideRepeatCycle: "Repeat Left or Right to cycle sizes",
+        sideRepeatCycleCaption: "Half, then two thirds, then one third on the same display. Off, with more than one display, the repeat moves the window to the next display on that side.",
         gapNone: "None",
         gapTiny: "Tiny",
         gapSmall: "Small",
@@ -1480,15 +1639,21 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "Tela cheia",
         previousDisplay: "Display anterior",
         edgeSnapEnable: "Encaixar janelas nas bordas da tela",
-        edgeSnapCaption: "Ative, escolha abaixo as áreas destacadas e arraste a barra de título até uma delas.",
+        edgeSnapCaption: "Ative e arraste a barra de título de uma janela até uma das áreas destacadas abaixo. Clique em uma área para escolher onde a janela fica.",
         edgeSnapSystemConflict: "O macOS está usando as mesmas bordas. Desligue o encaixe em Mesa e Dock para o Vorssaint assumir.",
         edgeSnapOpenSystemSettings: "Abrir Mesa e Dock",
         edgeSnapWaitingForSystem: "Ativado no Vorssaint. Começa a funcionar assim que o encaixe do macOS for desligado.",
+        edgeSnapUseCorner: "Usar este canto",
+        edgeSnapUseEdge: "Usar esta borda",
+        edgeSnapAreasOnEdge: "Áreas nesta borda",
         marginMaximize: "Maximizar com margem",
+        marginPerEdge: "Margem por borda",
         gapsSection: "Espaçamento",
         gapsCaption: "Espaço entre janelas ajustadas e entre as janelas e a borda da tela.",
         windowGap: "Espaço entre janelas",
         screenGap: "Espaço até a borda da tela",
+        sideRepeatCycle: "Repetir Esquerda ou Direita alterna os tamanhos",
+        sideRepeatCycleCaption: "Metade, depois dois terços e um terço na mesma tela. Desligado e com mais de uma tela, a repetição move a janela para a próxima tela daquele lado.",
         gapNone: "Nenhum",
         gapTiny: "Minúsculo",
         gapSmall: "Pequeno",
@@ -1567,15 +1732,21 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "Tam ekran",
         previousDisplay: "Önceki ekran",
         edgeSnapEnable: "Pencereleri ekran kenarlarına yerleştir",
-        edgeSnapCaption: "Açın, aşağıda kullanılacak alanları seçin, ardından pencerenin başlık çubuğunu bunlardan birine sürükleyip bırakın.",
+        edgeSnapCaption: "Açın ve pencerenin başlık çubuğunu aşağıdaki vurgulu alanlardan birine sürükleyip bırakın. Pencerenin nereye yerleşeceğini seçmek için bir alana tıklayın.",
         edgeSnapSystemConflict: "macOS aynı kenarları kullanıyor. Vorssaint’ın devralması için Masaüstü ve Dock’taki pencere döşemeyi kapatın.",
         edgeSnapOpenSystemSettings: "Masaüstü ve Dock’u Aç",
         edgeSnapWaitingForSystem: "Vorssaint’ta açık. macOS döşemesi kapanınca çalışmaya başlar.",
+        edgeSnapUseCorner: "Bu köşeyi kullan",
+        edgeSnapUseEdge: "Bu kenarı kullan",
+        edgeSnapAreasOnEdge: "Bu kenardaki alanlar",
         marginMaximize: "Kenar boşluklu büyüt",
+        marginPerEdge: "Her kenardaki boşluk",
         gapsSection: "Boşluklar",
         gapsCaption: "Yaslanan pencereler arasındaki ve pencerelerle ekran kenarı arasındaki boşluk.",
         windowGap: "Pencere boşluğu",
         screenGap: "Ekran boşluğu",
+        sideRepeatCycle: "Sol veya Sağ tekrarında boyutları döndür",
+        sideRepeatCycleCaption: "Aynı ekranda yarım, ardından üçte iki ve üçte bir. Kapalıyken ve birden fazla ekran varken tekrar, pencereyi o yöndeki sonraki ekrana taşır.",
         gapNone: "Yok",
         gapTiny: "Çok küçük",
         gapSmall: "Küçük",
@@ -1654,15 +1825,21 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "Во весь экран",
         previousDisplay: "Предыдущий дисплей",
         edgeSnapEnable: "Привязывать окна к краям экрана",
-        edgeSnapCaption: "Включите, выберите области ниже, затем перетащите заголовок окна к одной из них и отпустите.",
+        edgeSnapCaption: "Включите и перетащите заголовок окна к одной из подсвеченных областей ниже. Нажмите на область, чтобы выбрать, куда встанет окно.",
         edgeSnapSystemConflict: "macOS использует те же края. Отключите размещение окон в разделе «Рабочий стол и Dock», чтобы их использовал Vorssaint.",
         edgeSnapOpenSystemSettings: "Открыть «Рабочий стол и Dock»",
         edgeSnapWaitingForSystem: "Включено в Vorssaint. Заработает сразу после отключения размещения окон macOS.",
+        edgeSnapUseCorner: "Использовать этот угол",
+        edgeSnapUseEdge: "Использовать этот край",
+        edgeSnapAreasOnEdge: "Области на этом краю",
         marginMaximize: "Развернуть с отступом",
+        marginPerEdge: "Отступ с каждой стороны",
         gapsSection: "Отступы",
         gapsCaption: "Расстояние между прикреплёнными окнами и между окнами и краем экрана.",
         windowGap: "Отступ между окнами",
         screenGap: "Отступ от края экрана",
+        sideRepeatCycle: "Повтор «Влево» или «Вправо» меняет размер",
+        sideRepeatCycleCaption: "Половина, затем две трети и треть на том же дисплее. Если выключено и дисплеев несколько, повтор переносит окно на следующий дисплей с той стороны.",
         gapNone: "Нет",
         gapTiny: "Крошечный",
         gapSmall: "Маленький",
@@ -1741,21 +1918,120 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "Pantalla completa",
         previousDisplay: "Pantalla anterior",
         edgeSnapEnable: "Ajustar ventanas a los bordes de la pantalla",
-        edgeSnapCaption: "Actívalo, elige abajo las áreas resaltadas y arrastra la barra de título hasta una de ellas.",
+        edgeSnapCaption: "Actívalo y arrastra la barra de título de una ventana hasta una de las áreas resaltadas de abajo. Haz clic en un área para elegir dónde se coloca la ventana.",
         edgeSnapSystemConflict: "macOS usa los mismos bordes. Desactiva el ajuste de ventanas en Escritorio y Dock para que Vorssaint tome el control.",
         edgeSnapOpenSystemSettings: "Abrir Escritorio y Dock",
         edgeSnapWaitingForSystem: "Activado en Vorssaint. Funcionará en cuanto se desactive el ajuste de ventanas de macOS.",
+        edgeSnapUseCorner: "Usar esta esquina",
+        edgeSnapUseEdge: "Usar este borde",
+        edgeSnapAreasOnEdge: "Áreas en este borde",
         marginMaximize: "Maximizar con margen",
+        marginPerEdge: "Margen por borde",
         gapsSection: "Espaciado",
         gapsCaption: "Espacio entre ventanas ajustadas y entre las ventanas y el borde de la pantalla.",
         windowGap: "Espacio entre ventanas",
         screenGap: "Espacio hasta el borde de la pantalla",
+        sideRepeatCycle: "Repetir Izquierda o Derecha alterna los tamaños",
+        sideRepeatCycleCaption: "Mitad, luego dos tercios y un tercio en la misma pantalla. Desactivado y con más de una pantalla, la repetición mueve la ventana a la siguiente pantalla de ese lado.",
         gapNone: "Ninguno",
         gapTiny: "Diminuto",
         gapSmall: "Pequeño",
         gapMedium: "Mediano",
         gapLarge: "Grande",
         gapExtraLarge: "Extragrande"
+    )
+
+    static let sk = WindowLayoutFeatureStrings(
+        title: "Rozloženie okien",
+        caption: "Usporiadajte okná do oblastí obrazovky alebo ich presúvajte a meňte im veľkosť trackpadom či myšou.",
+        showInPanel: "Zobraziť v paneli",
+        gestureSection: "Ťahanie okien",
+        gestureEnable: "Presúvať a meniť veľkosť ťahaním",
+        gestureCaption: "Na trackpade alebo myši podržte zobrazené klávesy a ťahajte kdekoľvek vnútri okna.",
+        gestureModifiers: "Klávesy na presun",
+        gestureMove: "Ťahaním presuniete",
+        gestureResize: "Pridajte Shift a ťahaním zmeníte veľkosť",
+        gestureResizeHint: "Počiatočný bod určí najbližší okraj alebo roh. Na myši veľkosť zmení aj ťahanie pravým tlačidlom.",
+        gestureRaiseWindow: "Presunúť ťahané okno dopredu",
+        shortcuts: "Skratky",
+        shortcutsCaption: "Pomocou globálnych skratiek usporiadajte aktívne okno bez otvorenia panela.",
+        permissionCaption: "Prístupnosť sa používa iba na presúvanie a zmenu veľkosti okien.",
+        noWindow: "Nenašlo sa žiadne aktívne okno.",
+        missingPermission: "Na presúvanie okien povoľte Prístupnosť.",
+        failed: "Toto okno sa nepodarilo presunúť.",
+        done: "Okno usporiadané.",
+        restored: "Okno obnovené.",
+        noRestore: "Žiadne predchádzajúce rozloženie na obnovenie.",
+        target: "Aktívne okno",
+        halves: "Polovice",
+        thirds: "Tretiny",
+        quarterRows: "Štvrtinové riadky",
+        quarterColumns: "Štvrtinové stĺpce",
+        sixths: "Šestiny",
+        corners: "Rohy",
+        other: "Akcie",
+        leftHalf: "Vľavo",
+        rightHalf: "Vpravo",
+        topHalf: "Hore",
+        bottomHalf: "Dole",
+        centerHalf: "Stredná polovica",
+        leftThird: "Ľavá 1/3",
+        centerThird: "Stredná 1/3",
+        rightThird: "Pravá 1/3",
+        leftTwoThirds: "Ľavé 2/3",
+        rightTwoThirds: "Pravé 2/3",
+        centerTwoThirds: "Stredné 2/3",
+        topThird: "Horná 1/3",
+        middleThird: "Stredná 1/3",
+        bottomThird: "Dolná 1/3",
+        topTwoThirds: "Horné 2/3",
+        bottomTwoThirds: "Dolné 2/3",
+        topQuarter: "Horná 1/4",
+        upperMiddleQuarter: "Horná stredná 1/4",
+        lowerMiddleQuarter: "Dolná stredná 1/4",
+        bottomQuarter: "Dolná 1/4",
+        leftQuarter: "Ľavá 1/4",
+        leftMiddleQuarter: "Ľavá stredná 1/4",
+        rightMiddleQuarter: "Pravá stredná 1/4",
+        rightQuarter: "Pravá 1/4",
+        topLeftSixth: "Horná ľavá 1/6",
+        topCenterSixth: "Horná stredná 1/6",
+        topRightSixth: "Horná pravá 1/6",
+        bottomLeftSixth: "Dolná ľavá 1/6",
+        bottomCenterSixth: "Dolná stredná 1/6",
+        bottomRightSixth: "Dolná pravá 1/6",
+        topLeft: "Vľavo hore",
+        topRight: "Vpravo hore",
+        bottomLeft: "Vľavo dole",
+        bottomRight: "Vpravo dole",
+        maximize: "Maximalizovať",
+        center: "Vycentrovať",
+        nextDisplay: "Ďalší displej",
+        restore: "Obnoviť",
+        fullScreen: "Celá obrazovka",
+        previousDisplay: "Predchádzajúci displej",
+        edgeSnapEnable: "Priťahovať okná k okrajom obrazovky",
+        edgeSnapCaption: "Zapnite to a presuňte záhlavie okna na jednu zo zvýraznených oblastí nižšie. Kliknutím na oblasť vyberiete, kam sa okno umiestni.",
+        edgeSnapSystemConflict: "macOS používa rovnaké okraje. V Ploche a Docku vypnite dlaždicovanie okien, aby to mohol prevziať Vorssaint.",
+        edgeSnapOpenSystemSettings: "Otvoriť Plochu a Dock",
+        edgeSnapWaitingForSystem: "Zapnuté vo Vorssaint. Začne fungovať hneď po vypnutí dlaždicovania v macOS.",
+        edgeSnapUseCorner: "Používať tento roh",
+        edgeSnapUseEdge: "Používať tento okraj",
+        edgeSnapAreasOnEdge: "Oblasti na tomto okraji",
+        marginMaximize: "Maximalizovať s okrajom",
+        marginPerEdge: "Okraj na každej strane",
+        gapsSection: "Medzery",
+        gapsCaption: "Priestor medzi priťahovanými oknami a medzi oknami a okrajom obrazovky.",
+        windowGap: "Medzera medzi oknami",
+        screenGap: "Medzera od okraja obrazovky",
+        sideRepeatCycle: "Opakovaním „Vľavo“ alebo „Vpravo“ striedať veľkosti",
+        sideRepeatCycleCaption: "Polovica, potom dve tretiny, potom jedna tretina na tom istom displeji. Keď je to vypnuté a máte viac ako jeden displej, opakovanie presunie okno na ďalší displej na tej strane.",
+        gapNone: "Žiadna",
+        gapTiny: "Drobná",
+        gapSmall: "Malá",
+        gapMedium: "Stredná",
+        gapLarge: "Veľká",
+        gapExtraLarge: "Extra veľká"
     )
 
     static let de = WindowLayoutFeatureStrings(
@@ -1828,15 +2104,21 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "Vollbild",
         previousDisplay: "Vorheriges Display",
         edgeSnapEnable: "Fenster an Bildschirmrändern einrasten",
-        edgeSnapCaption: "Einschalten, unten die hervorgehobenen Bereiche auswählen und die Titelleiste zu einem davon ziehen.",
+        edgeSnapCaption: "Einschalten und die Titelleiste eines Fensters zu einem der hervorgehobenen Bereiche unten ziehen. Klicke auf einen Bereich, um festzulegen, wohin das Fenster kommt.",
         edgeSnapSystemConflict: "macOS verwendet dieselben Ränder. Deaktiviere die Fensteranordnung unter Schreibtisch & Dock, damit Vorssaint übernimmt.",
         edgeSnapOpenSystemSettings: "Schreibtisch & Dock öffnen",
         edgeSnapWaitingForSystem: "In Vorssaint aktiviert. Es funktioniert, sobald die Fensteranordnung von macOS aus ist.",
+        edgeSnapUseCorner: "Diese Ecke verwenden",
+        edgeSnapUseEdge: "Diesen Rand verwenden",
+        edgeSnapAreasOnEdge: "Bereiche an diesem Rand",
         marginMaximize: "Mit Rand maximieren",
+        marginPerEdge: "Rand pro Seite",
         gapsSection: "Abstände",
         gapsCaption: "Abstand zwischen angedockten Fenstern sowie zwischen Fenstern und dem Bildschirmrand.",
         windowGap: "Fensterabstand",
         screenGap: "Abstand zum Bildschirmrand",
+        sideRepeatCycle: "Links oder Rechts wiederholen wechselt die Größe",
+        sideRepeatCycleCaption: "Hälfte, dann zwei Drittel und ein Drittel auf demselben Bildschirm. Ausgeschaltet und bei mehr als einem Bildschirm schiebt die Wiederholung das Fenster auf den nächsten Bildschirm auf dieser Seite.",
         gapNone: "Kein",
         gapTiny: "Winzig",
         gapSmall: "Klein",
@@ -1915,15 +2197,21 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "Plein écran",
         previousDisplay: "Écran précédent",
         edgeSnapEnable: "Ancrer les fenêtres aux bords de l’écran",
-        edgeSnapCaption: "Activez, choisissez les zones surlignées ci-dessous, puis faites glisser la barre de titre vers l’une d’elles.",
+        edgeSnapCaption: "Activez, puis faites glisser la barre de titre d’une fenêtre vers l’une des zones surlignées ci-dessous. Cliquez sur une zone pour choisir où va la fenêtre.",
         edgeSnapSystemConflict: "macOS utilise les mêmes bords. Désactivez le placement des fenêtres dans Bureau et Dock pour laisser Vorssaint prendre le relais.",
         edgeSnapOpenSystemSettings: "Ouvrir Bureau et Dock",
         edgeSnapWaitingForSystem: "Activé dans Vorssaint. Il fonctionnera dès que le placement des fenêtres de macOS sera désactivé.",
+        edgeSnapUseCorner: "Utiliser ce coin",
+        edgeSnapUseEdge: "Utiliser ce bord",
+        edgeSnapAreasOnEdge: "Zones sur ce bord",
         marginMaximize: "Agrandir avec marge",
+        marginPerEdge: "Marge de chaque côté",
         gapsSection: "Espacements",
         gapsCaption: "Espace entre les fenêtres ancrées et entre les fenêtres et le bord de l’écran.",
         windowGap: "Espace entre fenêtres",
         screenGap: "Espace au bord de l’écran",
+        sideRepeatCycle: "Répéter Gauche ou Droite alterne les tailles",
+        sideRepeatCycleCaption: "Moitié, puis deux tiers et un tiers sur le même écran. Désactivé et avec plusieurs écrans, la répétition déplace la fenêtre vers l’écran suivant de ce côté.",
         gapNone: "Aucun",
         gapTiny: "Minuscule",
         gapSmall: "Petit",
@@ -2002,15 +2290,21 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "Schermo intero",
         previousDisplay: "Display precedente",
         edgeSnapEnable: "Allinea le finestre ai bordi dello schermo",
-        edgeSnapCaption: "Attiva, scegli le aree evidenziate qui sotto e trascina la barra del titolo verso una di esse.",
+        edgeSnapCaption: "Attiva e trascina la barra del titolo di una finestra verso una delle aree evidenziate qui sotto. Fai clic su un’area per scegliere dove va la finestra.",
         edgeSnapSystemConflict: "macOS usa gli stessi bordi. Disattiva l’affiancamento in Scrivania e Dock per lasciare il controllo a Vorssaint.",
         edgeSnapOpenSystemSettings: "Apri Scrivania e Dock",
         edgeSnapWaitingForSystem: "Attivato in Vorssaint. Funzionerà appena l’affiancamento di macOS sarà disattivato.",
+        edgeSnapUseCorner: "Usa questo angolo",
+        edgeSnapUseEdge: "Usa questo bordo",
+        edgeSnapAreasOnEdge: "Aree su questo bordo",
         marginMaximize: "Massimizza con margine",
+        marginPerEdge: "Margine per lato",
         gapsSection: "Spaziatura",
         gapsCaption: "Spazio tra le finestre agganciate e tra le finestre e il bordo dello schermo.",
         windowGap: "Spazio tra finestre",
         screenGap: "Spazio dal bordo dello schermo",
+        sideRepeatCycle: "Ripetere Sinistra o Destra alterna le dimensioni",
+        sideRepeatCycleCaption: "Metà, poi due terzi e un terzo sullo stesso schermo. Se disattivato e con più di uno schermo, la ripetizione sposta la finestra sullo schermo successivo da quel lato.",
         gapNone: "Nessuno",
         gapTiny: "Minuscolo",
         gapSmall: "Piccolo",
@@ -2089,15 +2383,21 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "フルスクリーン",
         previousDisplay: "前のディスプレイ",
         edgeSnapEnable: "画面の端にウインドウをスナップ",
-        edgeSnapCaption: "オンにして下で使う領域を選び、ウインドウのタイトルバーをそのいずれかへドラッグします。",
+        edgeSnapCaption: "オンにして、ウインドウのタイトルバーを下のハイライトされた領域のいずれかへドラッグします。領域をクリックすると、ウインドウの配置先を選べます。",
         edgeSnapSystemConflict: "macOSが同じ画面端を使用しています。Vorssaintで使うには「デスクトップとDock」でウインドウのタイル表示をオフにしてください。",
         edgeSnapOpenSystemSettings: "デスクトップとDockを開く",
         edgeSnapWaitingForSystem: "Vorssaintでオンになっています。macOSのタイル表示をオフにすると動作します。",
+        edgeSnapUseCorner: "この隅を使用",
+        edgeSnapUseEdge: "この端を使用",
+        edgeSnapAreasOnEdge: "この端の領域",
         marginMaximize: "余白付きで最大化",
+        marginPerEdge: "各辺の余白",
         gapsSection: "間隔",
         gapsCaption: "スナップしたウインドウ同士、およびウインドウと画面端の間隔です。",
         windowGap: "ウインドウの間隔",
         screenGap: "画面端との間隔",
+        sideRepeatCycle: "左/右の繰り返しでサイズを切り替える",
+        sideRepeatCycleCaption: "同じディスプレイで半分、2/3、1/3の順に変わります。オフでディスプレイが複数ある場合、繰り返すとその方向の次のディスプレイへ移動します。",
         gapNone: "なし",
         gapTiny: "極小",
         gapSmall: "小",
@@ -2176,15 +2476,21 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "全屏幕",
         previousDisplay: "上一台显示器",
         edgeSnapEnable: "将窗口贴靠到屏幕边缘",
-        edgeSnapCaption: "开启后，在下方选择要使用的高亮区域，再将窗口标题栏拖到其中一个区域。",
+        edgeSnapCaption: "开启后，将窗口标题栏拖到下方任一高亮区域即可。点按区域可选择窗口的放置位置。",
         edgeSnapSystemConflict: "macOS 正在使用相同的屏幕边缘。请在“桌面与程序坞”中关闭窗口平铺，让 Vorssaint 接管。",
         edgeSnapOpenSystemSettings: "打开桌面与程序坞",
         edgeSnapWaitingForSystem: "已在 Vorssaint 中开启。关闭 macOS 窗口平铺后即可使用。",
+        edgeSnapUseCorner: "使用此角落",
+        edgeSnapUseEdge: "使用此边缘",
+        edgeSnapAreasOnEdge: "此边缘的区域",
         marginMaximize: "带边距最大化",
+        marginPerEdge: "每侧边距",
         gapsSection: "间距",
         gapsCaption: "贴靠窗口之间以及窗口与屏幕边缘之间的间距。",
         windowGap: "窗口间距",
         screenGap: "屏幕边距",
+        sideRepeatCycle: "重复左/右时循环尺寸",
+        sideRepeatCycleCaption: "在同一显示器上依次切换为一半、三分之二和三分之一。关闭且有多台显示器时，重复操作会把窗口移到该侧的下一台显示器。",
         gapNone: "无",
         gapTiny: "极小",
         gapSmall: "小",
@@ -2263,15 +2569,21 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "全螢幕",
         previousDisplay: "上一台顯示器",
         edgeSnapEnable: "將視窗貼齊螢幕邊緣",
-        edgeSnapCaption: "開啟後，在下方選擇要使用的醒目區域，再將視窗標題列拖到其中一個區域。",
+        edgeSnapCaption: "開啟後，將視窗標題列拖到下方任一醒目區域即可。按一下區域可選擇視窗的擺放位置。",
         edgeSnapSystemConflict: "macOS 正在使用相同的螢幕邊緣。請在「桌面與 Dock」關閉視窗並排，讓 Vorssaint 接管。",
         edgeSnapOpenSystemSettings: "開啟桌面與 Dock",
         edgeSnapWaitingForSystem: "已在 Vorssaint 中開啟。關閉 macOS 視窗並排後即可使用。",
+        edgeSnapUseCorner: "使用此角落",
+        edgeSnapUseEdge: "使用此邊緣",
+        edgeSnapAreasOnEdge: "此邊緣的區域",
         marginMaximize: "保留邊距最大化",
+        marginPerEdge: "每側邊距",
         gapsSection: "間距",
         gapsCaption: "貼齊視窗之間以及視窗與螢幕邊緣之間的間距。",
         windowGap: "視窗間距",
         screenGap: "螢幕邊距",
+        sideRepeatCycle: "重複左/右時循環尺寸",
+        sideRepeatCycleCaption: "在同一顯示器上依序切換為一半、三分之二和三分之一。關閉且有多部顯示器時，重複操作會把視窗移到該側的下一部顯示器。",
         gapNone: "無",
         gapTiny: "極小",
         gapSmall: "小",
@@ -2350,15 +2662,21 @@ struct WindowLayoutFeatureStrings {
         fullScreen: "全螢幕",
         previousDisplay: "上一部顯示器",
         edgeSnapEnable: "將視窗貼齊螢幕邊緣",
-        edgeSnapCaption: "開啟後，在下方選擇要使用的醒目區域，再將視窗標題列拖到其中一個區域。",
+        edgeSnapCaption: "開啟後，將視窗標題列拖到下方任一醒目區域即可。按一下區域可選擇視窗的擺放位置。",
         edgeSnapSystemConflict: "macOS 正在使用相同的螢幕邊緣。請在「桌面與 Dock」關閉視窗並排，讓 Vorssaint 接管。",
         edgeSnapOpenSystemSettings: "開啟桌面與 Dock",
         edgeSnapWaitingForSystem: "已在 Vorssaint 中開啟。關閉 macOS 視窗並排後即可使用。",
+        edgeSnapUseCorner: "使用此角落",
+        edgeSnapUseEdge: "使用此邊緣",
+        edgeSnapAreasOnEdge: "此邊緣的區域",
         marginMaximize: "保留邊距最大化",
+        marginPerEdge: "每側邊距",
         gapsSection: "間距",
         gapsCaption: "貼齊視窗之間以及視窗與螢幕邊緣之間的間距。",
         windowGap: "視窗間距",
         screenGap: "螢幕邊距",
+        sideRepeatCycle: "重複左/右時循環尺寸",
+        sideRepeatCycleCaption: "在同一顯示器上依序切換為一半、三分之二和三分之一。關閉且有多部顯示器時，重複操作會把視窗移到該側的下一部顯示器。",
         gapNone: "無",
         gapTiny: "極小",
         gapSmall: "小",
@@ -2424,7 +2742,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "High CPU",
         cpuBodyFormat: "CPU stayed above %d%% for a few seconds.",
         cpuTemperatureTitle: "Hot CPU",
-        cpuTemperatureBodyFormat: "CPU reached %d °C.",
+        cpuTemperatureBodyFormat: "CPU reached %@.",
         memoryTitle: "Critical memory",
         memoryBody: "Memory pressure reached the critical level.",
         diskTitle: "Low disk space",
@@ -2434,7 +2752,7 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "High battery temperature",
         batteryTemperatureThreshold: "Temperature above",
         batteryTemperatureTitle: "Hot battery",
-        batteryTemperatureBodyFormat: "Battery reached %d °C."
+        batteryTemperatureBodyFormat: "Battery reached %@."
     )
 
     static let ptBR = MonitorAlertFeatureStrings(
@@ -2459,7 +2777,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU alta",
         cpuBodyFormat: "A CPU ficou acima de %d%% por alguns segundos.",
         cpuTemperatureTitle: "CPU quente",
-        cpuTemperatureBodyFormat: "A CPU chegou a %d °C.",
+        cpuTemperatureBodyFormat: "A CPU chegou a %@.",
         memoryTitle: "Memória crítica",
         memoryBody: "A pressão de memória chegou ao nível crítico.",
         diskTitle: "Pouco espaço em disco",
@@ -2469,7 +2787,7 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "Temperatura alta da bateria",
         batteryTemperatureThreshold: "Temperatura acima de",
         batteryTemperatureTitle: "Bateria quente",
-        batteryTemperatureBodyFormat: "A bateria chegou a %d °C."
+        batteryTemperatureBodyFormat: "A bateria chegou a %@."
     )
 
     static let tr = MonitorAlertFeatureStrings(
@@ -2494,7 +2812,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "Yüksek CPU",
         cpuBodyFormat: "CPU birkaç saniye boyunca %d%% üzerinde kaldı.",
         cpuTemperatureTitle: "CPU sıcak",
-        cpuTemperatureBodyFormat: "CPU %d °C değerine ulaştı.",
+        cpuTemperatureBodyFormat: "CPU %@ değerine ulaştı.",
         memoryTitle: "Kritik bellek",
         memoryBody: "Bellek basıncı kritik seviyeye ulaştı.",
         diskTitle: "Düşük disk alanı",
@@ -2504,7 +2822,7 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "Yüksek pil sıcaklığı",
         batteryTemperatureThreshold: "Sıcaklık şu değerin üstünde",
         batteryTemperatureTitle: "Pil sıcak",
-        batteryTemperatureBodyFormat: "Pil %d °C değerine ulaştı."
+        batteryTemperatureBodyFormat: "Pil %@ değerine ulaştı."
     )
 
     static let ru = MonitorAlertFeatureStrings(
@@ -2529,7 +2847,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "Высокая нагрузка CPU",
         cpuBodyFormat: "CPU держался выше %d%% несколько секунд.",
         cpuTemperatureTitle: "CPU перегрет",
-        cpuTemperatureBodyFormat: "CPU достиг %d °C.",
+        cpuTemperatureBodyFormat: "CPU достиг %@.",
         memoryTitle: "Критическая память",
         memoryBody: "Давление памяти достигло критического уровня.",
         diskTitle: "Мало места на диске",
@@ -2539,7 +2857,7 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "Высокая температура батареи",
         batteryTemperatureThreshold: "Температура выше",
         batteryTemperatureTitle: "Батарея перегрета",
-        batteryTemperatureBodyFormat: "Батарея достигла %d °C."
+        batteryTemperatureBodyFormat: "Батарея достигла %@."
     )
 
     static let es = MonitorAlertFeatureStrings(
@@ -2564,7 +2882,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU alta",
         cpuBodyFormat: "La CPU estuvo por encima de %d%% durante unos segundos.",
         cpuTemperatureTitle: "CPU caliente",
-        cpuTemperatureBodyFormat: "La CPU llegó a %d °C.",
+        cpuTemperatureBodyFormat: "La CPU llegó a %@.",
         memoryTitle: "Memoria crítica",
         memoryBody: "La presión de memoria llegó al nivel crítico.",
         diskTitle: "Poco espacio en disco",
@@ -2574,7 +2892,42 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "Temperatura de la batería alta",
         batteryTemperatureThreshold: "Temperatura por encima de",
         batteryTemperatureTitle: "Batería caliente",
-        batteryTemperatureBodyFormat: "La batería llegó a %d °C."
+        batteryTemperatureBodyFormat: "La batería llegó a %@."
+    )
+
+    static let sk = MonitorAlertFeatureStrings(
+        section: "Hlásenia",
+        caption: "Hlásenia sa spustia po dosiahnutí vybraných limitov. Hlásenia o vyťažení a teplote CPU ignorujú výkyvy kratšie ako približne 12 sekúnd. Nastavenie opakovania obmedzuje iba opakovanie toho istého hlásenia.",
+        notificationsDenied: "Hlásenia pre Vorssaint sú vypnuté v Systémových nastaveniach, takže sa nemôžu zobraziť.",
+        cpu: "Vysoké vyťaženie CPU",
+        cpuTemperature: "Vysoká teplota CPU",
+        memory: "Kritický tlak na pamäť",
+        disk: "Málo miesta na disku",
+        battery: "Nízka batéria",
+        cpuThreshold: "CPU nad",
+        cpuTemperatureThreshold: "Teplota nad",
+        diskThreshold: "Voľné miesto pod",
+        batteryThreshold: "Batéria pod",
+        cooldown: "Zopakovať rovnaké hlásenie po",
+        cooldown2: "2 minúty",
+        cooldown5: "5 minút",
+        cooldown15: "15 minút",
+        cooldown30: "30 minút",
+        cooldown60: "1 hodina",
+        cpuTitle: "Vysoké vyťaženie CPU",
+        cpuBodyFormat: "Využitie CPU bolo niekoľko sekúnd nad %d%%.",
+        cpuTemperatureTitle: "Horúce CPU",
+        cpuTemperatureBodyFormat: "CPU dosiahlo %@.",
+        memoryTitle: "Kritická pamäť",
+        memoryBody: "Tlak na pamäť dosiahol kritickú úroveň.",
+        diskTitle: "Málo miesta na disku",
+        diskBodyFormat: "%@ má menej ako %d%% voľného miesta.",
+        batteryTitle: "Nízka batéria",
+        batteryBodyFormat: "Batéria je na %d%%.",
+        batteryTemperature: "Vysoká teplota batérie",
+        batteryTemperatureThreshold: "Teplota nad",
+        batteryTemperatureTitle: "Horúca batéria",
+        batteryTemperatureBodyFormat: "Batéria dosiahla %@."
     )
 
     static let de = MonitorAlertFeatureStrings(
@@ -2599,7 +2952,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "Hohe CPU",
         cpuBodyFormat: "Die CPU lag einige Sekunden über %d%%.",
         cpuTemperatureTitle: "Heiße CPU",
-        cpuTemperatureBodyFormat: "Die CPU hat %d °C erreicht.",
+        cpuTemperatureBodyFormat: "Die CPU hat %@ erreicht.",
         memoryTitle: "Kritischer Speicher",
         memoryBody: "Der Speicherdruck hat den kritischen Wert erreicht.",
         diskTitle: "Wenig Speicherplatz",
@@ -2609,7 +2962,7 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "Hohe Akkutemperatur",
         batteryTemperatureThreshold: "Temperatur über",
         batteryTemperatureTitle: "Heißer Akku",
-        batteryTemperatureBodyFormat: "Der Akku hat %d °C erreicht."
+        batteryTemperatureBodyFormat: "Der Akku hat %@ erreicht."
     )
 
     static let fr = MonitorAlertFeatureStrings(
@@ -2634,7 +2987,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU élevé",
         cpuBodyFormat: "Le CPU est resté au-dessus de %d%% pendant quelques secondes.",
         cpuTemperatureTitle: "CPU chaud",
-        cpuTemperatureBodyFormat: "Le CPU a atteint %d °C.",
+        cpuTemperatureBodyFormat: "Le CPU a atteint %@.",
         memoryTitle: "Mémoire critique",
         memoryBody: "La pression mémoire a atteint le niveau critique.",
         diskTitle: "Espace disque faible",
@@ -2644,7 +2997,7 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "Température de la batterie élevée",
         batteryTemperatureThreshold: "Température au-dessus de",
         batteryTemperatureTitle: "Batterie chaude",
-        batteryTemperatureBodyFormat: "La batterie a atteint %d °C."
+        batteryTemperatureBodyFormat: "La batterie a atteint %@."
     )
 
     static let it = MonitorAlertFeatureStrings(
@@ -2669,7 +3022,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU alta",
         cpuBodyFormat: "La CPU è rimasta sopra %d%% per alcuni secondi.",
         cpuTemperatureTitle: "CPU calda",
-        cpuTemperatureBodyFormat: "La CPU ha raggiunto %d °C.",
+        cpuTemperatureBodyFormat: "La CPU ha raggiunto %@.",
         memoryTitle: "Memoria critica",
         memoryBody: "La pressione della memoria ha raggiunto il livello critico.",
         diskTitle: "Poco spazio su disco",
@@ -2679,7 +3032,7 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "Temperatura batteria alta",
         batteryTemperatureThreshold: "Temperatura sopra",
         batteryTemperatureTitle: "Batteria calda",
-        batteryTemperatureBodyFormat: "La batteria ha raggiunto %d °C."
+        batteryTemperatureBodyFormat: "La batteria ha raggiunto %@."
     )
 
     static let ja = MonitorAlertFeatureStrings(
@@ -2704,7 +3057,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU 高負荷",
         cpuBodyFormat: "CPU が数秒間 %d%% を超えました。",
         cpuTemperatureTitle: "CPU が高温",
-        cpuTemperatureBodyFormat: "CPU が %d °C に達しました。",
+        cpuTemperatureBodyFormat: "CPU が %@ に達しました。",
         memoryTitle: "メモリが深刻",
         memoryBody: "メモリ圧迫が深刻レベルに達しました。",
         diskTitle: "ディスク空き容量不足",
@@ -2714,7 +3067,7 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "バッテリー温度が高い",
         batteryTemperatureThreshold: "温度が次を超過",
         batteryTemperatureTitle: "バッテリーが高温",
-        batteryTemperatureBodyFormat: "バッテリーが %d °C に達しました。"
+        batteryTemperatureBodyFormat: "バッテリーが %@ に達しました。"
     )
 
     static let zhHans = MonitorAlertFeatureStrings(
@@ -2739,7 +3092,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU 过高",
         cpuBodyFormat: "CPU 已连续几秒高于 %d%%。",
         cpuTemperatureTitle: "CPU 过热",
-        cpuTemperatureBodyFormat: "CPU 已达到 %d °C。",
+        cpuTemperatureBodyFormat: "CPU 已达到 %@。",
         memoryTitle: "内存严重",
         memoryBody: "内存压力已达到严重级别。",
         diskTitle: "磁盘空间不足",
@@ -2749,7 +3102,7 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "电池温度过高",
         batteryTemperatureThreshold: "温度高于",
         batteryTemperatureTitle: "电池过热",
-        batteryTemperatureBodyFormat: "电池已达到 %d °C。"
+        batteryTemperatureBodyFormat: "电池已达到 %@。"
     )
 
     static let zhTW = MonitorAlertFeatureStrings(
@@ -2774,7 +3127,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU 使用率過高",
         cpuBodyFormat: "CPU 已連續數秒高於 %d%%。",
         cpuTemperatureTitle: "CPU 過熱",
-        cpuTemperatureBodyFormat: "CPU 已達到 %d °C。",
+        cpuTemperatureBodyFormat: "CPU 已達到 %@。",
         memoryTitle: "記憶體壓力過高",
         memoryBody: "記憶體壓力已達到嚴重等級。",
         diskTitle: "磁碟空間不足",
@@ -2784,7 +3137,7 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "電池溫度過高",
         batteryTemperatureThreshold: "溫度高於",
         batteryTemperatureTitle: "電池過熱",
-        batteryTemperatureBodyFormat: "電池已達到 %d °C。"
+        batteryTemperatureBodyFormat: "電池已達到 %@。"
     )
 
     static let zhHK = MonitorAlertFeatureStrings(
@@ -2809,7 +3162,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU 使用率過高",
         cpuBodyFormat: "CPU 已連續數秒高於 %d%%。",
         cpuTemperatureTitle: "CPU 過熱",
-        cpuTemperatureBodyFormat: "CPU 已達到 %d °C。",
+        cpuTemperatureBodyFormat: "CPU 已達到 %@。",
         memoryTitle: "記憶體壓力過高",
         memoryBody: "記憶體壓力已達至嚴重水平。",
         diskTitle: "磁碟空間不足",
@@ -2819,6 +3172,231 @@ struct MonitorAlertFeatureStrings {
         batteryTemperature: "電池溫度過高",
         batteryTemperatureThreshold: "溫度高於",
         batteryTemperatureTitle: "電池過熱",
-        batteryTemperatureBodyFormat: "電池已達到 %d °C。"
+        batteryTemperatureBodyFormat: "電池已達到 %@。"
+    )
+}
+
+extension SettingsCategoryStrings {
+    static let uk = SettingsCategoryStrings(
+        essentials: "Основне",
+        windowsControls: "Керування вікнами",
+        files: "Файли",
+        utilities: "Утиліти",
+        app: "Програма",
+        appManagement: "Керування програмами"
+    )
+}
+
+extension ClipboardFeatureStrings {
+    static let uk = ClipboardFeatureStrings(
+        title: "Буфер обміну",
+        enable: "Зберігати історію буфера обміну",
+        caption: "Зберігає скопійований текст, щоб ви могли використати його пізніше. Все залишається локальним і може бути очищене будь-коли.",
+        localNote: "Все залишається на цьому Mac. Дуже великі елементи ігноруються.",
+        skipSensitive: "Пропускати текст, схожий на конфіденційний",
+        skipSensitiveCaption: "Уникає збереження коротких рядків без пробілів, схожих на паролі, токени або ключі.",
+        limit: "Ліміт",
+        limitUnlimited: "Без обмежень",
+        showInPanel: "Показати в панелі",
+        shortcut: "Клавіатурне скорочення історії",
+        shortcutCaption: "Відкриває швидке вікно з пошуком, закріпленими елементами та клавіатурними скороченнями ⌘1–⌘9 для вставки в попередню програму.",
+        shortcutHint: "Натисніть на рядок, щоб вставити його в попередню програму. ⌘-клац вибирає кілька; ⌘C копіює без вставки.",
+        clickRowShortcut: "Натисніть рядок",
+        commandClickShortcut: "⌘ Клац",
+        pinned: "Закріплено",
+        recent: "Недавнє",
+        pin: "Закріпити",
+        unpin: "Відкріпити",
+        clearRecent: "Очистити незакріплене",
+        clearRecentKeywords: "Очистити недавні",
+        empty: "Немає збереженого тексту",
+        disabled: "Увімкніть історію, щоб почати зберігати скопійований текст.",
+        search: "Шукати скопійований текст",
+        copy: "Скопіювати",
+        copied: "Скопійовано",
+        delete: "Видалити елемент",
+        selectMultiple: "Додати до стопки",
+        unselectMultiple: "Видалити зі стопки",
+        selectShortcutAction: "Вибрати",
+        pasteSelectedFormat: "Вставити %d",
+        copySelectedFormat: "Скопіювати %d",
+        clearSelection: "Очистити вибір",
+        moveUp: "Вгору",
+        moveDown: "Вниз",
+        noResults: "Немає результатів",
+        active: "Збереження нового тексту",
+        includeImagesFiles: "Також зберігати скопійовані зображення та файли",
+        includeImagesFilesCaption: "Зображення потрапляють в історію, а файли запам’ятовуються як посилання на їхнє розташування. Закріплюйте та вставляйте їх як будь-який текстовий елемент.",
+        imageEntryLabel: "Зображення",
+        fileCountFormat: "Файлів: %d",
+        pasteImageAsFile: "Вставляти скопійовані зображення як файли",
+        pasteImageAsFileCaption: "Коли активний Finder, ⌘V зберігає скопійоване зображення як PNG у поточній папці.",
+        previewLabel: "Попередній перегляд",
+        edit: "Редагувати",
+        cancel: "Скасувати",
+        save: "Зберегти",
+        autoClearEnable: "Автоочищення буфера з затримкою",
+        autoClearSecondsSuffix: "с",
+        autoClearOnSleep: "Очищати буфер при засинанні комп’ютера",
+        autoClearOnDisplaySleep: "Очищати буфер при засинанні дисплея",
+        autoClearOnScreenLock: "Очищати буфер при блокуванні екрана",
+        autoClearCaption: "Очищає лише системний буфер обміну. Збережені елементи залишаються в історії.",
+        deleteSelectedFormat: "Видалити %d",
+        menuBarPreview: "Показувати останню копію на смузі меню",
+        menuBarPreviewCaption: "Показує скорочений перегляд останнього скопійованого вмісту поруч зі значком. Натисніть, щоб відкрити історію.",
+        menuBarPreviewLength: "Довжина перегляду",
+        menuBarPreviewLengthSuffix: "симв.",
+        clearRecentConfirmFormat: "Очистити незакріплене (%d)?",
+        clearRecentConfirmMessage: "Закріплені залишаться, як і все, що скопійовано після цього. Скасувати не можна.",
+        historyLayout: "Розкладка історії",
+        historyLayoutCards: "Картки",
+        historyLayoutList: "Список"
+    )
+}
+
+extension WindowLayoutFeatureStrings {
+    static let uk = WindowLayoutFeatureStrings(
+        title: "Розкладка вікон",
+        caption: "Розставляйте вікна у розділи екрана або переміщуйте та змінюйте їхній розмір трекпедом або мишею.",
+        showInPanel: "Показати в панелі",
+        gestureSection: "Перетягування вікна",
+        gestureEnable: "Переміщення та зміна розміру перетягуванням",
+        gestureCaption: "На трекпеді або миші утримуйте показані клавіші-модифікатори та перетягуйте в будь-якому місці всередині вікна.",
+        gestureModifiers: "Клавіші для переміщення",
+        gestureMove: "Перетягніть для переміщення",
+        gestureResize: "Додайте Shift та перетягуйте для зміни розміру",
+        gestureResizeHint: "Стартова точка обирає найближчий край або кут. На миші перетягування правою кнопкою також змінює розмір.",
+        gestureRaiseWindow: "Винести перетягуване вікно на передній план",
+        shortcuts: "Клавіатурні скорочення",
+        shortcutsCaption: "Використовуйте глобальні клавіатурні скорочення, щоб розташувати активне вікно без відкриття панелі.",
+        permissionCaption: "Використовує дозвіл «Доступність» лише для переміщення та зміни розміру вікон.",
+        noWindow: "Активне вікно не знайдено.",
+        missingPermission: "Надайте дозвіл «Доступність», щоб переміщувати вікна.",
+        failed: "Не вдалося перемістити це вікно.",
+        done: "Вікно розташоване.",
+        restored: "Вікно відновлено.",
+        noRestore: "Немає попередньої розкладки для відновлення.",
+        target: "Активне вікно",
+        halves: "Половини",
+        thirds: "Третини",
+        quarterRows: "Ряди по чверті",
+        quarterColumns: "Стовпці по чверті",
+        sixths: "Шостини",
+        corners: "Кути",
+        other: "Дії",
+        leftHalf: "Ліворуч",
+        rightHalf: "Праворуч",
+        topHalf: "Вгорі",
+        bottomHalf: "Внизу",
+        centerHalf: "Центральна 1/2",
+        leftThird: "Ліва 1/3",
+        centerThird: "Центральна 1/3",
+        rightThird: "Права 1/3",
+        leftTwoThirds: "Ліва 2/3",
+        rightTwoThirds: "Права 2/3",
+        centerTwoThirds: "Центральні 2/3",
+        topThird: "Верхня 1/3",
+        middleThird: "Середня 1/3",
+        bottomThird: "Нижня 1/3",
+        topTwoThirds: "Верхні 2/3",
+        bottomTwoThirds: "Нижні 2/3",
+        topQuarter: "Верхня 1/4",
+        upperMiddleQuarter: "Верхня середня 1/4",
+        lowerMiddleQuarter: "Нижня середня 1/4",
+        bottomQuarter: "Нижня 1/4",
+        leftQuarter: "Ліва 1/4",
+        leftMiddleQuarter: "Ліва середня 1/4",
+        rightMiddleQuarter: "Права середня 1/4",
+        rightQuarter: "Права 1/4",
+        topLeftSixth: "Вгорі ліворуч 1/6",
+        topCenterSixth: "Вгорі по центру 1/6",
+        topRightSixth: "Вгорі праворуч 1/6",
+        bottomLeftSixth: "Внизу ліворуч 1/6",
+        bottomCenterSixth: "Внизу по центру 1/6",
+        bottomRightSixth: "Внизу праворуч 1/6",
+        topLeft: "Вгорі ліворуч",
+        topRight: "Вгорі праворуч",
+        bottomLeft: "Внизу ліворуч",
+        bottomRight: "Внизу праворуч",
+        maximize: "Розгорнути",
+        center: "Центр",
+        nextDisplay: "Наступний дисплей",
+        restore: "Відновити",
+        fullScreen: "На весь екран",
+        previousDisplay: "Попередній дисплей",
+        edgeSnapEnable: "Прилипати вікнами до країв екрана",
+        edgeSnapCaption: "Увімкніть цю функцію й перетягніть заголовок вікна до однієї з підсвічених областей нижче. Натисніть область, щоб вибрати, куди стане вікно.",
+        edgeSnapSystemConflict: "macOS використовує ті самі краї. Вимкніть мозаїку вікон у розділі «Робочий стіл і Dock», щоб Vorssaint міг керувати ними.",
+        edgeSnapOpenSystemSettings: "Відкрити «Робочий стіл і Dock»",
+        edgeSnapWaitingForSystem: "Увімкнено в Vorssaint. Почне працювати, щойно мозаїку macOS буде вимкнено.",
+        edgeSnapUseCorner: "Використовувати цей кут",
+        edgeSnapUseEdge: "Використовувати цей край",
+        edgeSnapAreasOnEdge: "Області на цьому краю",
+        marginMaximize: "Розгорнути з полем",
+        marginPerEdge: "Відступ з кожного боку",
+        gapsSection: "Проміжки",
+        gapsCaption: "Проміжок між прилиплими вікнами та між вікнами та краєм екрана.",
+        windowGap: "Проміжок між вікнами",
+        screenGap: "Проміжок екрана",
+        sideRepeatCycle: "Повтор «Ліворуч» або «Праворуч» змінює розмір",
+        sideRepeatCycleCaption: "Половина, потім дві третини й третина на тому самому дисплеї. Якщо вимкнено й дисплеїв кілька, повтор переносить вікно на наступний дисплей із того боку.",
+        gapNone: "Немає",
+        gapTiny: "Крихітний",
+        gapSmall: "Малий",
+        gapMedium: "Середній",
+        gapLarge: "Великий",
+        gapExtraLarge: "Дуже великий"
+    )
+}
+
+extension MonitorAlertFeatureStrings {
+    static let uk = MonitorAlertFeatureStrings(
+        section: "Сповіщення",
+        caption: "Сповіщення спрацьовують, коли досягаються вибрані межі. Сповіщення про використання й температуру CPU ігнорують сплески коротші за 12 секунд. Налаштування повтору обмежує лише повтори того самого сповіщення.",
+        notificationsDenied: "Сповіщення Vorssaint вимкнено в Системних параметрах, тому вони не можуть з’являтися.",
+        cpu: "Високий CPU",
+        cpuTemperature: "Висока температура CPU",
+        memory: "Критичний тиск пам’яті",
+        disk: "Мало місця на диску",
+        battery: "Низький заряд акумулятора",
+        cpuThreshold: "CPU вище",
+        cpuTemperatureThreshold: "Температура вище",
+        diskThreshold: "Вільного місця менше",
+        batteryThreshold: "Заряд акумулятора нижче",
+        cooldown: "Повторити те саме сповіщення через",
+        cooldown2: "2 хвилини",
+        cooldown5: "5 хвилин",
+        cooldown15: "15 хвилин",
+        cooldown30: "30 хвилин",
+        cooldown60: "1 годину",
+        cpuTitle: "Високий CPU",
+        cpuBodyFormat: "CPU тримався вище %d%% кілька секунд.",
+        cpuTemperatureTitle: "Гарячий CPU",
+        cpuTemperatureBodyFormat: "CPU досяг %@.",
+        memoryTitle: "Критична пам’ять",
+        memoryBody: "Тиск пам’яті досяг критичного рівня.",
+        diskTitle: "Мало місця на диску",
+        diskBodyFormat: "На %@ залишилося менше %d%%.",
+        batteryTitle: "Низький заряд акумулятора",
+        batteryBodyFormat: "Заряд акумулятора становить %d%%.",
+        batteryTemperature: "Висока температура акумулятора",
+        batteryTemperatureThreshold: "Температура вище",
+        batteryTemperatureTitle: "Гарячий акумулятор",
+        batteryTemperatureBodyFormat: "Акумулятор нагрівся до %@."
+    )
+}
+
+extension MixerFeatureStrings {
+    static let uk = MixerFeatureStrings(
+        hideInactiveApps: "Приховувати неактивні програми",
+        pin: "Закріпити вгорі",
+        unpin: "Відкріпити",
+        moveUp: "Вгору",
+        moveDown: "Вниз",
+        pinFirst: "Закріпити на початку",
+        moveLeft: "Перемістити ліворуч",
+        moveRight: "Перемістити праворуч",
+        arrange: "Утримуйте Command і перетягуйте, щоб змінити порядок",
+        actions: "Дії"
     )
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import Accelerate
 import CoreGraphics
 import Foundation
 
@@ -321,6 +322,19 @@ enum RecorderSupport {
         return trusted
     }
 
+    /// Turns the tap's interleaved samples back up by what its stereo mixdown
+    /// took from an output with more than two channels. Sound that fills every
+    /// channel of such an output, like a film in 5.1, can add up past full
+    /// scale once restored, so the mixer's limiter keeps it inside rather than
+    /// letting the file clip. Runs on the audio thread and allocates nothing.
+    static func restoreTapLevel(_ samples: UnsafeMutablePointer<Float>, count: Int, channels: Int,
+                                gain: Float, limiter: inout BoostLimiter, release: Float) {
+        guard count > 0, channels > 0 else { return }
+        var gain = gain
+        vDSP_vsmul(samples, 1, &gain, samples, 1, vDSP_Length(count))
+        limiter.process(samples, frames: count / channels, channels: channels, release: release)
+    }
+
     // MARK: - Frame rate
 
     static let frameRates = [30, 60]
@@ -536,10 +550,13 @@ enum RecorderSupport {
     /// Sized from the area rather than the picture: a strip drawn around one
     /// line of text gets blocks taller than its letters, which is what makes
     /// it unreadable, while a big area is not turned into four squares.
-    static func blurBlockSize(for area: CGSize) -> CGFloat {
+    /// Strengths below the default shrink the blocks under that size and can
+    /// leave the text readable; a new blur starts at the default.
+    static func blurBlockSize(for area: CGSize,
+                              strength: Int = ScreenshotSupport.BlurStrength.defaultLevel) -> CGFloat {
         let side = min(area.width, area.height)
-        guard side.isFinite, side > 0 else { return 8 }
-        return min(48, max(8, (side / 3).rounded()))
+        let base: CGFloat = side.isFinite && side > 0 ? min(48, max(8, (side / 3).rounded())) : 8
+        return max(2, (base * ScreenshotSupport.BlurStrength.blockFactor(for: strength)).rounded())
     }
 
     /// A point on the stage, turned into the recorded picture's own 0...1

@@ -10,6 +10,8 @@ import SwiftUI
 struct NotchButtonStyle: ButtonStyle {
     var cornerRadius: CGFloat = 10
     var lifts = true
+    /// A light wash under the pointer.
+    var highlights = true
     @State private var hovered = false
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -19,7 +21,7 @@ struct NotchButtonStyle: ButtonStyle {
         configuration.label
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.white.opacity(active ? 0.09 : 0))
+                    .fill(.white.opacity(active && highlights ? 0.09 : 0))
                     .allowsHitTesting(false)
             }
             .opacity(enabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
@@ -74,6 +76,71 @@ struct NotchMeter: View {
     }
 }
 
+/// A clock's digits roll into the next reading, downward while it counts
+/// down and upward while it counts up; Reduce Motion changes them in place.
+struct NotchRollingDigits: ViewModifier {
+    let value: String
+    let countsDown: Bool
+    /// Off in the closed island, where only the part above the seconds rolls.
+    var everySecond = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(.numericText(countsDown: countsDown))
+            .animation(reduceMotion ? nil : .smooth(duration: 0.3),
+                       value: NotchTimerSupport.rollingValue(value, everySecond: everySecond))
+    }
+}
+
+/// Draws a strip from what its activity reported while it was on the island.
+/// An activity that ends says so before the island swaps its strip out, and
+/// the strip on its way out drew the empty reading for those frames and
+/// through the fade into what comes next.
+struct NotchStripHold<Value: Equatable, Content: View>: View {
+    private let value: Value
+    private let shows: Bool
+    private let content: (Value) -> Content
+    @State private var held: Value
+
+    /// `shows` is whether the activity is still on the island.
+    init(_ value: Value, shows: Bool, @ViewBuilder content: @escaping (Value) -> Content) {
+        self.value = value
+        self.shows = shows
+        self.content = content
+        _held = State(initialValue: value)
+    }
+
+    var body: some View {
+        content(shows ? value : held)
+            .onChange(of: value) { _, value in
+                if shows { held = value }
+            }
+    }
+}
+
+/// Swaps a strip and the companion at rest through black: the one leaving is
+/// gone halfway through the island's crossfade and the one arriving comes in
+/// over the rest of it, so the companion never shows half faded over the
+/// strip's text in the same place.
+struct NotchFadeThrough: ViewModifier, Animatable {
+    var progress: Double
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content.opacity(max(0, progress * 2 - 1))
+    }
+}
+
+extension AnyTransition {
+    static var notchFadeThrough: AnyTransition {
+        .modifier(active: NotchFadeThrough(progress: 0), identity: NotchFadeThrough(progress: 1))
+    }
+}
+
 struct NotchIconButton: View {
     let symbol: String
     let title: String
@@ -101,19 +168,25 @@ struct NotchIconButton: View {
 }
 
 /// A short island puts the glyph beside its message; taller ones stack them.
-struct NotchEmptyView: View {
+/// Actions, when a page has a next step to offer, follow the message.
+struct NotchEmptyView<Actions: View>: View {
     let symbol: String
     let message: String
+    @ViewBuilder var actions: () -> Actions
 
     var body: some View {
         ViewThatFits(in: .vertical) {
             VStack(spacing: 12) {
                 glyph
-                label.frame(maxWidth: 250)
+                label.multilineTextAlignment(.center).frame(maxWidth: 250)
+                actions()
             }
             HStack(spacing: 14) {
                 glyph
-                label.frame(maxWidth: 260, alignment: .leading)
+                VStack(alignment: .leading, spacing: 10) {
+                    label.frame(maxWidth: 260, alignment: .leading)
+                    actions()
+                }
             }
         }
         .padding(12)
@@ -134,6 +207,34 @@ struct NotchEmptyView: View {
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+extension NotchEmptyView where Actions == EmptyView {
+    init(symbol: String, message: String) {
+        self.init(symbol: symbol, message: message) { EmptyView() }
+    }
+}
+
+/// An empty page's next step, as a word on a pill. The step the page leads
+/// to is filled, and any other stays plain beside it.
+struct NotchPillButton: View {
+    let title: String
+    var prominent = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: prominent ? .semibold : .medium))
+                .foregroundStyle(.white.opacity(prominent ? 1 : 0.7))
+                .lineLimit(1)
+                .padding(.horizontal, 14)
+                .frame(height: 28)
+                .background(.white.opacity(prominent ? 0.14 : 0), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(NotchButtonStyle(cornerRadius: 14))
     }
 }
 
@@ -209,6 +310,7 @@ struct NotchRail<Item: Identifiable, Content: View>: View {
                     .contentShape(Rectangle())
                 }
                 .scrollIndicators(.never)
+                .notchScrollEdgeFade(.horizontal)
                 .onAppear {
                     if let targetColumn { proxy.scrollTo(targetColumn, anchor: .center) }
                 }
@@ -267,6 +369,40 @@ private struct NotchSettingsPreviewKey: EnvironmentKey {
 final class NotchBackdropPresentation: ObservableObject {
     @Published var contour = Path()
     @Published var usesGlass = false
+    /// The camera strip's height in points, which the translucent background
+    /// keeps black at every island height.
+    @Published var stripHeight: CGFloat = 0
+    @Published private(set) var fade = NotchGlassFade.open
+    /// The menu bar a floating capsule leaves below itself, part of the
+    /// surface height a fade is planned in.
+    var floatingGap: CGFloat = 0
+
+    /// Measured from the top edge, as the fade is planned: a floating
+    /// capsule's contour starts below it and ends above the surface's bottom.
+    var openness: Double { Double(fade.openness(atHeight: contourBottom + floatingGap)) }
+    fileprivate var contourBottom: CGFloat { contour.boundingRect.isNull ? 0 : contour.boundingRect.maxY }
+
+    /// How much of the resting black still lies beneath the glass. It lets go
+    /// as the glass opens and is gone once the glass is fully open, so an
+    /// opening never settles over a black that then vanishes at once.
+    var restingBlack: Double { 1 - openness }
+
+    /// Plans a resize from `start` to `end` from what is on screen now.
+    func planFade(from start: CGFloat, to end: CGFloat, endsInGlass: Bool) {
+        setFade(.plan(from: start, to: end, endsInGlass: endsInGlass,
+                      current: usesGlass ? fade.openness(atHeight: start) : 0))
+    }
+
+    func openFully() { setFade(.open) }
+
+    /// The fade follows the moving contour frame by frame; SwiftUI must not
+    /// add an animation of its own on top.
+    private func setFade(_ next: NotchGlassFade) {
+        guard fade != next else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { fade = next }
+    }
 }
 
 struct NotchBackdropShape: Shape {
@@ -276,10 +412,11 @@ struct NotchBackdropShape: Shape {
 
 struct NotchWindowBackground: View {
     @ObservedObject var presentation: NotchBackdropPresentation
-    @AppStorage(DefaultsKey.liquidGlassEnabled) private var glass = false
+    @AppStorage(DefaultsKey.notchLiquidGlassEnabled) private var glass = false
+    @AppStorage(DefaultsKey.notchTranslucentBackground) private var translucent = false
 
     var body: some View {
-        NotchSurfaceBackground(presentation: presentation, glass: glass)
+        NotchSurfaceBackground(presentation: presentation, glass: glass, translucent: translucent)
     }
 }
 
@@ -287,40 +424,146 @@ struct NotchWindowBackground: View {
 struct NotchSurfaceBackground: View {
     @ObservedObject var presentation: NotchBackdropPresentation
     let glass: Bool
+    var translucent = false
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    var body: some View {
-        Group {
+    private var offersGlass: Bool {
 #if compiler(>=6.2)
-            if #available(macOS 26, *), glass, presentation.usesGlass, !reduceTransparency {
+        if #available(macOS 26, *) { return glass && !reduceTransparency }
+#endif
+        return false
+    }
+
+    private var showsGlass: Bool { offersGlass && presentation.usesGlass }
+    private var showsTranslucent: Bool {
+        translucent && !offersGlass && presentation.usesGlass && !reduceTransparency
+    }
+
+    var body: some View {
+        ZStack {
+            // The black the island rests in stays beneath the glass until
+            // the glass has opened, and the glass exists only while that
+            // black lets it show, so the window's resizes at either end of a
+            // transition happen in plain black.
+            Color.black.opacity(showsGlass || showsTranslucent ? presentation.restingBlack : 1)
+#if compiler(>=6.2)
+            if #available(macOS 26, *), showsGlass, presentation.restingBlack < 1 {
                 let shape = NotchBackdropShape(contour: presentation.contour)
                 Color.clear
                     .glassEffect(.clear, in: shape)
                     .environment(\.appearsActive, true)
                     .materialActiveAppearance(.active)
                     .overlay {
-                        let stops = (0...64).map { index in
-                            let t = Double(index) / 64
-                            return Gradient.Stop(
-                                color: .black.opacity(1 - (contrast == .increased ? 0.10 : 0.45) * pow(t, 2.5)),
-                                location: t)
-                        }
-                        LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
-                            .frame(height: presentation.contour.boundingRect.height)
+                        LinearGradient(stops: Self.shade(openness: presentation.openness, contrast: contrast),
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: presentation.contourBottom)
                             .frame(maxHeight: .infinity, alignment: .top)
                             .mask(shape)
                     }
-            } else {
-                Color.black
             }
-#else
-            Color.black
 #endif
+            if showsTranslucent, presentation.restingBlack < 1 {
+                translucentOrBlack
+            }
         }
         .environment(\.colorScheme, .dark)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// The dimming over the glass, from the top of the island to its lip. Near
+    /// a black strip the lip closes up, so the last frames of a collapse
+    /// already match the resting island.
+    static func shade(openness: Double, contrast: ColorSchemeContrast) -> [Gradient.Stop] {
+        (0...64).map { index in
+            let t = Double(index) / 64
+            return Gradient.Stop(
+                color: .black.opacity(1 - openness * (contrast == .increased ? 0.10 : 0.45) * pow(t, 2.5)),
+                location: t)
+        }
+    }
+}
+
+extension NotchSurfaceBackground {
+    /// The system's behind-window blur while the island is open, black over
+    /// the camera strip so every open state meets the housing as the resting
+    /// island does. Reduce Transparency keeps it black.
+    @ViewBuilder var translucentOrBlack: some View {
+        if translucent, presentation.usesGlass, !reduceTransparency {
+            let shape = NotchBackdropShape(contour: presentation.contour)
+            let height = presentation.contourBottom
+            let stops = NotchTranslucentTint.stops(height: height, stripHeight: presentation.stripHeight,
+                                                   openness: presentation.openness,
+                                                   increasedContrast: contrast == .increased)
+                .map { Gradient.Stop(color: .black.opacity($0.opacity), location: $0.location) }
+            // The blur covers only the island's box. Its mask image is drawn
+            // again on every frame of a resize, and at the stage's size it
+            // would be as large as the largest display.
+            let box = presentation.contour.boundingRect.integral
+            ZStack(alignment: .topLeading) {
+                if !box.isNull, box.width > 0, box.height > 0 {
+                    NotchTranslucentMaterial(contour: presentation.contour.offsetBy(dx: -box.minX, dy: -box.minY).cgPath)
+                        .frame(width: box.width, height: box.height)
+                        .padding(EdgeInsets(top: box.minY, leading: box.minX, bottom: 0, trailing: 0))
+                }
+                LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
+                    .frame(height: height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .mask(shape)
+            }
+        } else {
+            Color.black
+        }
+    }
+}
+
+/// `NSVisualEffectView` blurs behind the window only inside its mask image,
+/// so the mask follows the island's contour as it animates.
+private struct NotchTranslucentMaterial: NSViewRepresentable {
+    let contour: CGPath
+
+    func makeNSView(context: Context) -> NotchTranslucentView {
+        let view = NotchTranslucentView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.appearance = NSAppearance(named: .darkAqua)
+        return view
+    }
+
+    func updateNSView(_ view: NotchTranslucentView, context: Context) {
+        view.contour = contour
+    }
+}
+
+private final class NotchTranslucentView: NSVisualEffectView {
+    var contour: CGPath? {
+        didSet { if contour != oldValue { updateMask() } }
+    }
+
+    override var isFlipped: Bool { true }
+
+    /// The view follows the island's box, so each new size gets its mask at
+    /// once. Without one the whole view would blur.
+    override func setFrameSize(_ newSize: NSSize) {
+        let resized = newSize != frame.size
+        super.setFrameSize(newSize)
+        if resized { updateMask() }
+    }
+
+    private func updateMask() {
+        guard let contour, bounds.width > 0, bounds.height > 0 else {
+            maskImage = nil
+            return
+        }
+        maskImage = NSImage(size: bounds.size, flipped: true) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.addPath(contour)
+            context.setFillColor(.black)
+            context.fillPath()
+            return true
+        }
     }
 }
 
@@ -330,7 +573,7 @@ struct NotchControlSurface: ViewModifier {
     let cornerRadius: CGFloat
     var selected = false
     var interactive = true
-    @AppStorage(DefaultsKey.liquidGlassEnabled) private var glass = false
+    @AppStorage(DefaultsKey.notchLiquidGlassEnabled) private var glass = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.notchGlassSurface) private var glassSurface
@@ -443,6 +686,8 @@ final class NotchMenuAnchor: NSObject {
         actions = items.map(\.action)
         let menu = NSMenu()
         menu.autoenablesItems = false
+        // The island is dark whatever the system is, so its menus are too.
+        menu.appearance = NSAppearance(named: .darkAqua)
         for (index, item) in items.enumerated() {
             guard !item.isSeparator else { menu.addItem(.separator()); continue }
             let entry = NSMenuItem(title: item.title, action: #selector(choose(_:)), keyEquivalent: "")
@@ -455,7 +700,15 @@ final class NotchMenuAnchor: NSObject {
             }
             menu.addItem(entry)
         }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: view)
+        // A menu whose top lands on the menu bar's edge opens scrolled past its
+        // first entry, so a button against the bar opens it a little below.
+        var location = NSPoint.zero
+        if let window = view.window, let screen = window.screen {
+            let bottom = window.convertPoint(toScreen: view.convert(location, to: nil)).y
+            let edge = screen.visibleFrame.maxY - 3
+            if bottom > edge { location.y -= bottom - edge }
+        }
+        menu.popUp(positioning: nil, at: location, in: view)
     }
 
     @objc private func choose(_ sender: NSMenuItem) {

@@ -4,6 +4,127 @@
 import Foundation
 
 enum NotchMusicExtrasTests {
+    private static func preferredPlayer(_ suite: TestSuite) {
+        typealias Player = NotchPreferredPlayer
+        let spotify = "com.spotify.client", music = "com.apple.Music", other = "org.example.Player"
+        func resolve(_ choice: String, last: String? = nil, installed: Set<String>) -> String? {
+            Player.resolve(choice: choice, lastPlayed: last, isInstalled: installed.contains)
+        }
+        suite.expect(resolve(other, last: spotify, installed: [other, spotify, music]) == other,
+                     "a player chosen in Settings is the one that opens, whatever played last")
+        suite.expect(resolve(Player.automatic, last: music, installed: [spotify, music]) == music,
+                     "automatic opens the music app that played last")
+        suite.expect(resolve(Player.automatic, installed: [spotify, music]) == spotify
+                     && resolve(Player.automatic, installed: [music]) == music,
+                     "with nothing played yet, automatic prefers Spotify and then Apple Music")
+        suite.expect(resolve(other, installed: [music]) == music && resolve(Player.automatic, last: other, installed: [spotify]) == spotify,
+                     "a chosen or last player that is no longer installed gives way to the automatic order")
+        suite.expect(resolve(Player.automatic, last: spotify, installed: []) == nil && resolve(other, installed: []) == nil,
+                     "with no music app installed nothing is offered to open")
+        let domain = "com.vorssaint.tests.notch-preferred-player"
+        let defaults = UserDefaults(suiteName: domain)!
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        suite.expect(Player.choice(in: defaults) == Player.automatic, "the choice starts as automatic")
+        defaults.set(spotify, forKey: DefaultsKey.notchPreferredPlayer)
+        suite.expect(Player.choice(in: defaults) == spotify, "the choice is the stored bundle identifier")
+        defaults.set(String(repeating: "x", count: 300), forKey: DefaultsKey.notchPreferredPlayer)
+        suite.expect(Player.choice(in: defaults) == Player.automatic, "an implausible stored value is treated as automatic")
+
+        let saved = Player.lastPlayed
+        defer { Player.lastPlayed = saved }
+        Player.lastPlayed = nil
+        let active = NotchPlaybackSource(pid: 10, bundleIdentifier: music, isMusicApp: true, isPlaying: true, hasTrack: true)
+        let paused = NotchPlaybackSource(pid: 20, bundleIdentifier: spotify, isMusicApp: true, isPlaying: false, hasTrack: true)
+        func playback(_ source: NotchPlaybackSource?) -> NotchPlayback? {
+            source.map {
+                let track = RadialNowPlayingSnapshot(title: "Song", artist: nil, album: nil, artworkData: nil,
+                                                     appBundleIdentifier: $0.bundleIdentifier, appPID: $0.pid)
+                return NotchPlayback(track: track, isPlaying: $0.isPlaying, elapsed: 0, duration: 180,
+                                     rate: $0.isPlaying ? 1 : 0, sampledAt: Date(), canSeek: false)
+            }
+        }
+        let selected = NotchPlaybackSource.preferred(in: [active, paused], previousPID: nil, systemPID: active.pid)
+        Player.remember(playback(selected), in: [active, paused])
+        suite.expect(selected == active && Player.lastPlayed == music, "the active player becomes the last music app that played")
+        let fallback = NotchPlaybackSource.preferred(in: [paused], previousPID: active.pid, systemPID: paused.pid)
+        Player.remember(playback(fallback), in: [paused])
+        suite.expect(fallback == paused && Player.lastPlayed == music,
+                     "a paused fallback after the playing app exits cannot replace the last app that played")
+        let empty = NotchPlaybackSource.preferred(in: [], previousPID: paused.pid, systemPID: nil)
+        Player.remember(playback(empty), in: [])
+        suite.expect(resolve(Player.automatic, last: Player.lastPlayed, installed: [music, spotify]) == music,
+                     "automatic still opens the last active player after all playback sources disappear")
+        let video = NotchPlaybackSource(pid: 30, bundleIdentifier: "org.example.Video", isMusicApp: false, isPlaying: true, hasTrack: true)
+        Player.remember(playback(video), in: [video])
+        suite.expect(Player.lastPlayed == music, "a playing video does not replace the remembered music app")
+        let custom = NotchPlaybackSource(pid: 40, bundleIdentifier: other, isMusicApp: true, isPlaying: true, hasTrack: true)
+        Player.remember(playback(custom), in: [custom])
+        suite.expect(Player.lastPlayed == other, "an active custom app classified as music is remembered")
+
+        let installed: [Player.Choice] = [(spotify, "Spotify"), (music, "Music")]
+        suite.expect(Player.choices(in: installed, including: Player.automatic).map(\.bundleID) == [spotify, music]
+                     && Player.choices(in: installed, including: music).map(\.bundleID) == [spotify, music],
+                     "automatic adds no empty choice and an installed choice is not duplicated")
+        suite.expect(Player.choices(in: [], including: other).map(\.bundleID) == [other]
+                     && Player.choices(in: installed, including: other).map(\.bundleID) == [spotify, music, other],
+                     "the current choice stays listed before loading and when absent from the installed snapshot")
+    }
+
+    private final class ScanSignal: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        func signal() { lock.withLock { value = true } }
+        var isSignalled: Bool { lock.withLock { value } }
+    }
+
+    private static func preferredPlayerLoading(_ suite: TestSuite) {
+        typealias Player = NotchPreferredPlayer
+        var finished = false
+        Task { @MainActor in
+            let loaded = await Player.loadInstalled {
+                [("org.example.Music", Thread.isMainThread ? "main" : "background")]
+            }
+            suite.expect(loaded?.first?.name == "background", "the installed music app scan runs off the main thread")
+
+            let started = ScanSignal(), release = DispatchSemaphore(value: 0)
+            let old = Task {
+                await Player.loadInstalled {
+                    started.signal()
+                    _ = release.wait(timeout: .now() + 5)
+                    return [("org.example.Old", "Old")]
+                }
+            }
+            let deadline = Date().addingTimeInterval(2)
+            var didStart = false
+            while !didStart, Date() < deadline {
+                didStart = started.isSignalled
+                if !didStart { try? await Task.sleep(nanoseconds: 1_000_000) }
+            }
+            old.cancel()
+            let current = await Player.loadInstalled { [("org.example.New", "New")] }
+            release.signal()
+            let stale = await old.value
+            suite.expect(didStart && stale == nil && current?.first?.bundleID == "org.example.New",
+                         "a cancelled screen load discards its late result while a reopened screen can load new choices")
+
+            let scanned = ScanSignal()
+            let cancelled = Task {
+                withUnsafeCurrentTask { $0?.cancel() }
+                return await Player.loadInstalled { scanned.signal(); return [] }
+            }
+            let result = await cancelled.value
+            suite.expect(result == nil && !scanned.isSignalled,
+                         "a task cancelled before loading does not start an app scan")
+            finished = true
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while !finished, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+        }
+        suite.expect(finished, "preferred player loading contracts finish")
+    }
+
     private static func lyricScheduleContracts(_ suite: TestSuite) {
         let track = RadialNowPlayingSnapshot(title: "Timed verses", artist: nil, album: nil,
                                             artworkData: nil, appBundleIdentifier: nil, appPID: nil)
@@ -54,6 +175,8 @@ enum NotchMusicExtrasTests {
     }
 
     static func run(_ suite: TestSuite) {
+        preferredPlayer(suite)
+        preferredPlayerLoading(suite)
         lyricScheduleContracts(suite)
         NotchMusicHardeningTests.run(suite)
         let track = RadialNowPlayingSnapshot(title: "A & B + C", artist: "Artist / Example", album: "Studio Recording",
@@ -113,12 +236,66 @@ enum NotchMusicExtrasTests {
         reply["albumName"] = "Concert Recording"
         suite.expect(decode() == nil, "a matching title and artist never substitute a different album or live recording")
         reply["albumName"] = identity.album
+        let release = RadialNowPlayingSnapshot(title: track.title, artist: track.artist, album: "Studio Recording - EP",
+                                               artworkData: nil, appBundleIdentifier: nil, appPID: nil)
+        let releaseIdentity = NotchMusicIdentity(NotchPlayback(track: release, isPlaying: true, elapsed: 0, duration: 180,
+                                                               rate: 1, sampledAt: playback.sampledAt, canSeek: false))
+        let releaseQuery = URLComponents(url: NotchLyricsSupport.lookupURL(for: releaseIdentity)!, resolvingAgainstBaseURL: false)!
+        suite.expect(releaseQuery.queryItems?.first(where: { $0.name == "album_name" })?.value == identity.album
+               && (try? JSONSerialization.data(withJSONObject: reply)).flatMap { NotchLyricsSupport.decode($0, for: releaseIdentity) } != nil
+               && NotchLyricsSupport.catalogAlbum("Single - Single") == "Single"
+               && NotchLyricsSupport.catalogAlbum(" - EP") == "- EP",
+               "Apple Music's Single and EP album suffixes still find the release's lyrics")
         reply["trackName"] = identity.title + " (Live)"
         suite.expect(decode() == nil, "version qualifiers are not stripped from the lyric match")
         reply["trackName"] = identity.title
         reply["instrumental"] = true
         suite.expect(decode()?.instrumental == true && decode()?.lines.isEmpty == true,
                "instrumental recordings cannot display stray synchronized text")
+
+        // A player that reports no album: the request leaves the field out, and
+        // the lyrics service answers with the first record it holds for that
+        // title, artist and length, so the reply names a release the track
+        // never mentioned.
+        let noAlbum = RadialNowPlayingSnapshot(title: "Evening Signal", artist: "Example Artist", album: nil,
+                                               artworkData: nil, appBundleIdentifier: nil, appPID: nil)
+        let noAlbumIdentity = NotchMusicIdentity(NotchPlayback(track: noAlbum, isPlaying: true, elapsed: 0, duration: 210,
+                                                               rate: 1, sampledAt: playback.sampledAt, canSeek: false))
+        let noAlbumQuery = URLComponents(url: NotchLyricsSupport.lookupURL(for: noAlbumIdentity)!, resolvingAgainstBaseURL: false)!
+        suite.expect(noAlbumQuery.queryItems?.first(where: { $0.name == "album_name" }) == nil,
+               "a recording the player reports without an album is still looked up, and names no release")
+        let oversized = NotchMusicIdentity(NotchPlayback(
+                track: RadialNowPlayingSnapshot(title: "Evening Signal", artist: "Example Artist",
+                                                album: String(repeating: "x", count: 1025),
+                                                artworkData: nil, appBundleIdentifier: nil, appPID: nil),
+                isPlaying: true, elapsed: 0, duration: 210, rate: 1, sampledAt: playback.sampledAt, canSeek: false))
+        suite.expect(NotchLyricsSupport.lookupURL(for: oversized) == nil,
+               "an album the player does report is still refused past the 1024 byte query limit")
+        var noAlbumReply: [String: Any] = ["trackName": "Evening Signal", "artistName": "Example Artist",
+                                            "albumName": "Example Release", "duration": 210.0, "instrumental": false,
+                                            "plainLyrics": "First line",
+                                            "syncedLyrics": "[00:12.30]First line\n[00:16.10]Second line"]
+        func decodeNoAlbum() -> NotchLyrics? {
+            (try? JSONSerialization.data(withJSONObject: noAlbumReply))
+                .flatMap { NotchLyricsSupport.decode($0, for: noAlbumIdentity) }
+        }
+        suite.expect(decodeNoAlbum()?.lines.count == 2 && decodeNoAlbum()?.lines.first?.text == "First line",
+               "lyrics the lyrics service names a release for are kept when the player reports no album")
+        noAlbumReply["duration"] = 213.0
+        suite.expect(decodeNoAlbum() == nil,
+               "a recording the player reports without an album is still matched on its length")
+        noAlbumReply["duration"] = 210.0
+        noAlbumReply["trackName"] = "Evening Signal (Live)"
+        suite.expect(decodeNoAlbum() == nil,
+               "a recording the player reports without an album is still matched on its title")
+        var named = noAlbumReply
+        named["trackName"] = identity.title
+        named["artistName"] = identity.artist
+        named["albumName"] = "Concert Recording"
+        named["duration"] = 180.0
+        suite.expect((try? JSONSerialization.data(withJSONObject: named))
+               .flatMap { NotchLyricsSupport.decode($0, for: identity) } == nil,
+               "an album the player does report still has to name the same release")
 
         let request = UUID()
         var queue: [String: Any] = ["queueRequest": request.uuidString, "queueAvailable": true,
@@ -131,6 +308,69 @@ enum NotchMusicExtrasTests {
         suite.expect(decodeQueue()?.items.count == 1 && decodeQueue()?.canPlay == false,
                "a cached queue preserves its songs but revokes actions when native routing becomes unavailable")
         playback.canSendCommandsDirectly = true
+        let cover = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10])
+        queue["queueItems"] = [["id": "second-item", "offset": 2, "title": "Next known title",
+                                "artworkBase64": cover.base64EncodedString()]]
+        suite.expect(decodeQueue()?.items.first?.artwork == cover, "a queued song carries the cover its player gave")
+        for invalidCover in ["not base64", "", Data(count: NotchQueueSupport.maximumArtworkBytes + 1).base64EncodedString()] {
+            queue["queueItems"] = [["id": "second-item", "offset": 2, "title": "Next known title",
+                                    "artworkBase64": invalidCover]]
+            suite.expect(decodeQueue()?.items.map(\.title) == ["Next known title"] && decodeQueue()?.items.first?.artwork == nil,
+                   "a malformed or oversized cover leaves its song in the queue without a picture")
+        }
+        queue["queueItems"] = [["id": "second-item", "offset": 2, "title": "Next known title"]]
+        queue["currentArtworkBase64"] = cover.base64EncodedString()
+        suite.expect(decodeQueue()?.currentArtwork == cover, "a queue carries the playing song's cover for the next list")
+        queue["currentArtworkBase64"] = "not base64"
+        suite.expect(decodeQueue()?.items.count == 1 && decodeQueue()?.currentArtwork == nil,
+               "a malformed playing cover leaves the queue intact")
+        queue["currentArtworkBase64"] = nil
+        var moved = playback
+        moved.itemIdentifier = "second-item"
+        func awaits(_ reply: [String: Any], _ playback: NotchPlayback) -> Bool {
+            NotchQueueSupport.awaitsSongQueue(reply, requestID: request, playback: playback)
+        }
+        suite.expect(awaits(queue, moved) && !awaits(queue, playback),
+               "a queue anchored to the same player's previous song awaits the new song's queue")
+        var elsewhere = queue
+        elsewhere["pid"] = 43
+        var old = queue
+        old["queueRequest"] = UUID().uuidString
+        let unavailable: [String: Any] = ["queueRequest": request.uuidString, "queueAvailable": false]
+        suite.expect(!awaits(elsewhere, moved) && !awaits(old, moved) && !awaits(unavailable, moved),
+               "another player's, an old or an unavailable queue never holds the previous rows")
+        func coverQueue(pid: Int32 = 42, current: String = "current-item", currentCover: Data? = nil,
+                        _ rows: [(String, Data?)]) -> NotchQueueSnapshot {
+            NotchQueueSnapshot(requestID: request, currentIdentifier: current, pid: pid,
+                items: rows.enumerated().map { NotchQueueItem(id: $1.0, offset: $0 + 1, title: $1.0, artist: "",
+                                                              duration: 0, artwork: $1.1) },
+                canPlay: true, currentArtwork: currentCover)
+        }
+        var decodes = 0
+        var covers = NotchQueueCovers<Data>()
+        func show(_ queue: NotchQueueSnapshot?) { covers.update(queue) { decodes += 1; return $0 } }
+        let firstCover = Data([1]), secondCover = Data([2])
+        show(coverQueue([("a", firstCover), ("b", secondCover)]))
+        show(coverQueue([("b", nil), ("c", nil)]))
+        suite.expect(covers.images == ["b": secondCover] && decodes == 2,
+               "the plain list after a song change keeps the covers already shown")
+        show(coverQueue([("b", secondCover), ("c", firstCover)]))
+        suite.expect(covers.images == ["b": secondCover, "c": firstCover] && decodes == 3,
+               "an unchanged cover keeps its decoded image; only a new one is decoded")
+        show(nil)
+        suite.expect(covers.images.isEmpty, "a missing queue shows no covers")
+        show(coverQueue([("b", nil), ("c", nil)]))
+        suite.expect(covers.images == ["b": secondCover, "c": firstCover] && decodes == 3,
+               "a list shown again reuses its covers without decoding them")
+        let playingCover = Data([3])
+        show(coverQueue(current: "b", currentCover: playingCover, [("c", nil)]))
+        show(coverQueue(current: "a", [("b", nil), ("c", nil)]))
+        suite.expect(covers.images == ["b": playingCover, "c": firstCover] && decodes == 4,
+               "going back a song shows the cover it had while playing")
+        show(coverQueue(pid: 43, [("b", nil)]))
+        show(coverQueue([("b", nil)]))
+        suite.expect(covers.images.isEmpty,
+               "covers belong to one player's queue: another player's song never shows them")
         queue["queueRequest"] = UUID().uuidString
         suite.expect(decodeQueue() == nil, "an old queue request cannot overwrite a reopened surface")
         queue["queueRequest"] = request.uuidString
@@ -182,8 +422,12 @@ enum NotchMusicExtrasTests {
         for (key, value) in Defaults.registeredDefaults where key.hasPrefix("notch") { defaults.set(value, forKey: key) }
         for (key, value) in AppFeature.availabilityDefaults { defaults.set(value, forKey: key) }
         defaults.set(true, forKey: DefaultsKey.notchEnabled)
-        suite.expect(!NotchLyricsSupport.isEnabled(in: defaults) && !NotchLyricsSupport.onlineEnabled(in: defaults)
-               && !NotchQueueSupport.isEnabled(in: defaults), "new music surfaces and online metadata sharing start disabled")
+        suite.expect(NotchLyricsSupport.isEnabled(in: defaults) && !NotchLyricsSupport.onlineEnabled(in: defaults)
+               && NotchQueueSupport.isEnabled(in: defaults), "installed music surfaces start enabled while online lyrics stay off")
+        defaults.set(false, forKey: DefaultsKey.notchLyricsEnabled)
+        defaults.set(false, forKey: DefaultsKey.notchQueueEnabled)
+        suite.expect(!NotchLyricsSupport.isEnabled(in: defaults) && !NotchQueueSupport.isEnabled(in: defaults),
+               "local lyrics and the queue can be turned off")
         defaults.set(true, forKey: DefaultsKey.notchLyricsEnabled)
         defaults.set(true, forKey: DefaultsKey.notchQueueEnabled)
         suite.expect(NotchLyricsSupport.isEnabled(in: defaults) && !NotchLyricsSupport.onlineEnabled(in: defaults)
@@ -205,7 +449,7 @@ enum NotchMusicExtrasTests {
                "music feature choices and online consent are accounted for by settings backup")
         for language in AppLanguage.allCases {
             let strings = Mirror(reflecting: FeatureStrings.notchMusicExtras(language)).children.compactMap { $0.value as? String }
-            suite.expect(strings.count == 37 && strings.allSatisfy { !$0.isEmpty && !$0.contains("—") },
+            suite.expect(strings.count == 42 && strings.allSatisfy { !$0.isEmpty && !$0.contains("—") },
                    "music extras have complete user-facing strings in \(language.rawValue)")
         }
     }

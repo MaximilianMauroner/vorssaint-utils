@@ -421,6 +421,67 @@ enum AppManagementFeatureTests {
                && UninstallerSupport.verifiedBundleID("com.vorssaint.utils") == nil
                && UninstallerSupport.verifiedBundleID("com.apple.system") == nil,
                "malformed, protected and current app identifiers never enter uninstall paths")
+        let selectionFixture = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vorssaint-uninstaller-selection-\(UUID().uuidString)",
+                                    isDirectory: true)
+        try? FileManager.default.createDirectory(at: selectionFixture, withIntermediateDirectories: true)
+        func selectionBundle(_ name: String, bundleID: String) -> URL {
+            let app = selectionFixture.appendingPathComponent(name, isDirectory: true)
+            let info = app.appendingPathComponent("Contents/Info.plist")
+            try? FileManager.default.createDirectory(at: info.deletingLastPathComponent(),
+                                                     withIntermediateDirectories: true)
+            let plist: [String: Any] = ["CFBundleIdentifier": bundleID]
+            if let data = try? PropertyListSerialization.data(fromPropertyList: plist,
+                                                               format: .xml, options: 0) {
+                try? data.write(to: info)
+            }
+            return app
+        }
+        let editorApp = selectionBundle("Editor.app", bundleID: "com.vendor.editor")
+        suite.expect(UninstallerSupport.selection(for: URL(string: "https://example.com/App.app")!) == nil,
+               "a web address is refused before loading an app bundle")
+        let editorSelection = UninstallerSupport.selection(for: editorApp)
+        suite.expect(editorSelection?.bundleID == "com.vendor.editor"
+               && editorSelection?.url == editorApp.standardizedFileURL,
+               "a complete third party app bundle is accepted with its standardized path")
+        let appleEditorApp = selectionBundle("AppleEditor.app", bundleID: "com.apple.editor")
+        suite.expect(UninstallerSupport.selection(for: appleEditorApp) == nil,
+               "an Apple bundle identifier is refused before it can claim uninstall paths")
+        let aliasApp = selectionFixture.appendingPathComponent("Alias.app")
+        try? FileManager.default.createSymbolicLink(at: aliasApp, withDestinationURL: editorApp)
+        suite.expect(UninstallerSupport.selection(for: aliasApp) == nil,
+               "an app symlink is refused instead of selecting its destination")
+        let bareApp = selectionFixture.appendingPathComponent("Bare.app", isDirectory: true)
+        try? FileManager.default.createDirectory(at: bareApp, withIntermediateDirectories: true)
+        suite.expect(UninstallerSupport.selection(for: bareApp) == nil,
+               "a bundle without Info.plist is refused before a scan starts")
+        // An iPhone or iPad app on a Mac carries its Info.plist at the top of
+        // the bundle and has no Contents folder for the uninstaller to remove.
+        let wrappedApp = selectionFixture.appendingPathComponent("Wrapped.app", isDirectory: true)
+        try? FileManager.default.createDirectory(at: wrappedApp, withIntermediateDirectories: true)
+        if let data = try? PropertyListSerialization.data(
+            fromPropertyList: ["CFBundleIdentifier": "com.vendor.wrapped"], format: .xml, options: 0) {
+            try? data.write(to: wrappedApp.appendingPathComponent("Info.plist"))
+        }
+        suite.expect(Bundle(url: wrappedApp)?.bundleIdentifier == "com.vendor.wrapped"
+               && UninstallerSupport.selection(for: wrappedApp) == nil,
+               "a bundle with a valid identifier but no Contents/Info.plist is refused")
+        let listedApps = [editorApp, appleEditorApp, bareApp, wrappedApp].map {
+            InstalledApps.InstalledApp(id: $0.standardizedFileURL.path, name: $0.lastPathComponent,
+                                      bundleID: nil, url: $0, isSystem: false)
+        }
+        suite.expect(UninstallerSupport.acceptedApplicationIDs(listedApps)
+                == [editorApp.standardizedFileURL.path],
+               "the command bar's uninstall list keeps only the apps the uninstaller accepts")
+        try? FileManager.default.removeItem(at: selectionFixture)
+        for path in ["Sources/Vorssaint/UI/Uninstall/UninstallerView.swift",
+                     "Sources/Vorssaint/UI/MenuPanel/PanelUninstallerView.swift"] {
+            let pickerSource = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+            suite.expect(pickerSource.contains("UninstallerSupport.offeredApplications()"),
+                   "\(path) offers only the apps the shared selection checks accept")
+            suite.expect(pickerSource.contains("return uninstaller.select(appURL: app)"),
+                   "\(path) springs a refused drop back instead of accepting it")
+        }
         let uninstallAppURL = URL(fileURLWithPath: "/Applications/Editor.app")
         suite.expect(UninstallerSupport.isNestedBundle(
                    URL(fileURLWithPath: "/Applications/Editor.app/Contents/Library/LoginItems/Background.app"),
@@ -778,12 +839,12 @@ enum AppManagementFeatureTests {
             contentsOfFile: "Sources/Vorssaint/Services/Uninstall/AppUninstaller.swift",
             encoding: .utf8)) ?? ""
         let removeSelectedBody = sourceBody(of: appUninstallerSource, from: "func removeSelected()",
-                                            to: "func removeSelectedWithHomebrew()")
+                                            to: "func removeSelectedWithHomebrew(")
         suite.expect(removeSelectedBody.contains("let knownApplications = mayClaimSharedData"),
                "a removal builds the known-application roster only when it may claim shared data")
         let finishHomebrewBody = sourceBody(of: appUninstallerSource,
                                             from: "private func finishRemovalAfterHomebrew",
-                                            to: "private static func trashViaFinder")
+                                            to: "private static func removeCommandBarState")
         suite.expect(!finishHomebrewBody.isEmpty,
                "the Homebrew follow-up removal source reads back for its shape check")
         // Package completion must preserve ownership of the remaining choices
@@ -801,9 +862,42 @@ enum AppManagementFeatureTests {
                 && removeSelectedBody.contains("stubborn.append(item)")
                 && removeSelectedBody.contains("freed += item.size"),
                "a path is counted freed only when its absence is confirmed, not on a bare fileExists miss")
+        // Copy detection belongs to the background cleanup shared by both
+        // removal paths, and is needed only for bundle-wide preferences.
+        let cleanupBody = sourceBody(of: appUninstallerSource,
+                                     from: "private static func removeCommandBarState",
+                                     to: "private static func trashViaFinder")
+        let storedStateCheck = cleanupBody.range(of: "hasStoredApplicationState(")
+        let leavesMainThread = cleanupBody.range(of: "DispatchQueue.global(")
+        let absenceCheck = cleanupBody.range(of: "isConfirmedAbsent")
+        let folderWalk = cleanupBody.range(of: "installedApplications(")
+        suite.expect(storedStateCheck != nil && leavesMainThread != nil
+                && storedStateCheck!.upperBound < leavesMainThread!.lowerBound
+                && cleanupBody.contains("bundleIDs.isEmpty ? []"),
+               "a removal scans for another copy only when the app has shared Command Bar state")
+        suite.expect(absenceCheck != nil && folderWalk != nil
+                && absenceCheck!.upperBound < folderWalk!.lowerBound,
+               "a removed app's shortcut is freed only after its absence is confirmed")
+        // The bar also lists apps Spotlight finds in the home folder, such as
+        // a second copy in Downloads, and that copy answers to the same row.
+        suite.expect(cleanupBody.contains(
+                    "spotlightPaths: CommandBarService.spotlightApplicationPaths()"),
+               "a copy the Command Bar finds through Spotlight keeps the removed app's shortcut")
+        suite.expect(removeSelectedBody.components(separatedBy: "Self.removeCommandBarState(").count == 2
+                && finishHomebrewBody.components(separatedBy: "Self.removeCommandBarState(").count == 2,
+               "both the Trash and the Homebrew removals schedule the same cleanup exactly once")
         suite.expect(CleanerSupport.bundleIDCandidate(fromEntryName: "com.vendor.editor.prefPane")
                 == "com.vendor.editor",
                "preference panes map to their owning bundle identifier")
+        suite.expect(CleanerSupport.bundleIDCandidate(fromEntryName: "im.riot.app.plist") == "im.riot.app"
+               && CleanerSupport.bundleIDCandidate(fromEntryName: "com.vendor.Service.plist") == "com.vendor.Service"
+               && CleanerSupport.bundleIDCandidate(fromEntryName: "com.vendor.Dictionary.savedState")
+                == "com.vendor.Dictionary"
+               && CleanerSupport.bundleIDCandidate(fromEntryName: "io.app.plist") == "io.app",
+               "only the entry's own extension is removed, not an identifier component spelled like one")
+        suite.expect(CleanerSupport.bundleIDCandidate(fromEntryName: "com.vendor.editor.app") == "com.vendor.editor"
+               && CleanerSupport.bundleIDCandidate(fromEntryName: "com.vendor.editor.PLIST") == "com.vendor.editor",
+               "a single payload extension still unwraps to its owner in any letter case")
         suite.expect(CleanerSupport.bundleIDCandidate(fromEntryName: "app-0.0.409") == nil
                && CleanerSupport.bundleIDCandidate(fromEntryName: "0.0.409") == nil
                && CleanerSupport.bundleIDCandidate(fromEntryName: "1.57.0") == nil
@@ -851,6 +945,17 @@ enum AppManagementFeatureTests {
                    CleanerSupport.isProtectedBundleID($0)
                },
                "embedded updaters and crash reporters can never be junk owners")
+        suite.expect(CleanerSupport.isProtectedBundleID("io.sentry.Native")
+               && CleanerSupport.isProtectedBundleID("ORG.SPARKLE-PROJECT.Sparkle")
+               && CleanerSupport.isProtectedBundleID("com.google.Keystone.Agent"),
+               "anything inside a shared infrastructure domain stays protected, in any letter case")
+        suite.expect(!CleanerSupport.isProtectedBundleID("com.segmentfault.reader")
+               && !CleanerSupport.isProtectedBundleID("com.amplitudestudios.Humankind")
+               && !CleanerSupport.isProtectedBundleID("io.sentrybox.Mac")
+               && !CleanerSupport.isProtectedBundleID("org.swiftbar.app")
+               && UninstallerSupport.verifiedBundleID("com.amplitudestudios.Humankind")
+                == "com.amplitudestudios.Humankind",
+               "another vendor whose name merely starts like a shared domain is an ordinary app")
         suite.expect(CleanerSupport.bundleIDCandidate(fromEntryName: "systemgroup.com.apple.icloud.sharedsettings.plist")
                == "com.apple.icloud.sharedsettings",
                "systemgroup wrappers unwrap to the real owner")
@@ -887,10 +992,15 @@ enum AppManagementFeatureTests {
                && !CleanerPolicy.isExcludedCacheEntry("ms-playwright"),
                "ordinary and downloadable sensitive caches remain available for review")
         suite.expect(CleanerSupport.Category.deviceBackups.rawValue == 6
-               && CleanerSupport.Category.allCases.count == 7,
-               "device backups joined the cleaner with a stable category id")
+               && CleanerSupport.Category.screenshots.rawValue == 7
+               && CleanerSupport.Category.allCases.count == 8,
+               "device backups and screenshots joined the cleaner with stable category ids")
         suite.expect(!CleanerPolicy.precheckDeviceBackups,
                "device backups never start checked, they are the user's safety net")
+        suite.expect(!CleanerPolicy.precheckScreenshots
+               && registeredDefaults[DefaultsKey.cleanerScreenshotAgeDays] as? Int == 30
+               && CleanerPolicy.sanitizedScreenshotAgeDays(-3) == 0,
+               "forgotten screenshots start unchecked after a 30 day default")
         // CleanerScheduler and CleanerView are outside this test binary, so
         // pin escalation at the call sites: the unattended pass must never
         // reach Finder's administrator prompt, and no default lets a later
@@ -909,6 +1019,9 @@ enum AppManagementFeatureTests {
                && cleanerViewCode.components(separatedBy: "cleanSelected(").count == 2
                && cleanerViewCode.contains("cleanSelected(escalate:true)"),
                "cleanSelected has no default escalation and the manual clean still asks")
+        suite.expect(schedulerCode.contains("cleaner.scan(attended:false)")
+               && cleanerViewCode.contains("cleaner.scan(attended:true)"),
+               "only a scan someone started reads the screenshot folders")
         suite.expect(CleanerPolicy.developerJunkPaths.contains("/Library/Developer/Xcode/iOS DeviceSupport")
                && CleanerPolicy.developerJunkPaths.contains("/Library/Developer/Xcode/watchOS DeviceSupport"),
                "stale DeviceSupport symbol caches count as developer junk")
@@ -1048,11 +1161,11 @@ enum AppManagementFeatureTests {
         suite.expect(Defaults.sanitizedMenuBarMemoryStyle("bad") == "percent", "invalid memory style falls back to percent")
         suite.expect(Defaults.sanitizedMenuBarMetricOrder("cpu,gpu,memory,network,battery,power")
                == ["cpu", "gpu", "memory", "network", "battery", "power",
-                   "cpuTemperature", "gpuTemperature", "batteryTime", "batteryTemperature", "peripheralBattery", "diskUsage", "diskActivity", "fanSpeed"],
+                   "cpuTemperature", "gpuTemperature", "batteryTime", "batteryTemperature", "peripheralBattery", "diskUsage", "diskActivity", "connectedDevices", "fanSpeed"],
                "menu bar metric order appends temperature sensors without rewriting existing saved order")
         suite.expect(Defaults.sanitizedMenuBarMetricOrder("temperature,cpu,cpu,bad")
                == ["cpuTemperature", "gpuTemperature", "batteryTemperature",
-                   "cpu", "gpu", "memory", "battery", "batteryTime", "peripheralBattery", "network", "diskUsage", "diskActivity", "power", "fanSpeed"],
+                   "cpu", "gpu", "memory", "battery", "batteryTime", "peripheralBattery", "network", "diskUsage", "diskActivity", "connectedDevices", "power", "fanSpeed"],
                "menu bar metric order migrates the old generic temperature value")
         suite.expect(Defaults.sanitizedBundleIdentifierList([" com.example.One ", "", "com.example.One", "com.example.Two"])
                == ["com.example.One", "com.example.Two"],
@@ -1104,6 +1217,23 @@ enum AppManagementFeatureTests {
         suite.expect(!AutoQuitSupport.hasDependentApplication(hostBundleIdentifier: "com.example.unrelated",
                                                         applicationBundleURLs: [dependentApp]),
                "AutoQuit does not protect an unrelated host")
+        func agentBundle(_ name: String, _ info: [String: Any]) -> URL {
+            let url = outerApp.deletingLastPathComponent().appendingPathComponent("\(name).app")
+            try? FileManager.default.createDirectory(at: url.appendingPathComponent("Contents"),
+                                                     withIntermediateDirectories: true)
+            NSDictionary(dictionary: info).write(to: url.appendingPathComponent("Contents/Info.plist"), atomically: true)
+            return url
+        }
+        suite.expect(AutoQuitSupport.isBackgroundApp(bundleURL: agentBundle("MenuBar", ["LSUIElement": true])),
+               "AutoQuit leaves a menu bar app running when its settings window closes")
+        suite.expect(AutoQuitSupport.isBackgroundApp(bundleURL: agentBundle("MenuBarString", ["LSUIElement": "1"])),
+               "AutoQuit reads a string LSUIElement the way Launch Services does")
+        suite.expect(AutoQuitSupport.isBackgroundApp(bundleURL: agentBundle("Daemon", ["LSBackgroundOnly": true])),
+               "AutoQuit leaves a background-only app running")
+        suite.expect(!AutoQuitSupport.isBackgroundApp(bundleURL: agentBundle("Regular", ["LSUIElement": false])),
+               "AutoQuit still quits a regular app when its last window closes")
+        suite.expect(!AutoQuitSupport.isBackgroundApp(bundleURL: nil),
+               "AutoQuit treats a process without a bundle as a regular app")
         try? FileManager.default.removeItem(at: outerApp.deletingLastPathComponent())
         suite.expect(!AutoQuitSupport.shouldScheduleWindowCheck(for: .appDeactivated,
                                                           hasRecentCloseRequest: false),
@@ -1330,5 +1460,95 @@ enum AppManagementFeatureTests {
                == ["uninstaller", "homebrew", "media", "cleanURL", "cleaning"],
                "panel item order keeps saved valid items first and appends defaults")
 
+        runNonModalAlertChecks(suite)
+    }
+
+    /// The disk image installer's alerts used to run modal inside a main-queue
+    /// block (the hop after the mount check and the one after the install).
+    /// A modal loop started there holds back later main-queue work, such as a
+    /// Window Layout shortcut, until the alert closes, and its modal panel
+    /// mode stops default-mode timers (issue #1665). The alert is never
+    /// ordered on screen here.
+    private static func runNonModalAlertChecks(_ suite: TestSuite) {
+        func makeAlert() -> NSAlert {
+            let alert = NSAlert()
+            alert.messageText = "Install?"
+            alert.addButton(withTitle: "Install")
+            alert.addButton(withTitle: "Cancel")
+            return alert
+        }
+
+        let alert = makeAlert()
+        var shownWindows: [NSWindow] = []
+        var responses: [NSApplication.ModalResponse] = []
+        var queuedWorkRan = false
+        DispatchQueue.main.async { queuedWorkRan = true }
+        let presentation = NonModalAlert.present(alert, show: { shownWindows.append($0) }) {
+            responses.append($0)
+        }
+        // One pass of the run loop returns after the first source it handles,
+        // which on a busy runner need not be the main queue, so keep turning it.
+        let queuedWorkDeadline = Date(timeIntervalSinceNow: 2)
+        while !queuedWorkRan && Date() < queuedWorkDeadline {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+        suite.expect(queuedWorkRan && responses.isEmpty && presentation.isOpen,
+               "main-queue work runs while an installer alert is still waiting for an answer")
+        suite.expect(shownWindows.count == 1 && shownWindows.first === alert.window
+               && alert.window.level == .modalPanel,
+               "the alert shows its own window at the level a modal alert would use")
+        suite.expect(!alert.window.hidesOnDeactivate,
+               "the alert stays on screen when another app becomes active")
+        suite.expect(alert.buttons.map(\.keyEquivalent) == ["\r", "\u{1b}"],
+               "Return and Escape still answer the alert")
+
+        alert.buttons[0].performClick(nil)
+        alert.buttons[1].performClick(nil)
+        suite.expect(responses == [.alertFirstButtonReturn] && !presentation.isOpen,
+               "the first button answers once and later clicks are ignored")
+
+        let cancelled = makeAlert()
+        var cancelResponses: [NSApplication.ModalResponse] = []
+        NonModalAlert.present(cancelled, show: { _ in }) { cancelResponses.append($0) }
+        cancelled.buttons[1].performClick(nil)
+        suite.expect(cancelResponses == [.alertSecondButtonReturn],
+               "the second button answers with the second button's response")
+
+        let result = NSAlert()
+        result.messageText = "Installed"
+        var resultResponses: [NSApplication.ModalResponse] = []
+        let resultPresentation = NonModalAlert.present(result, show: { _ in }) { resultResponses.append($0) }
+        result.buttons.first?.performClick(nil)
+        suite.expect(result.buttons.count == 1 && result.buttons.first?.keyEquivalent == "\r"
+               && resultResponses == [.alertFirstButtonReturn] && !resultPresentation.isOpen,
+               "an alert without buttons answers through its OK button, like the installer's result alert")
+
+        weak var weakTarget: NSObject?
+        var dismissed: NonModalAlert?
+        var dismissResponses: [NSApplication.ModalResponse] = []
+        let dismissedAlert = makeAlert()
+        autoreleasepool {
+            let target = NSObject()
+            weakTarget = target
+            dismissed = NonModalAlert.present(dismissedAlert, retaining: [target], show: { _ in }) {
+                dismissResponses.append($0)
+            }
+        }
+        suite.expect(weakTarget != nil,
+               "a checkbox target the alert references weakly stays alive while the alert is open")
+        autoreleasepool {
+            dismissed?.dismiss(with: .alertSecondButtonReturn)
+            dismissedAlert.buttons[0].performClick(nil)
+            dismissed = nil
+        }
+        suite.expect(dismissResponses == [.alertSecondButtonReturn] && weakTarget == nil,
+               "dismissing answers once, ignores later clicks and releases what the alert retained")
+
+        let installerSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/DiskImageInstaller/DiskImageInstallerService.swift",
+            encoding: .utf8)) ?? ""
+        suite.expect(!installerSource.isEmpty && !installerSource.contains(".runModal()")
+               && installerSource.components(separatedBy: "NonModalAlert.present(").count == 3,
+               "the install prompt and the result alert both open without a modal session")
     }
 }

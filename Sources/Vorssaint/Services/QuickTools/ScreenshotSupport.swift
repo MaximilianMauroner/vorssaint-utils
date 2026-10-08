@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import Accelerate
 import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
@@ -79,6 +80,13 @@ enum ScreenCaptureTool: String, CaseIterable {
 
     func showsCaptureMenu(fromShortcut: Bool, defaults: UserDefaults = .standard) -> Bool {
         !fromShortcut || (defaults.object(forKey: showCaptureMenuOnShortcutKey) as? Bool ?? true)
+    }
+
+    /// A running recording blocks the capture menu, because picking recording
+    /// from it would stop the take. A shortcut that skips the menu can only
+    /// reach its own tool, so it may run on top of the recording.
+    func opensDuringRecording(fromShortcut: Bool, defaults: UserDefaults = .standard) -> Bool {
+        self != .recording && !showsCaptureMenu(fromShortcut: fromShortcut, defaults: defaults)
     }
 
     var systemImageName: String {
@@ -173,6 +181,28 @@ enum ScreenshotSupport {
         pointerOnDisplay && !selectionInProgress && !capturePending
     }
 
+    static func fullScreenCaptureControlIsAvailable(selectedTool: ScreenCaptureTool?,
+                                                    standaloneScreenshot: Bool,
+                                                    requiresDraggedRegion: Bool,
+                                                    scrollingCaptureEnabled: Bool) -> Bool {
+        let isScreenshot = standaloneScreenshot || selectedTool == .screenshot
+        return isScreenshot && !requiresDraggedRegion && !scrollingCaptureEnabled
+    }
+
+    static func fullScreenCaptureControlIsVisible(isAvailable: Bool,
+                                                  pointerOnDisplay: Bool,
+                                                  selectionInProgress: Bool,
+                                                  capturePending: Bool) -> Bool {
+        isAvailable && pointerOnDisplay && !selectionInProgress && !capturePending
+    }
+
+    static func fullScreenCaptureControlTopInset(screenChromeHeight: CGFloat,
+                                                 notchControlsHeight: CGFloat?) -> CGFloat {
+        let chrome = screenChromeHeight.isFinite ? max(0, screenChromeHeight) : 0
+        let controls = notchControlsHeight.flatMap { $0.isFinite ? max(0, $0) : nil } ?? 0
+        return max(chrome, controls) + 12
+    }
+
     /// Whether the guide should advertise repeating the last capture region.
     /// The region is remembered for this app session only and belongs to one
     /// display, so the hint stays hidden until pressing the key would really
@@ -222,6 +252,110 @@ enum ScreenshotSupport {
 
     static func sanitizedDelay(_ raw: Int) -> Int {
         allowedDelays.contains(raw) ? raw : 0
+    }
+
+    static let confirmationPreviewDurations = [1, 2, 3, 5, 10, 0]
+    static let defaultConfirmationPreviewDuration = 3
+    static let recoveryPreviewDismissInterval: TimeInterval = 12
+
+    struct ConfirmationPreviewPresentationPolicy: Equatable {
+        let takesFocus: Bool
+        let closesOnCollapse: Bool
+        let showsDismissButton: Bool
+    }
+
+    static func sanitizedConfirmationPreviewDuration(_ raw: Int) -> Int {
+        confirmationPreviewDurations.contains(raw) ? raw : defaultConfirmationPreviewDuration
+    }
+
+    static func confirmationPreviewDismissInterval(_ raw: Int) -> TimeInterval? {
+        let duration = sanitizedConfirmationPreviewDuration(raw)
+        return duration == 0 ? nil : TimeInterval(duration)
+    }
+
+    static func sharedPreviewDismissInterval(base: TimeInterval?) -> TimeInterval? {
+        base == nil ? nil : 30
+    }
+
+    static func confirmationPreviewPresentationPolicy(
+        dismissInterval: TimeInterval?,
+        prefersFocus: Bool
+    ) -> ConfirmationPreviewPresentationPolicy {
+        let persistent = dismissInterval == nil
+        return ConfirmationPreviewPresentationPolicy(
+            takesFocus: !persistent && prefersFocus,
+            closesOnCollapse: persistent,
+            showsDismissButton: persistent)
+    }
+
+    static func confirmationPreviewPresentationPolicy(
+        dismissInterval: TimeInterval?,
+        defaults: UserDefaults
+    ) -> ConfirmationPreviewPresentationPolicy {
+        confirmationPreviewPresentationPolicy(
+            dismissInterval: dismissInterval,
+            prefersFocus: defaults.bool(forKey: DefaultsKey.screenshotPreviewTakesFocus))
+    }
+
+    static func automaticActionSucceeded(_ action: ScreenshotDefaultAction,
+                                         saved: Bool,
+                                         copied: Bool) -> Bool {
+        switch action {
+        case .none, .edit: return false
+        case .save: return saved
+        case .saveAndCopy: return saved && copied
+        case .copy: return copied
+        }
+    }
+
+    static func shouldShowQuickPreview(defaultAction: ScreenshotDefaultAction,
+                                       saved: Bool,
+                                       copied: Bool,
+                                       confirmationEnabled: Bool) -> Bool {
+        switch defaultAction {
+        case .none: return true
+        case .edit: return false
+        case .save, .saveAndCopy, .copy:
+            return confirmationEnabled
+                || !automaticActionSucceeded(defaultAction, saved: saved, copied: copied)
+        }
+    }
+
+    /// What a finished capture shows once its after-capture action ran.
+    enum QuickPreviewPresentation: Equatable {
+        case hidden
+        /// A nil interval keeps the preview until it is dismissed.
+        case shown(dismissInterval: TimeInterval?)
+    }
+
+    /// The whole decision `route` makes, read from the person's settings: a
+    /// successful action shows the confirmation for its chosen duration or
+    /// nothing at all, while a failed or partial action, or no action, gets
+    /// the recovery preview with its longer timer.
+    static func quickPreviewPresentation(defaultAction: ScreenshotDefaultAction,
+                                         saved: Bool,
+                                         copied: Bool,
+                                         defaults: UserDefaults) -> QuickPreviewPresentation {
+        guard shouldShowQuickPreview(
+            defaultAction: defaultAction, saved: saved, copied: copied,
+            confirmationEnabled: defaults.bool(forKey: DefaultsKey.screenshotPreviewEnabled))
+        else { return .hidden }
+        guard automaticActionSucceeded(defaultAction, saved: saved, copied: copied) else {
+            return .shown(dismissInterval: recoveryPreviewDismissInterval)
+        }
+        // A stored value that is not a number reads as the default duration,
+        // not as 0, which would keep every confirmation until dismissed.
+        let duration = (defaults.object(forKey: DefaultsKey.screenshotPreviewDuration) as? NSNumber)?
+            .intValue ?? defaultConfirmationPreviewDuration
+        return .shown(dismissInterval: confirmationPreviewDismissInterval(duration))
+    }
+
+    /// Captures go to the shelf on their own only while the shelf is
+    /// installed and on, so a switched-off shelf never fills up unseen.
+    static func addsCapturesToShelf(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: DefaultsKey.screenshotAddToShelf)
+            && AppFeature.shelf.isAvailable(in: defaults)
+            && defaults.bool(forKey: DefaultsKey.shelfEnabled)
     }
 
     /// Remaining stroke for the one-second countdown ring. Time drives the
@@ -326,14 +460,29 @@ enum ScreenshotSupport {
         }
         guard !movingTiles.isEmpty else { return .unmatched }
 
+        // Compute pixel differences in Accelerate, once per offset. The old
+        // nested Swift pixel loops repeated the work for each tile and candidate
+        // and took seconds per Retina frame in unoptimized Developer builds.
+        let previousPixels = previous.pixels.map(Float.init)
+        let currentPixels = current.pixels.map(Float.init)
+        var differences = [Float](repeating: 0, count: previous.pixels.count)
         var matches: [Match] = []
         for advance in minimumAdvance...maximumAdvance {
+            if Task.isCancelled { return .unmatched }
             for reversed in [false, true] {
+                let count = (height - advance) * previous.width
+                previousPixels.withUnsafeBufferPointer { lhs in
+                    currentPixels.withUnsafeBufferPointer { rhs in
+                        vDSP_vsub(rhs.baseAddress! + (reversed ? advance * previous.width : 0), 1,
+                                  lhs.baseAddress! + (reversed ? 0 : advance * previous.width), 1,
+                                  &differences, 1, vDSP_Length(count))
+                    }
+                }
+                vDSP_vabs(differences, 1, &differences, 1, vDSP_Length(count))
                 guard let match = scrollingCandidate(previous: previous,
-                                                     current: current,
                                                      advance: advance,
-                                                     reversed: reversed,
-                                                     tiles: movingTiles) else { continue }
+                                                     tiles: movingTiles,
+                                                     differences: differences) else { continue }
                 matches.append(Match(advance: advance,
                                      reversed: reversed,
                                      contentColumns: match.contentColumns,
@@ -469,17 +618,15 @@ enum ScreenshotSupport {
     }
 
     private static func scrollingCandidate(previous: ScrollingSample,
-                                           current: ScrollingSample,
                                            advance: Int,
-                                           reversed: Bool,
-                                           tiles: [Range<Int>]) -> ScrollingCandidate? {
+                                           tiles: [Range<Int>],
+                                           differences: [Float]) -> ScrollingCandidate? {
         let requiredRun = max(8, min(28, previous.height / 12))
         let matches = tiles.map { tile -> (Range<Int>, ScrollingRowMatch?) in
             guard let match = scrollingMatch(previous: previous,
-                                              current: current,
                                               advance: advance,
-                                              reversed: reversed,
-                                              columns: tile),
+                                              columns: tile,
+                                              differences: differences),
                   match.longestRun >= requiredRun,
                   match.matchingRows >= max(requiredRun, match.comparedRows / 3)
             else { return (tile, nil) }
@@ -509,10 +656,9 @@ enum ScreenshotSupport {
                   let last = supported.last else { return nil }
             let contentColumns = first.0.lowerBound..<last.0.upperBound
             guard let combined = scrollingMatch(previous: previous,
-                                                 current: current,
                                                  advance: advance,
-                                                 reversed: reversed,
-                                                 columns: contentColumns),
+                                                 columns: contentColumns,
+                                                 differences: differences),
                   combined.longestRun >= requiredRun,
                   combined.matchingRows >= max(requiredRun, combined.comparedRows / 3)
             else { return nil }
@@ -540,10 +686,9 @@ enum ScreenshotSupport {
     }
 
     private static func scrollingMatch(previous: ScrollingSample,
-                                       current: ScrollingSample,
                                        advance: Int,
-                                       reversed: Bool,
-                                       columns: Range<Int>) -> ScrollingRowMatch? {
+                                       columns: Range<Int>,
+                                       differences: [Float]) -> ScrollingRowMatch? {
         let width = previous.width
         let edgeInset = max(2, previous.height / 10)
         let lastRow = previous.height - advance - edgeInset
@@ -552,39 +697,37 @@ enum ScreenshotSupport {
               columns.upperBound <= width,
               !columns.isEmpty else { return nil }
 
+        let rowCount = lastRow - edgeInset
+        var rowDifferences = [Float](repeating: 0, count: rowCount)
+        let weights = [Float](repeating: 1, count: columns.count)
+        differences.withUnsafeBufferPointer { buffer in
+            vDSP_desamp(buffer.baseAddress! + edgeInset * width + columns.lowerBound,
+                        vDSP_Stride(width), weights, &rowDifferences,
+                        vDSP_Length(rowCount), vDSP_Length(columns.count))
+        }
         var longestRun = 0
         var run = 0
         var matchingRows = 0
-        var comparedRows = 0
-        var totalDifference = 0
-        var comparedPixels = 0
-        for currentRow in edgeInset..<lastRow {
-            let previousRow = currentRow + advance
-            let previousStart = (reversed ? currentRow : previousRow) * width
-            let currentStart = (reversed ? previousRow : currentRow) * width
-            var rowDifference = 0
-            for column in columns {
-                rowDifference += abs(Int(previous.pixels[previousStart + column])
-                    - Int(current.pixels[currentStart + column]))
-            }
-            let rowPixels = columns.count
-            let average = Double(rowDifference) / Double(rowPixels)
-            totalDifference += rowDifference
-            comparedPixels += rowPixels
-            comparedRows += 1
-            if average <= 8 {
-                run += 1
-                matchingRows += 1
-                longestRun = max(longestRun, run)
-            } else {
-                run = 0
+        let threshold = Float(columns.count * 8)
+        rowDifferences.withUnsafeBufferPointer { rows in
+            var row = 0
+            while row < rowCount {
+                if rows[row] <= threshold {
+                    run += 1
+                    matchingRows += 1
+                    if run > longestRun { longestRun = run }
+                } else {
+                    run = 0
+                }
+                row += 1
             }
         }
-        guard comparedPixels > 0 else { return nil }
+        var totalDifference: Float = 0
+        vDSP_sve(rowDifferences, 1, &totalDifference, vDSP_Length(rowCount))
         return ScrollingRowMatch(longestRun: longestRun,
                                  matchingRows: matchingRows,
-                                 comparedRows: comparedRows,
-                                 difference: Double(totalDifference) / Double(comparedPixels))
+                                 comparedRows: rowCount,
+                                 difference: Double(totalDifference) / Double(rowCount * columns.count))
     }
 
     static func scrollingPixelRange(sampleColumns: Range<Int>,
@@ -654,6 +797,37 @@ enum ScreenshotSupport {
                                        within bounds: CGRect) -> Bool {
         bounds.contains(point)
             && (draft.standardized == bounds.standardized || !draft.contains(point))
+    }
+
+    /// A captured image's alpha, top row first.
+    struct AlphaCoverage {
+        let alpha: [UInt8]
+        let width: Int
+        let height: Int
+
+        /// Total alpha inside `rect`, in image pixels from the top left.
+        func sum(in rect: CGRect) -> Int {
+            let area = rect.integral.intersection(CGRect(x: 0, y: 0, width: width, height: height))
+            guard !area.isNull, !area.isEmpty else { return 0 }
+            var total = 0
+            for row in Int(area.minY)..<Int(area.maxY) {
+                let start = row * width
+                for column in Int(area.minX)..<Int(area.maxX) { total += Int(alpha[start + column]) }
+            }
+            return total
+        }
+    }
+
+    /// Where a display capture of only some windows put them. Older systems
+    /// draw each window where it sits on the display. macOS 27 packs the
+    /// included windows into the image's top-left corner, keeping their
+    /// relative layout, so cropping at the window's place on screen kept only
+    /// its lower-right part beside empty space. Everything but those windows
+    /// is transparent, so
+    /// the placement that holds more of them is the one the system used.
+    static func attachedCaptureCrop(placed: CGRect, packed: CGRect,
+                                    coverage: AlphaCoverage) -> CGRect {
+        coverage.sum(in: packed) > coverage.sum(in: placed) ? packed : placed
     }
 
     static func clamp(_ rect: CGRect, to bounds: CGRect) -> CGRect {
@@ -764,15 +938,15 @@ enum ScreenshotSupport {
             let area = overlap.isNull ? 0 : max(0, overlap.width) * max(0, overlap.height)
             let winsTie = area == selectedArea
                 && area > 0
-                && screen.frame.contains(pointer)
-                && !(selected?.frame.contains(pointer) ?? false)
+                && NSMouseInRect(pointer, screen.frame, false)
+                && !(selected.map { NSMouseInRect(pointer, $0.frame, false) } ?? false)
             if area > selectedArea || winsTie {
                 selected = screen
                 selectedArea = area
             }
         }
         if let selected { return selected.visibleFrame }
-        return screens.first { $0.frame.contains(pointer) }?.visibleFrame ?? fallback
+        return screens.first { NSMouseInRect(pointer, $0.frame, false) }?.visibleFrame ?? fallback
     }
 
     /// Places the capture preview beside the selection in automatic mode, or
@@ -894,6 +1068,22 @@ enum ScreenshotSupport {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
         return "\(prefix) \(formatter.string(from: date)).\(fileExtension)"
+    }
+
+    /// Marks a saved capture the way macOS marks its own screenshots, so
+    /// Spotlight and the Cleaner's forgotten screenshots treat both alike.
+    /// Best effort: an unmarked file is only never offered for cleaning.
+    static func markAsScreenCapture(_ url: URL) {
+        guard let data = try? PropertyListSerialization.data(fromPropertyList: true,
+                                                             format: .binary,
+                                                             options: 0) else { return }
+        url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return }
+            _ = data.withUnsafeBytes {
+                setxattr(path, "com.apple.metadata:kMDItemIsScreenCapture",
+                         $0.baseAddress, data.count, 0, XATTR_NOFOLLOW)
+            }
+        }
     }
 
     /// Writes one drag payload into its own temporary directory. Separate
@@ -1160,6 +1350,30 @@ enum ScreenshotSupport {
 
     // MARK: - Annotation model
 
+    /// Movement in view points, so clicks keep the same tolerance at every
+    /// zoom. Only the pen keeps its path when it returns to the start; other
+    /// tools still discard a shape whose endpoints form a click.
+    struct EditorDrag {
+        private var start: CGPoint = .zero
+        private var stayedNearStart = true
+        private var endsNearStart = true
+
+        mutating func begin(at point: CGPoint) {
+            start = point
+            stayedNearStart = true
+            endsNearStart = true
+        }
+
+        mutating func update(to point: CGPoint) {
+            endsNearStart = hypot(point.x - start.x, point.y - start.y) < 7
+            stayedNearStart = stayedNearStart && endsNearStart
+        }
+
+        func isTap(for tool: Tool) -> Bool {
+            tool == .freehand ? stayedNearStart : endsNearStart
+        }
+    }
+
     enum Tool: String, CaseIterable {
         // Case order is the default rail order and therefore the default
         // mapping for keys 1 through 9. Put the common actions first.
@@ -1418,11 +1632,74 @@ enum ScreenshotSupport {
         }
     }
 
+    /// Text point sizes at 1x, offered as presets. Text has its own size
+    /// instead of borrowing the shape thickness, so a thin arrow can sit
+    /// beside a large label.
+    static let textSizes: [Int] = [10, 12, 14, 16, 19, 24, 28, 36, 48, 64, 72, 96]
+    static let defaultTextSize = 19
+
+    static func sanitizedTextSize(_ size: Int) -> Int {
+        guard let first = textSizes.first, let last = textSizes.last else { return defaultTextSize }
+        return size == 0 ? defaultTextSize : min(max(size, first), last)
+    }
+
+    /// The preset one step away from `size`, or nil at either end.
+    static func steppedTextSize(from size: Int, up: Bool) -> Int? {
+        up ? textSizes.first(where: { $0 > size }) : textSizes.last(where: { $0 < size })
+    }
+
+    /// How hard a blur hides what is under it, from 1 (lightest) to 5
+    /// (heaviest). Level 3 is the strength blurs always had. The screenshot
+    /// pixelate tool and video blurs share the scale so a level means the
+    /// same thing in both editors.
+    enum BlurStrength {
+        static let levels = 1...5
+        static let defaultLevel = 3
+
+        static func sanitized(_ level: Int) -> Int {
+            min(max(level, levels.lowerBound), levels.upperBound)
+        }
+
+        /// Where a new capture's pixelate tool starts: the remembered level,
+        /// but never a light one. Levels 1 and 2 make blocks smaller than a
+        /// line of text, which can stay readable, so they are picked area by
+        /// area instead of carried into the next redaction.
+        static func startingLevel(remembered: Int) -> Int {
+            max(sanitized(remembered), defaultLevel)
+        }
+
+        /// What the level does to the mosaic block, relative to level 3.
+        static func blockFactor(for level: Int) -> CGFloat {
+            switch sanitized(level) {
+            case 1: return 0.4
+            case 2: return 0.65
+            case 4: return 1.5
+            case 5: return 2.2
+            default: return 1
+            }
+        }
+    }
+
     enum ArrowStyleID: String, CaseIterable {
         case filled, outline, open, doubleEnded, scribbly
 
         static func sanitized(_ raw: String?) -> ArrowStyleID {
             ArrowStyleID(rawValue: raw ?? "") ?? .filled
+        }
+    }
+
+    /// What a blur area does to what is under it. Pixelate was the only style
+    /// before, so it stays the default.
+    enum BlurStyleID: String, CaseIterable {
+        case pixelate, blur, erase
+
+        static func sanitized(_ raw: String?) -> BlurStyleID {
+            BlurStyleID(rawValue: raw ?? "") ?? .pixelate
+        }
+
+        /// Erasing paints the surroundings over the area, so it has no strength.
+        var usesStrength: Bool {
+            self != .erase
         }
     }
 
@@ -1484,6 +1761,11 @@ enum ScreenshotSupport {
         var text: String
         var color: ColorID
         var stroke: StrokeID
+        var textSize: Int
+        var blurLevel: Int
+        var blurStyle: BlurStyleID
+        /// A blur area that covers only the text recognized inside it.
+        var blurTextOnly: Bool
         var arrowStyle: ArrowStyleID
         var scribbleSeed: UInt64
         var number: Int
@@ -1495,6 +1777,10 @@ enum ScreenshotSupport {
              text: String = "",
              color: ColorID = .red,
              stroke: StrokeID = .medium,
+             textSize: Int = ScreenshotSupport.defaultTextSize,
+             blurLevel: Int = BlurStrength.defaultLevel,
+             blurStyle: BlurStyleID = .pixelate,
+             blurTextOnly: Bool = false,
              arrowStyle: ArrowStyleID = .filled,
              scribbleSeed: UInt64? = nil,
              number: Int = 0) {
@@ -1505,6 +1791,10 @@ enum ScreenshotSupport {
             self.text = text
             self.color = color
             self.stroke = stroke
+            self.textSize = textSize
+            self.blurLevel = blurLevel
+            self.blurStyle = blurStyle
+            self.blurTextOnly = blurTextOnly
             self.arrowStyle = arrowStyle
             self.scribbleSeed = scribbleSeed
                 ?? (arrowStyle == .scribbly
@@ -1519,6 +1809,10 @@ enum ScreenshotSupport {
         let color: ColorID?
         let stroke: StrokeID?
         let arrowStyle: ArrowStyleID?
+        var textSize: Int? = nil
+        var blurLevel: Int? = nil
+        var blurStyle: BlurStyleID? = nil
+        var blurTextOnly: Bool? = nil
     }
 
     static func selectionStyle(for annotation: Annotation) -> SelectionStyle {
@@ -1527,15 +1821,27 @@ enum ScreenshotSupport {
             return SelectionStyle(color: annotation.color,
                                   stroke: annotation.stroke,
                                   arrowStyle: annotation.arrowStyle)
-        case .line, .rect, .ellipse, .freehand, .text:
+        case .line, .rect, .ellipse, .freehand:
             return SelectionStyle(color: annotation.color,
                                   stroke: annotation.stroke,
                                   arrowStyle: nil)
+        case .text:
+            return SelectionStyle(color: annotation.color,
+                                  stroke: nil,
+                                  arrowStyle: nil,
+                                  textSize: annotation.textSize)
         case .highlight, .counter, .redact:
             return SelectionStyle(color: annotation.color,
                                   stroke: nil,
                                   arrowStyle: nil)
-        case .sticker, .pixelate, .select, .crop:
+        case .pixelate:
+            return SelectionStyle(color: nil,
+                                  stroke: nil,
+                                  arrowStyle: nil,
+                                  blurLevel: annotation.blurLevel,
+                                  blurStyle: annotation.blurStyle,
+                                  blurTextOnly: annotation.blurTextOnly)
+        case .sticker, .select, .crop:
             return SelectionStyle(color: nil,
                                   stroke: nil,
                                   arrowStyle: nil)
@@ -1699,6 +2005,24 @@ enum ScreenshotSupport {
         }
         if lineDelta != 0 { return CGFloat(lineDelta) }
         return scrollingDelta.isFinite ? scrollingDelta : 0
+    }
+
+    /// Fast mode on a plain wheel. Its 15% per event was tuned for a smoothed
+    /// wheel, whose train of packets per notch sweeps the range; one discrete
+    /// event per notch made fast mode crawl at the same pace as stepped mode.
+    /// A plain notch therefore zooms by three of those factors. The event's
+    /// line count is left out, as stepped mode leaves it out: scroll tools
+    /// write a fixed count per notch there, and following it would let one
+    /// notch cross the whole range.
+    static func captureLoupeFastZoom(_ zoom: CGFloat,
+                                     adjustedBy scrollDelta: CGFloat,
+                                     isContinuous: Bool) -> CGFloat {
+        guard !isContinuous, scrollDelta.isFinite, scrollDelta != 0 else {
+            return captureLoupeZoom(zoom, adjustedBy: scrollDelta)
+        }
+        var result = zoom
+        for _ in 0..<3 { result = captureLoupeZoom(result, adjustedBy: scrollDelta) }
+        return result
     }
 
     /// Fast mode preserves the original one-step-per-event behavior.
@@ -2019,11 +2343,81 @@ enum ScreenshotSupport {
 
     // MARK: - Redaction
 
-    /// Pixelation block size in image pixels: coarse enough that the mosaic
-    /// carries no legible detail, scaled to the capture so small crops and
-    /// full screens redact equally well.
-    static func pixelBlockSize(for imageSize: CGSize) -> Int {
-        max(10, Int(min(imageSize.width, imageSize.height) / 55))
+    /// Pixelation block size in image pixels, scaled to the capture so small
+    /// crops and full screens redact equally well. From the default level up
+    /// the mosaic carries no legible detail; levels 1 and 2 are lighter and
+    /// can leave large text readable.
+    static func pixelBlockSize(for imageSize: CGSize,
+                               level: Int = BlurStrength.defaultLevel) -> Int {
+        let base = max(10, Int(min(imageSize.width, imageSize.height) / 55))
+        return max(2, Int((CGFloat(base) * BlurStrength.blockFactor(for: level)).rounded()))
+    }
+
+    /// The blur levels the pixelate marks use. Keep only their sampled mosaics;
+    /// drawing expands each one to the capture size when needed.
+    static func mosaicLevels(for annotations: [Annotation]) -> Set<Int> {
+        blurLevels(for: annotations, style: .pixelate)
+    }
+
+    /// The levels the soft blur marks use, each kept as a small blurred sample
+    /// the same way.
+    static func softBlurLevels(for annotations: [Annotation]) -> Set<Int> {
+        blurLevels(for: annotations, style: .blur)
+    }
+
+    private static func blurLevels(for annotations: [Annotation], style: BlurStyleID) -> Set<Int> {
+        Set(annotations.filter { $0.tool == .pixelate && $0.blurStyle == style }.map(\.blurLevel))
+    }
+
+    /// Recognized words joined into the runs a text only blur area covers.
+    /// Neighboring words on a line share one run, so the spaces between them
+    /// are covered too, and words far apart, like table columns, stay apart.
+    /// Each run is padded past the antialiased edges of its glyphs.
+    static func textRuns(from words: [RecognizedWord]) -> [CGRect] {
+        var runs: [CGRect] = []
+        var current: (rect: CGRect, line: Int)?
+        for word in words where word.rect.width > 0 && word.rect.height > 0 {
+            if let run = current, run.line == word.line {
+                let height = max(run.rect.height, word.rect.height)
+                let gap = max(word.rect.minX - run.rect.maxX, run.rect.minX - word.rect.maxX, 0)
+                let overlap = min(run.rect.maxY, word.rect.maxY) - max(run.rect.minY, word.rect.minY)
+                if gap <= height * 1.5,
+                   overlap >= min(run.rect.height, word.rect.height) / 2 {
+                    current = (run.rect.union(word.rect), run.line)
+                    continue
+                }
+            }
+            if let run = current { runs.append(paddedTextRun(run.rect)) }
+            current = (word.rect, word.line)
+        }
+        if let run = current { runs.append(paddedTextRun(run.rect)) }
+        return runs
+    }
+
+    private static func paddedTextRun(_ rect: CGRect) -> CGRect {
+        // In a tall band recognition can place a box a few pixels off, or
+        // stop it short of the glyphs, so the padding above and below is wider.
+        // A word read one letter short ends its box before that letter, so
+        // each end reaches about a glyph further.
+        rect.insetBy(dx: -max(1, rect.height * 0.6), dy: -max(1, rect.height * 0.3))
+    }
+
+    /// Runs moved into a crop's coordinates, keeping those still on it, or
+    /// nil when there were none to move.
+    static func croppedRuns(_ runs: [CGRect]?, by crop: CGRect) -> [CGRect]? {
+        let bounds = CGRect(origin: .zero, size: crop.size)
+        return runs?.compactMap { run -> CGRect? in
+            let moved = run.offsetBy(dx: -crop.minX, dy: -crop.minY)
+            return moved.intersects(bounds) ? moved : nil
+        }
+    }
+
+    /// The runs a text only blur area covers: every run that reaches into it.
+    /// Nil runs mean recognition has not read the capture yet, and the whole
+    /// area stands in for them, so an early export never leaves text readable.
+    static func blurTextRuns(in rect: CGRect, from runs: [CGRect]?) -> [CGRect] {
+        guard let runs else { return [rect] }
+        return runs.filter { $0.intersects(rect) }
     }
 
     // MARK: - Export
@@ -2204,6 +2598,127 @@ enum ScreenshotSupport {
         let rect: CGRect
         /// Line index, so copied selections keep their line breaks.
         let line: Int
+    }
+
+    /// Bands of the capture that text recognition reads one at a time, so a
+    /// tall capture never becomes one huge request. Neighboring bands share
+    /// some rows, because recognition misses a line cut by a band's edge, and
+    /// each band owns the rows up to the middle of what it shares.
+    /// `mergedRecognition` uses that seam to keep a word read twice once.
+    static func recognitionTiles(width: Int, height: Int) -> [(rect: CGRect, ownedRows: Range<CGFloat>)] {
+        let maximumTilePixels = 12_000_000
+        let tileHeight = min(height, max(512, min(4096, maximumTilePixels / max(width, 1))))
+        // Even, so the owned rows of two bands meet on the same row.
+        let overlap = tileHeight < height ? min(256, tileHeight / 4) & ~1 : 0
+        var tiles: [(rect: CGRect, ownedRows: Range<CGFloat>)] = []
+        var tileY = 0
+        while tileY < height {
+            let bandHeight = min(tileHeight, height - tileY)
+            let isLast = tileY + bandHeight >= height
+            tiles.append((CGRect(x: 0, y: tileY, width: width, height: bandHeight),
+                          CGFloat(tileY == 0 ? 0 : tileY + overlap / 2)
+                            ..< CGFloat(isLast ? height : tileY + bandHeight - overlap / 2)))
+            if isLast { break }
+            tileY += bandHeight - overlap
+        }
+        return tiles
+    }
+
+    /// A word one recognition band read, in image pixels. `rect` is nil when
+    /// recognition gave the word no box of its own, and its line's box then
+    /// stands in for it wherever text must be covered.
+    struct BandWord: Equatable {
+        let text: String
+        let rect: CGRect?
+        let lineBox: CGRect
+        let line: Int
+    }
+
+    /// Joins what each band read into the capture's words and the runs text
+    /// only blur areas cover. `reads` follows `tiles`, and nil marks a band
+    /// recognition could not read.
+    ///
+    /// Two bands read the rows they share, and each places a word there a few
+    /// pixels from where the other does, so neither guess alone can say which
+    /// band keeps it. A word both bands read is kept once, from the band that
+    /// owns the middle of the two guesses, and a word only one band read is
+    /// always kept. Runs also take the second guess near a seam, so the text
+    /// stays covered whichever guess was off. Runs stay nil unless every band
+    /// was read, so text only areas keep covering all of themselves. Words
+    /// come band by band, each in the band that owns its middle.
+    static func mergedRecognition(_ reads: [[BandWord]?],
+                                  tiles: [(rect: CGRect, ownedRows: Range<CGFloat>)])
+        -> (words: [RecognizedWord], runs: [CGRect]?) {
+        let bands = zip(tiles, reads).map { (tile: $0.0, words: $0.1 ?? []) }
+        var dropped = bands.map { [Bool](repeating: false, count: $0.words.count) }
+        for upper in bands.indices.dropLast() {
+            let lower = upper + 1
+            let shared = bands[lower].tile.rect.minY..<bands[upper].tile.rect.maxY
+            let seam = bands[upper].tile.ownedRows.upperBound
+            func sharedWords(_ band: Int) -> [(index: Int, rect: CGRect)] {
+                bands[band].words.indices.compactMap { index -> (index: Int, rect: CGRect)? in
+                    guard let rect = bands[band].words[index].rect,
+                          rect.maxY > shared.lowerBound, rect.minY < shared.upperBound
+                    else { return nil }
+                    return (index, rect)
+                }
+            }
+            var unpaired = sharedWords(lower)
+            for (index, rect) in sharedWords(upper) {
+                let text = bands[upper].words[index].text
+                // The other band's read of this word has the same text over
+                // at least half its height, or a box covering at least half of
+                // the smaller one. The same word on the next line is not it,
+                // or it would take the only read of a line one band missed.
+                let match = unpaired.indices.compactMap { candidate -> (candidate: Int, score: CGFloat)? in
+                    let other = unpaired[candidate].rect
+                    let common = rect.intersection(other)
+                    guard !common.isNull, common.width > 0, common.height > 0 else { return nil }
+                    let share = common.width * common.height
+                        / min(rect.width * rect.height, other.width * other.height)
+                    let sameText = bands[lower].words[unpaired[candidate].index].text == text
+                        && common.height >= min(rect.height, other.height) / 2
+                    guard sameText || share >= 0.5 else { return nil }
+                    return (candidate, share + (sameText ? 1 : 0))
+                }.max { $0.score < $1.score }
+                guard let match else { continue }
+                let other = unpaired.remove(at: match.candidate)
+                if (rect.midY + other.rect.midY) / 2 < seam {
+                    dropped[lower][other.index] = true
+                } else {
+                    dropped[upper][index] = true
+                }
+            }
+        }
+        // Kept words follow the band that owns each, so a word kept from
+        // the other band of a seam still copies among the lines around it.
+        var ownedWords = [[RecognizedWord]](repeating: [], count: bands.count)
+        var covered: [RecognizedWord] = []
+        for (index, band) in bands.enumerated() {
+            // Both guesses of a word near a seam become runs: each band's
+            // owned rows reach a quarter of the shared rows past the seam.
+            let above = index > 0
+                ? (bands[index - 1].tile.rect.maxY - band.tile.rect.minY) / 4 : 0
+            let below = index + 1 < bands.count
+                ? (band.tile.rect.maxY - bands[index + 1].tile.rect.minY) / 4 : 0
+            let nearOwned = (band.tile.ownedRows.lowerBound - above)
+                ..< (band.tile.ownedRows.upperBound + below)
+            for (position, word) in band.words.enumerated() {
+                guard let rect = word.rect else {
+                    covered.append(RecognizedWord(text: word.text, rect: word.lineBox, line: word.line))
+                    continue
+                }
+                let kept = !dropped[index][position]
+                let recognized = RecognizedWord(text: word.text, rect: rect, line: word.line)
+                if kept {
+                    let owner = bands.firstIndex { $0.tile.ownedRows.contains(rect.midY) } ?? index
+                    ownedWords[owner].append(recognized)
+                }
+                if kept || nearOwned.contains(rect.midY) { covered.append(recognized) }
+            }
+        }
+        let everyBandRead = reads.count == tiles.count && !reads.contains { $0 == nil }
+        return (ownedWords.flatMap { $0 }, everyBandRead ? textRuns(from: covered) : nil)
     }
 
     /// Words a selection drag touches, in reading order. A hairline drag
@@ -2446,5 +2961,18 @@ enum ScreenshotDefaultAction: String, CaseIterable {
     static var current: ScreenshotDefaultAction {
         let raw = UserDefaults.standard.string(forKey: DefaultsKey.screenshotDefaultAction) ?? ""
         return ScreenshotDefaultAction(rawValue: raw) ?? .none
+    }
+
+    /// Copy and Save and copy put every capture on the clipboard.
+    var copiesToClipboard: Bool { self == .copy || self == .saveAndCopy }
+
+    /// The same choice without its clipboard half. Turning automatic copy
+    /// off in Settings applies this, so Save and copy keeps saving.
+    var withoutCopy: ScreenshotDefaultAction {
+        switch self {
+        case .copy: return .none
+        case .saveAndCopy: return .save
+        case .none, .save, .edit: return self
+        }
     }
 }

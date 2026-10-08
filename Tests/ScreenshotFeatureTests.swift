@@ -9,6 +9,7 @@ import CoreGraphics
 import Darwin
 import Foundation
 import ImageIO
+import SwiftUI
 import VMStatisticsCompat
 
 enum ScreenshotFeatureTests {
@@ -38,6 +39,91 @@ enum ScreenshotFeatureTests {
         }
 
         // MARK: Screenshot tool
+
+        let copyRecord = ScreenshotShareRecord(
+            id: String(repeating: "a", count: 32),
+            endpoint: URL(string: "https://example.com")!,
+            expiresAt: Date().addingTimeInterval(3_600), deleteToken: "test")
+        var linkEvents: [String] = []
+        let failedCopy = ScreenshotSharingSupport.copyLink(copyRecord, using: { url in
+            linkEvents.append(url.absoluteString)
+            return false
+        }, dismiss: { linkEvents.append("dismiss") })
+        suite.expect(!failedCopy && linkEvents == [copyRecord.url.absoluteString],
+                     "a failed link copy leaves the preview open for retry")
+        linkEvents.removeAll()
+        let successfulCopy = ScreenshotSharingSupport.copyLink(copyRecord, using: { url in
+            linkEvents.append(url.absoluteString)
+            return true
+        }, dismiss: { linkEvents.append("dismiss") })
+        suite.expect(successfulCopy && linkEvents == [copyRecord.url.absoluteString, "dismiss"],
+                     "a successful link copy dismisses the preview only after copying the URL")
+
+        let retryCaptureID = UUID()
+        var copyRetry = ScreenshotLinkCopyRetry()
+        copyRetry.remember(copyRecord, for: retryCaptureID)
+        suite.expect(copyRetry.record(for: retryCaptureID, availableRecords: [copyRecord]) == copyRecord,
+                     "a clipboard failure offers the same uploaded link for retry")
+        suite.expect(copyRetry.record(for: UUID(), availableRecords: [copyRecord]) == nil,
+                     "a new screenshot does not retry the previous screenshot's link")
+        suite.expect(copyRetry.record(for: retryCaptureID, availableRecords: []) == nil,
+                     "a revoked link cannot be copied by the upload shortcut")
+        suite.expect(copyRetry.record(for: retryCaptureID, availableRecords: [copyRecord],
+                                      now: copyRecord.expiresAt) == nil,
+                     "an expired link cannot be copied by the upload shortcut")
+        copyRetry.clear()
+        suite.expect(copyRetry.record(for: retryCaptureID, availableRecords: [copyRecord]) == nil,
+                     "successful copying clears the pending retry")
+
+        let uploadDefaultsName = "com.vorssaint.tests.screenshot-upload.\(UUID().uuidString)"
+        let uploadDefaults = UserDefaults(suiteName: uploadDefaultsName)!
+        defer { uploadDefaults.removePersistentDomain(forName: uploadDefaultsName) }
+        suite.expect(ScreenshotShareDuration.saved(in: uploadDefaults) == .oneHour,
+                     "an unset upload expiry defaults to one hour")
+        for duration in ScreenshotShareDuration.allCases {
+            uploadDefaults.set(duration.rawValue, forKey: DefaultsKey.screenshotUploadDuration)
+            suite.expect(ScreenshotShareDuration.saved(in: uploadDefaults) == duration,
+                         "the upload shortcut uses each supported saved expiry")
+            let url = ScreenshotSharingSupport.uploadURL(
+                endpoint: ScreenshotSharingSupport.productionEndpoint,
+                duration: .saved(in: uploadDefaults))!
+            suite.expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first?.value == String(duration.rawValue),
+                         "the saved shortcut expiry reaches the upload request")
+        }
+        uploadDefaults.set(-1, forKey: DefaultsKey.screenshotUploadDuration)
+        suite.expect(ScreenshotShareDuration.saved(in: uploadDefaults) == .oneHour,
+                     "invalid restored expiry falls back to one hour")
+        for editEnabled in [false, true] {
+            for uploadEnabled in [false, true] {
+                for sharingEnabled in [false, true] {
+                    uploadDefaults.set(editEnabled, forKey: DefaultsKey.screenshotLastCaptureShortcutEnabled)
+                    uploadDefaults.set(uploadEnabled, forKey: DefaultsKey.screenshotUploadShortcutEnabled)
+                    uploadDefaults.set(sharingEnabled, forKey: DefaultsKey.screenshotSharingEnabled)
+                    let canUpload = uploadEnabled && sharingEnabled
+                    suite.expect(ScreenshotSharingSupport.uploadShortcutEnabled(in: uploadDefaults) == canUpload,
+                                 "uploads require both the shortcut and sharing to be enabled")
+                    suite.expect(ScreenshotSharingSupport.retainsLatestCapture(in: uploadDefaults)
+                        == (editEnabled || canUpload),
+                                 "either active latest-capture shortcut retains the screenshot")
+                    let roles = GlobalShortcutRole.activeRoles(
+                        isOn: { uploadDefaults.bool(forKey: $0) },
+                        isAvailable: { $0 == .screenshot })
+                    suite.expect(roles.contains(.screenshotUpload) == canUpload,
+                                 "shortcut conflict detection follows upload availability")
+                }
+            }
+        }
+        suite.expect(!GlobalShortcutRole.activeRoles(isOn: { _ in true },
+                                                     isAvailable: { _ in false })
+            .contains(.screenshotUpload), "unavailable screenshots disable the upload shortcut")
+        let uploadBackupKeys = SettingsBackupSupport.exportKeys()
+        suite.expect([DefaultsKey.screenshotUploadShortcutEnabled,
+                      DefaultsKey.screenshotUploadShortcut,
+                      DefaultsKey.screenshotUploadDuration].allSatisfy(uploadBackupKeys.contains),
+                     "upload shortcut and expiry settings travel in backups")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotUploadShortcutEnabled]
+            as? Bool == false, "uploading by shortcut is opt-in")
 
         let ownScreenshotWindows: Set<CGWindowID> = [11, 12, 13]
         let protectedScreenshotWindows: Set<CGWindowID> = [12, 99]
@@ -118,6 +204,7 @@ enum ScreenshotFeatureTests {
             hideVorssaintWindows: false,
             protectedWindowIDs: protectedScreenshotWindows
         ), "screenshot cannot pick its own protected capture UI")
+        islandCaptureChecks(suite)
 
         // Another process can draw a border around a window as a window of its
         // own; clicking there has to capture the window it surrounds.
@@ -156,6 +243,83 @@ enum ScreenshotFeatureTests {
             id: 1, ownerPID: 500, frame: CGRect(x: 100, y: 100, width: 800, height: 600))
         let sheet = CaptureWindow(
             id: 2, ownerPID: 500, frame: CGRect(x: 300, y: 100, width: 400, height: 300))
+        func attachedCoverage(windowAt origin: CGPoint) -> ScreenshotSupport.AlphaCoverage {
+            var alpha = [UInt8](repeating: 0, count: 40 * 20)
+            for row in Int(origin.y)..<Int(origin.y) + 6 {
+                for column in Int(origin.x)..<Int(origin.x) + 8 { alpha[row * 40 + column] = 255 }
+            }
+            return ScreenshotSupport.AlphaCoverage(alpha: alpha, width: 40, height: 20)
+        }
+        let placedWindow = CGRect(x: 20, y: 10, width: 8, height: 6)
+        let packedWindow = CGRect(x: 0, y: 0, width: 8, height: 6)
+        suite.expect(ScreenshotSupport.attachedCaptureCrop(
+            placed: placedWindow, packed: packedWindow,
+            coverage: attachedCoverage(windowAt: CGPoint(x: 20, y: 10))) == placedWindow,
+               "a window drawn where it sits on the display is cropped there")
+        suite.expect(ScreenshotSupport.attachedCaptureCrop(
+            placed: placedWindow, packed: packedWindow,
+            coverage: attachedCoverage(windowAt: .zero)) == packedWindow,
+               "windows packed into the corner of the capture are cropped whole, not as a slice")
+        suite.expect(ScreenshotSupport.attachedCaptureCrop(
+            placed: CGRect(x: 4, y: 2, width: 8, height: 6), packed: packedWindow,
+            coverage: attachedCoverage(windowAt: CGPoint(x: 4, y: 2))) == CGRect(x: 4, y: 2, width: 8, height: 6),
+               "an overlapping placement still follows where the window was drawn")
+        let straddlingParent = CGRect(x: 1200, y: 100, width: 800, height: 600)
+        suite.expect(ScreenshotCapturePolicy.compositeRect(for: straddlingParent, in: straddlingParent, scale: 2)
+                == CGRect(x: 0, y: 0, width: 1600, height: 1200)
+                && ScreenshotCapturePolicy.compositeRect(
+                    for: CGRect(x: 1400, y: 128, width: 400, height: 200), in: straddlingParent, scale: 2)
+                == CGRect(x: 400, y: 744, width: 800, height: 400),
+               "a sheet on a window spanning two displays lands at its place under the title bar")
+        let layerFrame = CGRect(x: 1200, y: 100, width: 800, height: 600)
+        suite.expect(ScreenshotCapturePolicy.layerCoversFrame(imageWidth: 1600, imageHeight: 1200,
+                                                              frame: layerFrame, scale: 2)
+                && ScreenshotCapturePolicy.layerCoversFrame(imageWidth: 1601, imageHeight: 1199,
+                                                            frame: layerFrame, scale: 2),
+               "a whole window buffer covers its frame, allowing a pixel of rounding")
+        suite.expect(!ScreenshotCapturePolicy.layerCoversFrame(imageWidth: 1552, imageHeight: 1200,
+                                                               frame: layerFrame, scale: 2)
+                && !ScreenshotCapturePolicy.layerCoversFrame(imageWidth: 1600, imageHeight: 1164,
+                                                             frame: layerFrame, scale: 2),
+               "a buffer a few percent short, clipped at a display edge, drops the layer instead of stretching it")
+        suite.expect(ScreenshotCapturePolicy.layerScale(imageWidth: 800, imageHeight: 600, frame: layerFrame,
+                                                        candidates: [1, 2]) == 1
+                && ScreenshotCapturePolicy.layerScale(imageWidth: 1600, imageHeight: 1200, frame: layerFrame,
+                                                      candidates: [1, 2]) == 2
+                && ScreenshotCapturePolicy.layerScale(imageWidth: 1552, imageHeight: 1200, frame: layerFrame,
+                                                      candidates: [1, 2]) == nil,
+               "the clicked window's buffer sets one display scale for every layer, and a clipped one sets none")
+        // A 1x display with a 2x display connected: the composite's scale is
+        // the one its target layer was captured at, which the caller records
+        // in place of the clicked display's so sizes and exports match pixels.
+        let mixedScales: [CGFloat] = [1, 2]
+        suite.expect(ScreenshotCapturePolicy.compositeTargetCapture(
+            buffer: (800, 600), frame: layerFrame, candidates: mixedScales) == .buffer(scale: 1)
+                && ScreenshotCapturePolicy.compositeTargetCapture(
+                    buffer: (1600, 1200), frame: layerFrame, candidates: mixedScales) == .buffer(scale: 2),
+               "a whole window-server buffer on mixed displays reports the scale its pixels were drawn at")
+        let mixedRecapture = ScreenshotCapturePolicy.compositeTargetCapture(
+            buffer: (776, 600), frame: layerFrame, candidates: mixedScales)
+        suite.expect(mixedRecapture == .recapture(scale: 2)
+                && ScreenshotCapturePolicy.compositeTargetCapture(
+                    buffer: nil, frame: layerFrame, candidates: mixedScales) == .recapture(scale: 2),
+               "a clipped or missing buffer on mixed displays is recaptured at the finest scale")
+        if let mixedRecapture {
+            let canvas = ScreenshotCapturePolicy.compositeRect(for: layerFrame, in: layerFrame,
+                                                               scale: mixedRecapture.scale)
+            suite.expect(mixedRecapture.scale == 2
+                    && ScreenshotCapturePolicy.layerCoversFrame(imageWidth: 1600, imageHeight: 1200,
+                                                                frame: layerFrame, scale: mixedRecapture.scale)
+                    && !ScreenshotCapturePolicy.layerCoversFrame(imageWidth: 1600, imageHeight: 1200,
+                                                                 frame: layerFrame, scale: 1)
+                    && canvas.size == CGSize(width: 1600, height: 1200),
+                   "the recaptured composite reports 2x, matching its pixels, not the clicked 1x display")
+        } else {
+            suite.expect(false, "the recaptured composite reports 2x, matching its pixels, not the clicked 1x display")
+        }
+        suite.expect(ScreenshotCapturePolicy.compositeTargetCapture(
+            buffer: (1600, 1200), frame: layerFrame, candidates: []) == nil,
+               "with no display scale known there is no composite to report")
         suite.expect(ScreenshotCapturePolicy.attachedCapturePlan(
             target: capturedWindow, frontToBack: [sheet, capturedWindow])
             == ScreenshotCapturePolicy.AttachedCapturePlan(
@@ -209,7 +373,7 @@ enum ScreenshotFeatureTests {
         suite.expect(captureEngineSource.contains("$0.frame.intersects(plan.bounds)")
                 && captureEngineSource.contains("hits.count == 1")
                 && !captureEngineSource.contains(".contains(plan.bounds)"),
-               "a window straddling two displays falls back to the single-window capture instead of a one-display slice")
+               "the one-display crop declines a window straddling two displays instead of taking a one-display slice")
 
         let geometricAttachment = ScreenshotCapturePolicy.AttachedCapturePlan(
             windowIDs: [1, 6, 2], bounds: capturedWindow.frame)
@@ -489,6 +653,60 @@ enum ScreenshotFeatureTests {
                 && !ScreenshotSupport.isClick(from: .zero, to: CGPoint(x: 12, y: 0)),
                "a tiny drag is a click, a real drag is not")
 
+        let penSquare = [CGPoint(x: 100, y: 100), CGPoint(x: 180, y: 100),
+                         CGPoint(x: 180, y: 180), CGPoint(x: 100, y: 180),
+                         CGPoint(x: 100, y: 100)]
+        let slowPenSquare = zip(penSquare, penSquare.dropFirst()).flatMap { start, end in
+            (0...40).map { step in
+                let fraction = CGFloat(step) / 40
+                return CGPoint(x: start.x + (end.x - start.x) * fraction,
+                               y: start.y + (end.y - start.y) * fraction)
+            }
+        }
+        for zoom: CGFloat in [0.125, 0.5, 1, 2] {
+            for path in [penSquare, slowPenSquare] {
+                var penDrag = ScreenshotSupport.EditorDrag()
+                penDrag.begin(at: CGPoint(x: path[0].x * zoom, y: path[0].y * zoom))
+                for point in path.dropFirst() {
+                    penDrag.update(to: CGPoint(x: point.x * zoom, y: point.y * zoom))
+                }
+                suite.expect(!penDrag.isTap(for: .freehand),
+                             "closed pen strokes survive sparse and dense samples at zoom \(zoom)")
+            }
+        }
+
+        var editorDrag = ScreenshotSupport.EditorDrag()
+        let dragStart = CGPoint(x: 100, y: 100)
+        editorDrag.begin(at: dragStart)
+        editorDrag.update(to: CGPoint(x: 150, y: 100))
+        editorDrag.update(to: CGPoint(x: 103, y: 102))
+        suite.expect(!editorDrag.isTap(for: .freehand), "a stroke ending near its start remains a drag")
+        for tool in ScreenshotSupport.Tool.allCases where tool != .freehand {
+            suite.expect(editorDrag.isTap(for: tool),
+                         "a non-pen tool discards a draft ending near its start: \(tool)")
+        }
+        editorDrag.update(to: dragStart)
+        suite.expect(!editorDrag.isTap(for: .freehand), "a closed pen stroke remains a drag")
+        for tool in ScreenshotSupport.Tool.allCases where tool != .freehand {
+            suite.expect(editorDrag.isTap(for: tool),
+                         "a non-pen tool discards a draft returning exactly to its start: \(tool)")
+        }
+        editorDrag.begin(at: dragStart)
+        for point in [dragStart, CGPoint(x: 103, y: 102), CGPoint(x: 97, y: 98), dragStart] {
+            editorDrag.update(to: point)
+        }
+        suite.expect(ScreenshotSupport.Tool.allCases.allSatisfy { editorDrag.isTap(for: $0) },
+                     "a new click resets prior movement and tolerates small pointer jitter")
+        editorDrag.begin(at: dragStart)
+        editorDrag.update(to: CGPoint(x: 107, y: 100))
+        suite.expect(ScreenshotSupport.Tool.allCases.allSatisfy { !editorDrag.isTap(for: $0) },
+                     "movement at the seven-point boundary is a drag for every tool")
+        editorDrag.begin(at: dragStart)
+        editorDrag.update(to: dragStart)
+        editorDrag.update(to: CGPoint(x: 120, y: 100))
+        suite.expect(ScreenshotSupport.Tool.allCases.allSatisfy { !editorDrag.isTap(for: $0) },
+                     "movement delivered only at release still counts for every tool")
+
         // The crop chrome, the loupe cross and the image applyCrop produces are
         // three drawings of one edge. They agree only while pixelSnappedCropRect
         // is the single thing deciding where that edge is.
@@ -627,6 +845,27 @@ enum ScreenshotFeatureTests {
             screens: previewScreens,
             fallback: .zero) == previewScreens[1].visibleFrame,
                "a disconnected capture display falls back to the current pointer display")
+        // AppKit reports the pointer on a display's top row at frame.maxY.
+        suite.expect(ScreenshotSupport.quickPreviewVisibleFrame(
+            anchor: CGRect(x: 5000, y: 5000, width: 400, height: 300),
+            pointer: CGPoint(x: 2000, y: 1324),
+            screens: previewScreens,
+            fallback: .zero) == previewScreens[2].visibleFrame,
+               "a disconnected capture display falls back to the display whose top row holds the pointer")
+        let stackedScreens = [
+            (frame: CGRect(x: 0, y: 900, width: 1440, height: 900),
+             visibleFrame: CGRect(x: 0, y: 900, width: 1440, height: 875)),
+            (frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+             visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 875)),
+        ]
+        for screens in [stackedScreens, Array(stackedScreens.reversed())] {
+            suite.expect(ScreenshotSupport.quickPreviewVisibleFrame(
+                anchor: CGRect(x: 100, y: 800, width: 400, height: 200),
+                pointer: CGPoint(x: 300, y: 900),
+                screens: screens,
+                fallback: .zero) == stackedScreens[1].visibleFrame,
+                   "an even split across stacked displays goes to the lower one when its top row holds the pointer")
+        }
         suite.expect(ScreenshotSupport.QuickPreviewPosition.allCases.map(\.rawValue)
                 == ["", "topLeft", "topRight", "bottomLeft", "bottomRight"]
                 && ScreenshotSupport.QuickPreviewPosition(rawValue: "bogus") == nil,
@@ -635,6 +874,127 @@ enum ScreenshotFeatureTests {
                 && ScreenshotDefaultAction(rawValue: "saveAndCopy") == .saveAndCopy
                 && ScreenshotDefaultAction(rawValue: "bogus") == nil,
                "after-capture actions decode from their stored raw values")
+        suite.expect(ScreenshotDefaultAction.allCases.filter(\.copiesToClipboard)
+                == [.saveAndCopy, .copy],
+               "only Copy and Save and copy put the capture on the clipboard")
+        suite.expect(ScreenshotDefaultAction.allCases.map(\.withoutCopy)
+                == [.none, .save, .save, .none, .edit]
+                && ScreenshotDefaultAction.allCases.allSatisfy { !$0.withoutCopy.copiesToClipboard },
+               "turning automatic copy off drops only the copy half of the after-capture action")
+        suite.expect(ScreenshotSupport.confirmationPreviewDurations.contains(1)
+                && ScreenshotSupport.confirmationPreviewDurations.contains(
+                    ScreenshotSupport.defaultConfirmationPreviewDuration)
+                && ScreenshotSupport.confirmationPreviewDurations.contains(0)
+                && ScreenshotSupport.sanitizedConfirmationPreviewDuration(2) == 2
+                && ScreenshotSupport.sanitizedConfirmationPreviewDuration(99) == 3
+                && ScreenshotSupport.confirmationPreviewDismissInterval(2) == 2
+                && ScreenshotSupport.confirmationPreviewDismissInterval(0) == nil
+                && ScreenshotSupport.sharedPreviewDismissInterval(base: 3) == 30
+                && ScreenshotSupport.sharedPreviewDismissInterval(base: nil) == nil,
+               "confirmation previews support short, default, persistent, and share-result dismissal behavior")
+        let focusedTimedPolicy = ScreenshotSupport.confirmationPreviewPresentationPolicy(
+            dismissInterval: 3, prefersFocus: true)
+        let quietTimedPolicy = ScreenshotSupport.confirmationPreviewPresentationPolicy(
+            dismissInterval: 3, prefersFocus: false)
+        let persistentPolicy = ScreenshotSupport.confirmationPreviewPresentationPolicy(
+            dismissInterval: nil, prefersFocus: true)
+        suite.expect(focusedTimedPolicy.takesFocus && !focusedTimedPolicy.closesOnCollapse
+                && !focusedTimedPolicy.showsDismissButton
+                && !quietTimedPolicy.takesFocus && !quietTimedPolicy.closesOnCollapse
+                && !quietTimedPolicy.showsDismissButton
+                && !persistentPolicy.takesFocus && persistentPolicy.closesOnCollapse
+                && persistentPolicy.showsDismissButton,
+               "preview presentation keeps timed focus behavior while persistent confirmations stay dismissible without taking focus")
+        let focusDefaultsDomain = "com.vorssaint.tests.screenshot-preview-focus.\(UUID().uuidString)"
+        let focusDefaults = UserDefaults(suiteName: focusDefaultsDomain)!
+        defer { focusDefaults.removePersistentDomain(forName: focusDefaultsDomain) }
+        focusDefaults.set(true, forKey: DefaultsKey.screenshotPreviewTakesFocus)
+        let preferredFocusPolicy = ScreenshotSupport.confirmationPreviewPresentationPolicy(
+            dismissInterval: 3, defaults: focusDefaults)
+        focusDefaults.set(false, forKey: DefaultsKey.screenshotPreviewTakesFocus)
+        let retainedFocusPolicy = ScreenshotSupport.confirmationPreviewPresentationPolicy(
+            dismissInterval: 3, defaults: focusDefaults)
+        suite.expect(preferredFocusPolicy.takesFocus && !retainedFocusPolicy.takesFocus,
+               "the screenshot preview focus preference controls timed confirmation focus")
+        suite.expect(ScreenshotSupport.shouldShowQuickPreview(defaultAction: .none,
+                                                              saved: false,
+                                                              copied: false,
+                                                              confirmationEnabled: false)
+                && !ScreenshotSupport.shouldShowQuickPreview(defaultAction: .edit,
+                                                              saved: false,
+                                                              copied: false,
+                                                              confirmationEnabled: true)
+                && ScreenshotSupport.shouldShowQuickPreview(defaultAction: .copy,
+                                                             saved: false,
+                                                             copied: true,
+                                                             confirmationEnabled: true)
+                && !ScreenshotSupport.shouldShowQuickPreview(defaultAction: .copy,
+                                                              saved: false,
+                                                              copied: true,
+                                                              confirmationEnabled: false)
+                && ScreenshotSupport.shouldShowQuickPreview(defaultAction: .copy,
+                                                             saved: false,
+                                                             copied: false,
+                                                             confirmationEnabled: false)
+                && !ScreenshotSupport.shouldShowQuickPreview(defaultAction: .save,
+                                                              saved: true,
+                                                              copied: false,
+                                                              confirmationEnabled: false)
+                && ScreenshotSupport.shouldShowQuickPreview(defaultAction: .saveAndCopy,
+                                                             saved: true,
+                                                             copied: false,
+                                                             confirmationEnabled: false)
+                && ScreenshotSupport.shouldShowQuickPreview(defaultAction: .saveAndCopy,
+                                                             saved: true,
+                                                             copied: true,
+                                                             confirmationEnabled: true)
+                && !ScreenshotSupport.shouldShowQuickPreview(defaultAction: .saveAndCopy,
+                                                              saved: true,
+                                                              copied: true,
+                                                              confirmationEnabled: false),
+               "automatic actions honor confirmation preferences while failed or partial actions still expose recovery controls")
+        // The decision route makes after the action ran, read from settings.
+        let routeDefaultsDomain = "com.vorssaint.tests.screenshot-preview-route.\(UUID().uuidString)"
+        let routeDefaults = UserDefaults(suiteName: routeDefaultsDomain)!
+        defer { routeDefaults.removePersistentDomain(forName: routeDefaultsDomain) }
+        func routePreview(_ action: ScreenshotDefaultAction, saved: Bool = false,
+                          copied: Bool = false) -> ScreenshotSupport.QuickPreviewPresentation {
+            ScreenshotSupport.quickPreviewPresentation(defaultAction: action, saved: saved,
+                                                       copied: copied, defaults: routeDefaults)
+        }
+        let recovery = ScreenshotSupport.QuickPreviewPresentation.shown(
+            dismissInterval: ScreenshotSupport.recoveryPreviewDismissInterval)
+        routeDefaults.set(true, forKey: DefaultsKey.screenshotPreviewEnabled)
+        routeDefaults.set(10, forKey: DefaultsKey.screenshotPreviewDuration)
+        suite.expect(routePreview(.save, saved: true) == .shown(dismissInterval: 10)
+                && routePreview(.copy, copied: true) == .shown(dismissInterval: 10)
+                && routePreview(.none) == recovery && routePreview(.edit) == .hidden,
+               "a successful action confirms for the chosen duration and asking each time keeps the longer timer")
+        routeDefaults.set(0, forKey: DefaultsKey.screenshotPreviewDuration)
+        suite.expect(routePreview(.saveAndCopy, saved: true, copied: true) == .shown(dismissInterval: nil),
+               "until dismissed keeps a successful confirmation with no timer")
+        routeDefaults.set(false, forKey: DefaultsKey.screenshotPreviewEnabled)
+        suite.expect(routePreview(.save, saved: true) == .hidden
+                && routePreview(.saveAndCopy, saved: true, copied: true) == .hidden
+                && routePreview(.save) == recovery
+                && routePreview(.saveAndCopy, saved: true) == recovery
+                && routePreview(.copy) == recovery,
+               "with confirmations off a successful action shows nothing and a failed or partial one still shows the recovery preview")
+        routeDefaults.set(true, forKey: DefaultsKey.screenshotPreviewEnabled)
+        routeDefaults.set("soon", forKey: DefaultsKey.screenshotPreviewDuration)
+        suite.expect(routePreview(.save, saved: true) == .shown(
+                    dismissInterval: TimeInterval(ScreenshotSupport.defaultConfirmationPreviewDuration)),
+               "a stored duration that is not a number falls back to the default instead of staying until dismissed")
+        let screenshotRouteBody = ((try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/QuickTools/ScreenshotService.swift",
+            encoding: .utf8)) ?? "")
+            .components(separatedBy: "    private func route(_ capture:").dropFirst().first?
+            .components(separatedBy: "\n    }\n").first ?? ""
+        suite.expect(screenshotRouteBody.contains("guard case .shown(let dismissInterval) = ScreenshotSupport.quickPreviewPresentation(")
+                && screenshotRouteBody.contains("defaults: defaults)\n        else { return }\n        presentPreview(capture,")
+                && screenshotRouteBody.components(separatedBy: "presentPreview(").count == 2
+                && screenshotRouteBody.contains("dismissInterval: dismissInterval,"),
+               "route shows exactly the preview the shared decision asks for")
 
         // A gesture that ends with more than one release, like a drag made
         // with three fingers, delivers events after the capture is over.
@@ -671,9 +1031,18 @@ enum ScreenshotFeatureTests {
                 suite.expect(tool.showsCaptureMenu(fromShortcut: false, defaults: reopenedDefaults),
                        "buttons still open the capture menu even when a shortcut hides it")
             }
+            for tool in ScreenCaptureTool.allCases {
+                suite.expect(tool.opensDuringRecording(fromShortcut: true, defaults: reopenedDefaults)
+                        == (tool == hiddenTool && tool != .recording),
+                       "only \(hiddenTool)'s menu-free shortcut may run over a recording, checked for \(tool)")
+                suite.expect(!tool.opensDuringRecording(fromShortcut: false, defaults: reopenedDefaults),
+                       "buttons open the capture menu, so they never run over a recording")
+            }
             captureMenuDefaults.set(true, forKey: hiddenTool.showCaptureMenuOnShortcutKey)
             suite.expect(hiddenTool.showsCaptureMenu(fromShortcut: true, defaults: captureMenuDefaults),
                    "turning the setting back on restores the shortcut menu")
+            suite.expect(!hiddenTool.opensDuringRecording(fromShortcut: true, defaults: captureMenuDefaults),
+                   "turning the setting back on blocks the shortcut during a recording again")
         }
         let recordingOnly: Set<AppFeature> = [.screenRecorder]
         suite.expect(ScreenCaptureTool.available(isAvailable: recordingOnly.contains) == [.recording],
@@ -687,7 +1056,7 @@ enum ScreenshotFeatureTests {
             contentsOfFile: "Sources/Vorssaint/UI/Settings/ScreenCaptureSettings.swift",
             encoding: .utf8)) ?? ""
         suite.expect(captureSettingsSource.contains("selectedTool")
-                && captureSettingsSource.contains(".pickerStyle(.segmented)")
+                && captureSettingsSource.contains("ScreenCaptureToolPicker(tools: availableTools")
                 && captureSettingsSource.contains("ToolShortcutRows(tool: currentTool")
                 && captureSettingsSource.contains("RecentCapturesShortcutRows()"),
                "the capture page keeps tool and shared-history shortcuts in the top section")
@@ -823,6 +1192,76 @@ enum ScreenshotFeatureTests {
                                                             selectionInProgress: false,
                                                             capturePending: false),
                "the capture chooser disappears for the whole drag and while capture is pending")
+        suite.expect(ScreenshotSupport.fullScreenCaptureControlIsAvailable(
+            selectedTool: nil,
+            standaloneScreenshot: true,
+            requiresDraggedRegion: false,
+            scrollingCaptureEnabled: false),
+               "standalone screenshot selection offers the full-screen action")
+        suite.expect(ScreenshotSupport.fullScreenCaptureControlIsAvailable(
+            selectedTool: .screenshot,
+            standaloneScreenshot: false,
+            requiresDraggedRegion: false,
+            scrollingCaptureEnabled: false)
+                && !ScreenshotSupport.fullScreenCaptureControlIsAvailable(
+                    selectedTool: .recording,
+                    standaloneScreenshot: false,
+                    requiresDraggedRegion: false,
+                    scrollingCaptureEnabled: false)
+                && !ScreenshotSupport.fullScreenCaptureControlIsAvailable(
+                    selectedTool: .text,
+                    standaloneScreenshot: false,
+                    requiresDraggedRegion: false,
+                    scrollingCaptureEnabled: false)
+                && !ScreenshotSupport.fullScreenCaptureControlIsAvailable(
+                    selectedTool: .color,
+                    standaloneScreenshot: false,
+                    requiresDraggedRegion: false,
+                    scrollingCaptureEnabled: false),
+               "the unified chooser offers full screen only for screenshots")
+        suite.expect(!ScreenshotSupport.fullScreenCaptureControlIsAvailable(
+            selectedTool: .screenshot,
+            standaloneScreenshot: false,
+            requiresDraggedRegion: true,
+            scrollingCaptureEnabled: false)
+                && !ScreenshotSupport.fullScreenCaptureControlIsAvailable(
+                    selectedTool: .screenshot,
+                    standaloneScreenshot: false,
+                    requiresDraggedRegion: false,
+                    scrollingCaptureEnabled: true),
+               "region-only and scrolling capture modes do not offer a conflicting full-screen action")
+        suite.expect(ScreenshotSupport.fullScreenCaptureControlIsVisible(
+            isAvailable: true,
+            pointerOnDisplay: true,
+            selectionInProgress: false,
+            capturePending: false)
+                && !ScreenshotSupport.fullScreenCaptureControlIsVisible(
+                    isAvailable: true,
+                    pointerOnDisplay: true,
+                    selectionInProgress: true,
+                    capturePending: false)
+                && !ScreenshotSupport.fullScreenCaptureControlIsVisible(
+                    isAvailable: true,
+                    pointerOnDisplay: true,
+                    selectionInProgress: false,
+                    capturePending: true)
+                && !ScreenshotSupport.fullScreenCaptureControlIsVisible(
+                    isAvailable: true,
+                    pointerOnDisplay: false,
+                    selectionInProgress: false,
+                    capturePending: false),
+               "the full-screen action stays on the pointer display and disappears as soon as selection or capture starts")
+        suite.expect(ScreenshotSupport.fullScreenCaptureControlTopInset(
+            screenChromeHeight: 32,
+            notchControlsHeight: nil) == 44
+                && ScreenshotSupport.fullScreenCaptureControlTopInset(
+                    screenChromeHeight: 32,
+                    notchControlsHeight: 168) == 180,
+               "the full-screen action sits below screen chrome and any active notch capture controls")
+        let fullScreenClickHost = PassThroughHostingView(interactiveRootView: Text("Full screen"))
+        suite.expect(!fullScreenClickHost.passesThrough
+                && fullScreenClickHost.acceptsFirstMouse(for: nil),
+               "the interactive full-screen host receives its first click while Dynamic Island owns key focus")
         suite.expect(ScreenshotSupport.offersRepeatLastRegion(isPickingColor: false,
                                                         storedRegionDisplayIsAvailable: true),
                "the repeat hint is offered once a region is stored on a display still in the session")
@@ -852,6 +1291,51 @@ enum ScreenshotFeatureTests {
         suite.expect(captureSelectionSource.contains("private var pointerIsInside = false")
                 && !captureSelectionSource.contains("|| bounds.contains(hoverPoint)"),
                "the capture loupe draws on only the display that owns the current pointer")
+        // The uploader tests run what these call. Here the calls themselves
+        // are checked with comments removed: a new capture starts the latest
+        // capture first, teardown invalidates pending uploads, and only a
+        // preview made from that new capture can withhold it on discard.
+        let screenshotServiceCode = ((try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/QuickTools/ScreenshotService.swift",
+            encoding: .utf8)) ?? "").components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        func serviceBody(_ start: String) -> String {
+            screenshotServiceCode.components(separatedBy: start).dropFirst().first?
+                .components(separatedBy: "\n    }\n").first ?? ""
+        }
+        let routeStatements = serviceBody("    private func route(_ capture:")
+            .components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        suite.expect(serviceBody("    private func teardownSurfaces() {").contains("invalidateLatestCaptureUploads()")
+                && routeStatements.dropFirst().first == "beginLatestCapture(capture)",
+               "turning screenshots off invalidates pending shortcut uploads, and every capture starts as the latest one")
+        suite.expect(serviceBody("    func syncWithPreferences() {")
+                    .contains("enabled: ScreenshotSharingSupport.uploadShortcutEnabled(in: defaults),"),
+               "the upload shortcut is registered only while it and temporary links are both on")
+        suite.expect(serviceBody("    private func route(_ capture:").contains("latestCapture: latestCaptureToken)")
+                && serviceBody("    func restorePreview(").contains("latestCapture: nil)")
+                && screenshotServiceCode.contains("self.discardLatestCapture(latestCapture)\n                    return [.discard]"),
+               "discarding the preview of the latest capture withholds it, while a preview reopened from history does not")
+        let previewDiscard = screenshotServiceCode.components(separatedBy: "case .discard:")
+            .dropFirst().first?.components(separatedBy: "return [.discard]").first ?? ""
+        let routeBody = serviceBody("    private func route(_ capture:")
+        suite.expect(previewDiscard.contains("unshelve(latestCapture)")
+                && routeBody.components(separatedBy: "autoShelve(").count == 2
+                && routeBody.contains("autoShelve(capture, saved: result.saved?.url)"),
+               "a capture that does not open in the editor is offered to the shelf once, and discarding it from its preview takes it back")
+        // In the island the menu arrow is hidden, so a click there must open
+        // the durations rather than publish at once.
+        let shareMenuCode = ((try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/QuickTools/ScreenshotQuickPreviewController.swift",
+            encoding: .utf8)) ?? "").components(separatedBy: "@ViewBuilder private var shareMenu: some View {")
+            .dropFirst().first?.components(separatedBy: "private var shareDurations").first ?? ""
+        let embeddedShareMenu = shareMenuCode.components(separatedBy: "} else {").first ?? ""
+        let floatingShareMenu = shareMenuCode.components(separatedBy: "} else {").dropFirst().first ?? ""
+        suite.expect(embeddedShareMenu.contains("Menu { shareDurations } label: { shareMenuLabel },")
+                && !embeddedShareMenu.contains("primaryAction")
+                && floatingShareMenu.contains("primaryAction: {\n                share(.saved())"),
+               "the island's link button opens the durations on a click, while the floating preview keeps its split button")
         let captureServiceSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/Services/QuickTools/ScreenCaptureService.swift",
             encoding: .utf8)) ?? ""
@@ -883,14 +1367,20 @@ enum ScreenshotFeatureTests {
         let panelBody = quickPreviewCode.components(separatedBy: "class ScreenshotQuickPreviewPanel")
             .dropFirst().first?.components(separatedBy: "\n}").first ?? ""
         // The preference keys the panel only after it is on screen, and the
-        // line above the call is the preference check itself, so dropping the
-        // guard or keying before ordering front both go red.
+        // policy guard must stay immediately above the hand-off so an
+        // unconditional makeKey cannot slip past the behavior checks.
         let presentLines = presentBody.components(separatedBy: "\n")
         let orderFrontLine = presentLines.firstIndex { $0.contains("orderFrontRegardless()") } ?? -1
         let makeKeyLine = presentLines.firstIndex { $0.contains("makeKey") } ?? -1
         suite.expect(orderFrontLine >= 0 && makeKeyLine > orderFrontLine
-                && presentLines[makeKeyLine - 1].contains("screenshotPreviewTakesFocus"),
-               "presenting the screenshot preview takes key focus only behind the preference, once the panel is on screen")
+                && presentLines[makeKeyLine - 1].trimmingCharacters(in: .whitespaces)
+                    == "if presentationPolicy.takesFocus {",
+               "the screenshot preview takes key focus only behind the presentation policy, once the panel is on screen")
+        // The island reads the same policy: whether it takes the keyboard and
+        // whether a collapse closes the preview come from it, never a literal.
+        suite.expect(quickPreviewCode.contains("takeFocus: presentationPolicy.takesFocus,")
+                && quickPreviewCode.contains("closeOnCollapse: presentationPolicy.closesOnCollapse,"),
+               "the island preview takes the keyboard and closes on collapse exactly as the presentation policy says")
         let makeKeyCount = quickPreviewCode.components(separatedBy: "makeKey").count - 1
         let panelMakeKeyCount = panelBody.components(separatedBy: "makeKey").count - 1
         suite.expect(makeKeyCount == panelMakeKeyCount + 1 && panelMakeKeyCount >= 1,
@@ -1333,7 +1823,7 @@ enum ScreenshotFeatureTests {
                                                       stroke: .large,
                                                       arrowStyle: style)],
                         in: context,
-                        pixelated: nil,
+                        blurSources: .none,
                         imageSize: CGSize(width: width, height: height),
                         scale: 2,
                         annotationShadowsEnabled: true)
@@ -1369,11 +1859,654 @@ enum ScreenshotFeatureTests {
         suite.expect(stickerStyle == ScreenshotSupport.SelectionStyle(color: nil,
                                                                 stroke: nil,
                                                                 arrowStyle: nil)
-                && pixelateStyle == stickerStyle
+                && pixelateStyle == ScreenshotSupport.SelectionStyle(
+                    color: nil, stroke: nil, arrowStyle: nil,
+                    blurLevel: ScreenshotSupport.BlurStrength.defaultLevel,
+                    blurStyle: .pixelate, blurTextOnly: false)
                 && highlightStyle.color == .some(.yellow)
                 && highlightStyle.stroke == nil
                 && highlightStyle.arrowStyle == nil,
                "selection sync leaves unused sticker and pixelation controls alone")
+        let Strength = ScreenshotSupport.BlurStrength.self
+        let capture = CGSize(width: 1920, height: 1080)
+        suite.expect(ScreenshotSupport.pixelBlockSize(for: capture)
+                    == ScreenshotSupport.pixelBlockSize(for: capture, level: Strength.defaultLevel)
+                && ScreenshotSupport.pixelBlockSize(for: capture, level: 1)
+                    < ScreenshotSupport.pixelBlockSize(for: capture, level: 2)
+                && ScreenshotSupport.pixelBlockSize(for: capture, level: 2)
+                    < ScreenshotSupport.pixelBlockSize(for: capture)
+                && ScreenshotSupport.pixelBlockSize(for: capture)
+                    < ScreenshotSupport.pixelBlockSize(for: capture, level: 4)
+                && ScreenshotSupport.pixelBlockSize(for: capture, level: 4)
+                    < ScreenshotSupport.pixelBlockSize(for: capture, level: 5),
+               "each blur level coarsens the mosaic, and the middle keeps the old strength")
+        suite.expect(Strength.sanitized(0) == 1 && Strength.sanitized(9) == 5
+                && Strength.blockFactor(for: Strength.defaultLevel) == 1
+                && ScreenshotSupport.pixelBlockSize(for: CGSize(width: 40, height: 40), level: 1) >= 2,
+               "blur levels stay in range and never shrink the mosaic to nothing")
+        suite.expect([0, 1, 2, 3].allSatisfy { Strength.startingLevel(remembered: $0) == Strength.defaultLevel }
+                && Strength.startingLevel(remembered: 4) == 4 && Strength.startingLevel(remembered: 5) == 5
+                && Strength.startingLevel(remembered: 9) == 5,
+               "a new capture never starts pixelating at a light level that can leave text readable")
+        var lightArea = ScreenshotSupport.Annotation(tool: .pixelate)
+        lightArea.blurLevel = 1
+        var strongArea = ScreenshotSupport.Annotation(tool: .pixelate)
+        strongArea.blurLevel = 5
+        var outlinedArea = ScreenshotSupport.Annotation(tool: .rect)
+        outlinedArea.blurLevel = 4
+        suite.expect(ScreenshotSupport.mosaicLevels(for: [lightArea, strongArea, strongArea, outlinedArea]) == [1, 5]
+                && ScreenshotSupport.mosaicLevels(for: [outlinedArea]).isEmpty,
+               "the editor keeps a sampled mosaic only for the levels its pixelate areas use")
+        func filled(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> CGImage? {
+            let context = CGContext(data: nil, width: 20, height: 10, bitsPerComponent: 8,
+                                    bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.setFillColor(CGColor(srgbRed: red, green: green, blue: blue, alpha: 1))
+            context?.fill(CGRect(x: 0, y: 0, width: 20, height: 10))
+            return context?.makeImage()
+        }
+        if let base = filled(0.5, 0.5, 0.5), let light = filled(1, 0, 0), let heavy = filled(0, 0, 1) {
+            let marks = [
+                ScreenshotSupport.Annotation(tool: .pixelate,
+                                             rect: CGRect(x: 0, y: 0, width: 10, height: 10),
+                                             blurLevel: 1),
+                ScreenshotSupport.Annotation(tool: .pixelate,
+                                             rect: CGRect(x: 10, y: 0, width: 10, height: 10),
+                                             blurLevel: 5),
+            ]
+            let export = ScreenshotRenderer.renderExport(
+                baseImage: base, annotations: marks,
+                blurSources: .init(mosaics: [1: light, 5: heavy]), scale: 1,
+                annotationShadowsEnabled: false, watermark: ScreenshotSupport.WatermarkStyle(),
+                watermarkImage: nil, style: ScreenshotSupport.BackdropStyle(kind: .none, cornerRadius: 0),
+                fill: .none, downscaleTo1x: false)
+            var pixels = [UInt8](repeating: 0, count: 20 * 10 * 4)
+            let read = export.map { export -> Bool in
+                pixels.withUnsafeMutableBytes { buffer in
+                    let context = CGContext(data: buffer.baseAddress, width: 20, height: 10,
+                                            bitsPerComponent: 8, bytesPerRow: 80,
+                                            space: CGColorSpaceCreateDeviceRGB(),
+                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                    context?.draw(export.image, in: CGRect(x: 0, y: 0, width: 20, height: 10))
+                    return context != nil
+                }
+            } ?? false
+            let left = Array(pixels[(5 * 20 + 3) * 4..<(5 * 20 + 3) * 4 + 3])
+            let right = Array(pixels[(5 * 20 + 16) * 4..<(5 * 20 + 16) * 4 + 3])
+            suite.expect(read && left[0] > 200 && left[2] < 50 && right[2] > 200 && right[0] < 50,
+                   "an export with mixed blur levels draws each area from its own mosaic")
+        }
+        // Compare the exported pixels with the old full-size cache path. The
+        // pixelate rect cuts across mosaic cells, exercising the clip too.
+        let mosaicWidth = 26, mosaicHeight = 19
+        let mosaicSource = CGContext(data: nil, width: mosaicWidth, height: mosaicHeight,
+                                     bitsPerComponent: 8, bytesPerRow: 0,
+                                     space: CGColorSpaceCreateDeviceRGB(),
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        mosaicSource?.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        mosaicSource?.fill(CGRect(x: 0, y: 0, width: 13, height: mosaicHeight))
+        mosaicSource?.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
+        mosaicSource?.fill(CGRect(x: 13, y: 0, width: 13, height: mosaicHeight))
+        var sampledIsSmaller = false
+        var exportedPixelsMatch = false
+        if let source = mosaicSource?.makeImage(),
+           let sampled = ScreenshotRenderer.pixelatedImage(from: source),
+           let oldFull = CGContext(data: nil, width: mosaicWidth, height: mosaicHeight,
+                                   bitsPerComponent: 8, bytesPerRow: 0,
+                                   space: CGColorSpaceCreateDeviceRGB(),
+                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            sampledIsSmaller = sampled.width < source.width && sampled.height < source.height
+            oldFull.interpolationQuality = .none
+            oldFull.draw(sampled, in: CGRect(x: 0, y: 0, width: mosaicWidth, height: mosaicHeight))
+            if let expanded = oldFull.makeImage() {
+                let area = ScreenshotSupport.Annotation(
+                    tool: .pixelate, rect: CGRect(x: 3, y: 2, width: 19, height: 14))
+                func exportedPixels(using mosaic: CGImage) -> [UInt8]? {
+                    guard let image = ScreenshotRenderer.renderExport(
+                        baseImage: source, annotations: [area],
+                        blurSources: .init(mosaics: [3: mosaic]), scale: 1,
+                        annotationShadowsEnabled: false, watermark: ScreenshotSupport.WatermarkStyle(),
+                        watermarkImage: nil, style: ScreenshotSupport.BackdropStyle(kind: .none, cornerRadius: 0),
+                        fill: .none, downscaleTo1x: false)?.image else { return nil }
+                    var pixels = [UInt8](repeating: 0, count: mosaicWidth * mosaicHeight * 4)
+                    let read = pixels.withUnsafeMutableBytes { buffer -> Bool in
+                        guard let context = CGContext(data: buffer.baseAddress, width: mosaicWidth,
+                                                      height: mosaicHeight, bitsPerComponent: 8,
+                                                      bytesPerRow: mosaicWidth * 4,
+                                                      space: CGColorSpaceCreateDeviceRGB(),
+                                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                        else { return false }
+                        context.draw(image, in: CGRect(x: 0, y: 0, width: mosaicWidth, height: mosaicHeight))
+                        return true
+                    }
+                    return read ? pixels : nil
+                }
+                if let compactPixels = exportedPixels(using: sampled),
+                   let expandedPixels = exportedPixels(using: expanded) {
+                    exportedPixelsMatch = compactPixels == expandedPixels
+                }
+            }
+        }
+        suite.expect(sampledIsSmaller, "pixelation caches sampled pixels instead of a full capture")
+        suite.expect(exportedPixelsMatch, "sampled mosaics export the same clipped pixels as full-size mosaics")
+
+        // Blur styles and text only areas, drawn over small known pictures.
+        let BlurStyle = ScreenshotSupport.BlurStyleID.self
+        suite.expect(BlurStyle.sanitized(nil) == .pixelate && BlurStyle.sanitized("erase") == .erase
+                && BlurStyle.sanitized("smudge") == .pixelate
+                && BlurStyle.pixelate.usesStrength && BlurStyle.blur.usesStrength
+                && !BlurStyle.erase.usesStrength,
+               "blur areas start as pixelate, and only erasing has no strength")
+        let erasedTextArea = ScreenshotSupport.Annotation(tool: .pixelate, blurLevel: 2,
+                                                          blurStyle: .erase, blurTextOnly: true)
+        suite.expect(ScreenshotSupport.selectionStyle(for: erasedTextArea)
+                == ScreenshotSupport.SelectionStyle(color: nil, stroke: nil, arrowStyle: nil,
+                                                    blurLevel: 2, blurStyle: .erase,
+                                                    blurTextOnly: true),
+               "picking a blur area shows its own style, strength and text only choice")
+        let softArea = ScreenshotSupport.Annotation(tool: .pixelate, blurLevel: 4, blurStyle: .blur)
+        suite.expect(ScreenshotSupport.mosaicLevels(for: [lightArea, softArea, erasedTextArea]) == [1]
+                && ScreenshotSupport.softBlurLevels(for: [lightArea, softArea, erasedTextArea]) == [4],
+               "each blur style keeps samples only for its own levels, and erasing keeps none")
+        func sameRect(_ left: CGRect, _ right: CGRect) -> Bool {
+            abs(left.minX - right.minX) < 0.001 && abs(left.minY - right.minY) < 0.001
+                && abs(left.width - right.width) < 0.001 && abs(left.height - right.height) < 0.001
+        }
+        let runWords = [
+            ScreenshotSupport.RecognizedWord(text: "john", rect: CGRect(x: 10, y: 10, width: 40, height: 20), line: 0),
+            ScreenshotSupport.RecognizedWord(text: "doe", rect: CGRect(x: 56, y: 10, width: 30, height: 20), line: 0),
+            ScreenshotSupport.RecognizedWord(text: "total", rect: CGRect(x: 300, y: 10, width: 50, height: 20), line: 0),
+            ScreenshotSupport.RecognizedWord(text: "next", rect: CGRect(x: 10, y: 40, width: 40, height: 20), line: 1),
+        ]
+        let textRuns = ScreenshotSupport.textRuns(from: runWords)
+        suite.expect(textRuns.count == 3
+                && sameRect(textRuns[0], CGRect(x: -2, y: 4, width: 100, height: 32))
+                && sameRect(textRuns[1], CGRect(x: 288, y: 4, width: 74, height: 32))
+                && sameRect(textRuns[2], CGRect(x: -2, y: 34, width: 64, height: 32)),
+               "close words on a line share a padded run, far ones and other lines get their own")
+        // A crop through a line keeps the run that covered it, moved into the
+        // cropped capture, since recognition may miss the line it cut.
+        let crop = CGRect(x: 20, y: 30, width: 200, height: 100)
+        let carried = ScreenshotSupport.croppedRuns(
+            [CGRect(x: 10, y: 20, width: 120, height: 20), CGRect(x: 400, y: 40, width: 50, height: 20)], by: crop)
+        suite.expect(carried?.count == 1 && carried.map { sameRect($0[0], CGRect(x: -10, y: -10, width: 120, height: 20)) } == true
+                && ScreenshotSupport.croppedRuns(nil, by: crop) == nil,
+               "a crop keeps the runs still on it, moved, and an unread capture stays unread")
+        let pickedRuns = ScreenshotSupport.blurTextRuns(in: CGRect(x: 0, y: 0, width: 60, height: 30),
+                                                        from: textRuns)
+        suite.expect(pickedRuns.count == 1 && sameRect(pickedRuns[0], textRuns[0])
+                && ScreenshotSupport.blurTextRuns(in: CGRect(x: 400, y: 0, width: 20, height: 20),
+                                                  from: textRuns).isEmpty
+                && ScreenshotSupport.blurTextRuns(in: CGRect(x: 1, y: 2, width: 3, height: 4), from: nil)
+                    == [CGRect(x: 1, y: 2, width: 3, height: 4)],
+               "a text only area covers the runs it reaches, and all of itself before recognition")
+        // 12032 pixels wide makes bands 997 rows tall, whose quarter is odd.
+        let bandSizes = [(3456, 2234), (5120, 2880), (6016, 3384), (2000, 20_000), (12_032, 20_000),
+                         (300, 200)]
+        let bandsHold = bandSizes.allSatisfy { size in
+            let bands = ScreenshotSupport.recognitionTiles(width: size.0, height: size.1)
+            guard let first = bands.first, let last = bands.last,
+                  first.ownedRows.lowerBound == 0,
+                  last.ownedRows.upperBound == CGFloat(size.1) else { return false }
+            return zip(bands, bands.dropFirst()).allSatisfy { upper, lower in
+                // Owned rows meet without a gap, and each band reads well past them.
+                upper.ownedRows.upperBound == lower.ownedRows.lowerBound
+                    && upper.rect.maxY - upper.ownedRows.upperBound >= 64
+                    && lower.ownedRows.lowerBound - lower.rect.minY >= 64
+            } && bands.allSatisfy {
+                $0.rect.width == CGFloat(size.0) && $0.rect.minY <= $0.ownedRows.lowerBound
+                    && $0.ownedRows.upperBound <= $0.rect.maxY
+            }
+        }
+        suite.expect(bandsHold && ScreenshotSupport.recognitionTiles(width: 3456, height: 2234).count == 1
+                && ScreenshotSupport.recognitionTiles(width: 5120, height: 2880).count == 2,
+               "recognition bands overlap so a line on a seam is read, and their owned rows meet exactly")
+        func picture(width: Int, height: Int,
+                     _ color: (Int, Int) -> (UInt8, UInt8, UInt8)) -> CGImage? {
+            var bytes = [UInt8](repeating: 255, count: width * height * 4)
+            for y in 0..<height {
+                for x in 0..<width {
+                    let (red, green, blue) = color(x, y)
+                    let offset = (y * width + x) * 4
+                    bytes[offset] = red
+                    bytes[offset + 1] = green
+                    bytes[offset + 2] = blue
+                }
+            }
+            guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+            return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+                           bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                           bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                           provider: provider, decode: nil, shouldInterpolate: false,
+                           intent: .defaultIntent)
+        }
+        // Rows come back top-down, as the annotations are placed.
+        func exportedPixels(_ base: CGImage,
+                            _ marks: [ScreenshotSupport.Annotation],
+                            _ sources: ScreenshotRenderer.BlurSources) -> [UInt8]? {
+            guard let image = ScreenshotRenderer.renderExport(
+                baseImage: base, annotations: marks, blurSources: sources, scale: 1,
+                annotationShadowsEnabled: false, watermark: ScreenshotSupport.WatermarkStyle(),
+                watermarkImage: nil, style: ScreenshotSupport.BackdropStyle(kind: .none, cornerRadius: 0),
+                fill: .none, downscaleTo1x: false)?.image else { return nil }
+            var pixels = [UInt8](repeating: 0, count: base.width * base.height * 4)
+            let read = pixels.withUnsafeMutableBytes { buffer -> Bool in
+                guard let context = CGContext(data: buffer.baseAddress, width: base.width,
+                                              height: base.height, bitsPerComponent: 8,
+                                              bytesPerRow: base.width * 4,
+                                              space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                else { return false }
+                context.draw(image, in: CGRect(x: 0, y: 0, width: base.width, height: base.height))
+                return true
+            }
+            return read ? pixels : nil
+        }
+        func rgb(_ pixels: [UInt8], width: Int, _ x: Int, _ y: Int) -> [Int] {
+            let offset = (y * width + x) * 4
+            return [Int(pixels[offset]), Int(pixels[offset + 1]), Int(pixels[offset + 2])]
+        }
+        // A striped word on white, and a red square beside it that is not text.
+        let wordBox = CGRect(x: 20, y: 20, width: 40, height: 12)
+        let squareBox = CGRect(x: 85, y: 25, width: 20, height: 20)
+        let textScene = picture(width: 120, height: 60) { x, y in
+            if wordBox.contains(CGPoint(x: x, y: y)) { return x % 2 == 0 ? (0, 0, 0) : (255, 255, 255) }
+            if squareBox.contains(CGPoint(x: x, y: y)) { return (255, 0, 0) }
+            return (255, 255, 255)
+        }
+        let wordRuns = ScreenshotSupport.textRuns(from: [
+            ScreenshotSupport.RecognizedWord(text: "secret", rect: wordBox, line: 0),
+        ])
+        func pixelPoints(in box: CGRect) -> [(Int, Int)] {
+            (Int(box.minY)..<Int(box.maxY)).flatMap { y in
+                (Int(box.minX)..<Int(box.maxX)).map { x in (x, y) }
+            }
+        }
+        if let scene = textScene, let sceneMosaic = ScreenshotRenderer.pixelatedImage(from: scene) {
+            let area = CGRect(x: 10, y: 10, width: 100, height: 40)
+            func textOnly(_ style: ScreenshotSupport.BlurStyleID) -> [ScreenshotSupport.Annotation] {
+                [ScreenshotSupport.Annotation(tool: .pixelate, rect: area,
+                                              blurStyle: style, blurTextOnly: true)]
+            }
+            let original = exportedPixels(scene, [], .none)
+            let pixelatedText = exportedPixels(scene, textOnly(.pixelate),
+                                               .init(mosaics: [3: sceneMosaic], textRuns: wordRuns))
+            let pendingText = exportedPixels(scene, textOnly(.pixelate),
+                                             .init(mosaics: [3: sceneMosaic], textRuns: nil))
+            let erasedText = exportedPixels(scene, textOnly(.erase),
+                                            .init(image: scene, textRuns: wordRuns))
+            if let original, let pixelatedText, let pendingText, let erasedText {
+                let squareKept = pixelPoints(in: squareBox).allSatisfy {
+                    rgb(pixelatedText, width: 120, $0.0, $0.1) == rgb(original, width: 120, $0.0, $0.1)
+                        && rgb(erasedText, width: 120, $0.0, $0.1) == [255, 0, 0]
+                }
+                let wordHidden = pixelPoints(in: wordBox).filter {
+                    rgb(pixelatedText, width: 120, $0.0, $0.1) != rgb(original, width: 120, $0.0, $0.1)
+                }.count > Int(wordBox.width * wordBox.height) / 3
+                suite.expect(squareKept && wordHidden,
+                       "a text only area hides the recognized word and leaves the rest of the picture alone")
+                suite.expect(pixelPoints(in: squareBox).contains {
+                    rgb(pendingText, width: 120, $0.0, $0.1) != [255, 0, 0]
+                }, "before recognition finishes, a text only area covers all of itself")
+                suite.expect(pixelPoints(in: wordBox).allSatisfy {
+                    rgb(erasedText, width: 120, $0.0, $0.1) == [255, 255, 255]
+                }, "erasing text paints the word over with the flat background around it")
+            } else {
+                suite.expect(false, "the text only scenes render")
+            }
+        } else {
+            suite.expect(false, "the text only scene and its mosaic are built")
+        }
+        // Two close lines, the first led by a pink bullet that recognition
+        // counts as text. The second line's fill must not pick the pink up.
+        let firstLine = CGRect(x: 8, y: 8, width: 100, height: 28)
+        let secondLine = CGRect(x: 8, y: 34, width: 100, height: 28)
+        if let lines = picture(width: 120, height: 80, { x, y in
+            if x >= 10, x < 30, y >= 10, y < 34 { return (255, 105, 180) }
+            if x >= 36, x < 100, y >= 40, y < 56, x % 2 == 0 { return (0, 0, 0) }
+            return (255, 255, 255)
+        }), let erasedLines = exportedPixels(
+            lines,
+            [ScreenshotSupport.Annotation(tool: .pixelate, rect: CGRect(x: 0, y: 0, width: 120, height: 80),
+                                          blurStyle: .erase, blurTextOnly: true)],
+            .init(image: lines, textRuns: [firstLine, secondLine])) {
+            suite.expect(pixelPoints(in: CGRect(x: 10, y: 10, width: 90, height: 48)).allSatisfy {
+                rgb(erasedLines, width: 120, $0.0, $0.1).allSatisfy { $0 >= 250 }
+            }, "erasing a line never smears in what sits inside the text next to it")
+        } else {
+            suite.expect(false, "the two line scene renders")
+        }
+        // A gradient running both ways, with a dark block to erase.
+        let blockBox = CGRect(x: 50, y: 26, width: 28, height: 12)
+        if let gradient = picture(width: 128, height: 64, { x, y in
+            blockBox.contains(CGPoint(x: x, y: y)) ? (0, 0, 0) : (UInt8(x * 2), UInt8(y * 2), 100)
+        }), let erased = exportedPixels(
+            gradient,
+            [ScreenshotSupport.Annotation(tool: .pixelate, rect: CGRect(x: 44, y: 20, width: 40, height: 24),
+                                          blurStyle: .erase)],
+            .init(image: gradient)) {
+            let matches = [(52, 28), (64, 32), (76, 36)].allSatisfy { point in
+                let color = rgb(erased, width: 128, point.0, point.1)
+                return abs(color[0] - point.0 * 2) <= 6 && abs(color[1] - point.1 * 2) <= 6
+                    && abs(color[2] - 100) <= 2
+            }
+            suite.expect(matches, "erasing an area continues the gradient around it")
+        } else {
+            suite.expect(false, "the gradient scene renders")
+        }
+        // Black beside white: a mosaic keeps a hard step, a soft blur eases across it.
+        if let halves = picture(width: 120, height: 60, { x, _ in x < 60 ? (0, 0, 0) : (255, 255, 255) }),
+           let mosaic = ScreenshotRenderer.pixelatedImage(from: halves),
+           let soft = ScreenshotRenderer.softBlurredImage(from: halves) {
+            let area = [ScreenshotSupport.Annotation(tool: .pixelate,
+                                                     rect: CGRect(x: 10, y: 10, width: 100, height: 40),
+                                                     blurStyle: .blur)]
+            let blurred = exportedPixels(halves, area, .init(softBlurs: [3: soft]))
+            let largestStep = blurred.map { pixels in
+                (11..<109).map { x in abs(rgb(pixels, width: 120, x + 1, 30)[0]
+                                          - rgb(pixels, width: 120, x, 30)[0]) }.max() ?? 255
+            } ?? 255
+            suite.expect(soft.width < halves.width && soft.height < halves.height
+                    && soft.width > mosaic.width && soft.height > mosaic.height,
+                   "a soft blur is kept as a small sample, finer than the mosaic so it stretches smoothly")
+            suite.expect(largestStep < 40 && blurred.map { rgb($0, width: 120, 59, 30)[0] > 20 } == true,
+                   "a soft blur eases across an edge instead of stepping like a mosaic")
+        } else {
+            suite.expect(false, "the soft blur scene and its samples are built")
+        }
+        // Blur areas over pixels with alpha. A window capture keeps its
+        // window's alpha (a translucent terminal, rounded corners), so a
+        // covered area must replace what is under it, not blend over it.
+        func rgbaPicture(width: Int, height: Int,
+                         _ pixel: (Int, Int) -> (UInt8, UInt8, UInt8, UInt8)) -> CGImage? {
+            var bytes = [UInt8](repeating: 0, count: width * height * 4)
+            for y in 0..<height {
+                for x in 0..<width {
+                    let (red, green, blue, alpha) = pixel(x, y)
+                    let offset = (y * width + x) * 4
+                    bytes[offset] = red
+                    bytes[offset + 1] = green
+                    bytes[offset + 2] = blue
+                    bytes[offset + 3] = alpha
+                }
+            }
+            guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+            return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+                           bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                           bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                           provider: provider, decode: nil, shouldInterpolate: false,
+                           intent: .defaultIntent)
+        }
+        // How far each glyph column (even x inside `box`) stands out from the
+        // mean of the background columns on both sides, in red. A smooth fill,
+        // even a steep gradient, scores near zero; glyphs showing through do not.
+        func glyphContrast(_ pixels: [UInt8], width: Int, in box: CGRect) -> Int {
+            var largest = 0
+            for y in Int(box.minY)..<Int(box.maxY) {
+                for x in stride(from: Int(box.minX), to: Int(box.maxX) - 1, by: 2) {
+                    let sides = rgb(pixels, width: width, x - 1, y)[0] + rgb(pixels, width: width, x + 1, y)[0]
+                    largest = max(largest, abs(2 * rgb(pixels, width: width, x, y)[0] - sides) / 2)
+                }
+            }
+            return largest
+        }
+        // Opaque white glyph columns on a dark background at 80 % alpha
+        // (premultiplied), like a window capture of a translucent terminal.
+        let glyphBox = CGRect(x: 30, y: 24, width: 60, height: 12)
+        if let translucent = rgbaPicture(width: 120, height: 60, { x, y in
+            glyphBox.contains(CGPoint(x: x, y: y)) && x % 2 == 0 ? (255, 255, 255, 255) : (16, 16, 16, 204)
+        }), let soft = ScreenshotRenderer.softBlurredImage(from: translucent) {
+            let area = CGRect(x: 20, y: 16, width: 80, height: 28)
+            let erased = exportedPixels(translucent,
+                [ScreenshotSupport.Annotation(tool: .pixelate, rect: area, blurStyle: .erase)],
+                .init(image: translucent))
+            let blurred = exportedPixels(translucent,
+                [ScreenshotSupport.Annotation(tool: .pixelate, rect: area, blurStyle: .blur)],
+                .init(softBlurs: [3: soft]))
+            let erasedContrast = erased.map { glyphContrast($0, width: 120, in: glyphBox) } ?? 255
+            let blurredContrast = blurred.map { glyphContrast($0, width: 120, in: glyphBox) } ?? 255
+            suite.expect(erasedContrast <= 4,
+                   "erasing text on a translucent capture leaves no glyph showing through (\(erasedContrast))")
+            suite.expect(blurredContrast <= 6,
+                   "blurring text on a translucent capture leaves no glyph showing through (\(blurredContrast))")
+        } else {
+            suite.expect(false, "the translucent scene renders")
+        }
+        // Opaque white content with black glyph columns, and a fully
+        // transparent margin on the left, like a window's rounded corner.
+        let cornerGlyphs = CGRect(x: 24, y: 20, width: 16, height: 12)
+        if let cornered = rgbaPicture(width: 120, height: 60, { x, y in
+            if x < 20 { return (0, 0, 0, 0) }
+            return cornerGlyphs.contains(CGPoint(x: x, y: y)) && x % 2 == 0 ? (0, 0, 0, 255) : (255, 255, 255, 255)
+        }), let erased = exportedPixels(cornered,
+            [ScreenshotSupport.Annotation(tool: .pixelate, rect: CGRect(x: 20, y: 14, width: 48, height: 24),
+                                          blurStyle: .erase)],
+            .init(image: cornered)) {
+            let contrast = glyphContrast(erased, width: 120, in: cornerGlyphs)
+            // The fill itself bends near the transparent side, so allow some
+            // curvature; glyphs showing through stand out by about 130.
+            suite.expect(contrast <= 16,
+                   "erasing beside a transparent margin leaves no glyph showing through (\(contrast))")
+        } else {
+            suite.expect(false, "the corner scene renders")
+        }
+        // Each sample is shifted by its own small random amount, so two
+        // mosaics of one flat picture differ, but never by more than the shift.
+        if let gray = picture(width: 600, height: 400, { _, _ in (128, 128, 128) }),
+           let firstMosaic = ScreenshotRenderer.pixelatedImage(from: gray),
+           let secondMosaic = ScreenshotRenderer.pixelatedImage(from: gray) {
+            func sampleBytes(_ image: CGImage) -> [UInt8] {
+                var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+                bytes.withUnsafeMutableBytes { buffer in
+                    guard let context = CGContext(data: buffer.baseAddress, width: image.width,
+                                                  height: image.height, bitsPerComponent: 8,
+                                                  bytesPerRow: image.width * 4,
+                                                  space: CGColorSpaceCreateDeviceRGB(),
+                                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                    else { return }
+                    context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+                }
+                return bytes
+            }
+            let first = sampleBytes(firstMosaic)
+            let second = sampleBytes(secondMosaic)
+            let spread = zip(first, second).enumerated()
+                .filter { $0.offset % 4 != 3 }
+                .map { abs(Int($0.element.0) - Int($0.element.1)) }
+                .max() ?? 0
+            suite.expect(first.count == second.count && spread >= 10 && spread <= 18,
+                   "every mosaic sample takes a fresh shift of at most 9 levels (spread \(spread))")
+        } else {
+            suite.expect(false, "the flat mosaics are built")
+        }
+        // Erase fills are kept between redraws however many runs an area has,
+        // and dropped once a redraw stops using them or recognition brings
+        // other runs.
+        if let page = picture(width: 400, height: 6200, { _, _ in (255, 255, 255) }) {
+            let manyRuns = (0..<300).map { CGRect(x: 10, y: CGFloat($0) * 20 + 4, width: 300, height: 14) }
+            let cache = ScreenshotRenderer.EraseCache()
+            // Each redraw asks for every run in order, as drawing does.
+            func redraw(_ runs: [CGRect], textRuns: [CGRect]) -> [CGImage?] {
+                cache.beginPass(image: page, textRuns: textRuns)
+                return runs.map { cache.patch(for: $0, in: page, skipping: textRuns)?.image }
+            }
+            func reused(_ earlier: [CGImage?], _ later: [CGImage?]) -> Int {
+                zip(earlier, later).filter { pair in
+                    guard let before = pair.0, let after = pair.1 else { return false }
+                    return before === after
+                }.count
+            }
+            let firstRedraw = redraw(manyRuns, textRuns: manyRuns)
+            let secondRedraw = redraw(manyRuns, textRuns: manyRuns)
+            _ = redraw(manyRuns.map { $0.offsetBy(dx: 40, dy: 0) }, textRuns: manyRuns)
+            let afterOthers = redraw(manyRuns, textRuns: manyRuns)
+            let newText = redraw(Array(manyRuns.prefix(10)), textRuns: Array(manyRuns.dropLast()))
+            suite.expect(firstRedraw.allSatisfy { $0 != nil } && reused(firstRedraw, secondRedraw) == 300,
+                   "an area with 300 erased text runs reuses every fill on the next redraw")
+            suite.expect(reused(secondRedraw, afterOthers) == 0,
+                   "erase fills a redraw stopped using are dropped once there are many")
+            suite.expect(newText.allSatisfy { $0 != nil } && reused(afterOthers, newText) == 0,
+                   "new text runs from recognition drop the erase fills made with the old ones")
+        } else {
+            suite.expect(false, "the erase cache page renders")
+        }
+        // Drawing starts each pass on the editor's cache, so an export
+        // reuses the last one's fills and drops them for new text runs.
+        if let smallPage = picture(width: 200, height: 120, { _, _ in (255, 255, 255) }) {
+            let cache = ScreenshotRenderer.EraseCache()
+            let smallRuns = [CGRect(x: 20, y: 20, width: 120, height: 14),
+                             CGRect(x: 20, y: 50, width: 120, height: 14),
+                             CGRect(x: 20, y: 80, width: 120, height: 14)]
+            let erasing = [ScreenshotSupport.Annotation(tool: .pixelate,
+                                                        rect: CGRect(x: 10, y: 10, width: 160, height: 100),
+                                                        blurStyle: .erase, blurTextOnly: true)]
+            func exportedFill(_ textRuns: [CGRect]) -> CGImage? {
+                _ = exportedPixels(smallPage, erasing, .init(image: smallPage, eraseCache: cache, textRuns: textRuns))
+                return cache.patch(for: smallRuns[0], in: smallPage, skipping: textRuns)?.image
+            }
+            if let first = exportedFill(smallRuns), let again = exportedFill(smallRuns),
+               let renewed = exportedFill(Array(smallRuns.dropLast())) {
+                suite.expect(first === again && renewed !== first,
+                       "drawing reuses the erase fills of the last pass and drops them for new text runs")
+            } else {
+                suite.expect(false, "the cached erase fills are made")
+            }
+        } else {
+            suite.expect(false, "the small erase page renders")
+        }
+        // Recognition reads a tall capture in bands that share rows. Each
+        // band places a word there a few pixels from where the other does,
+        // or misses it, and the merge keeps every line once.
+        let mergeTiles = ScreenshotSupport.recognitionTiles(width: 1200, height: 9000)
+        func bandRead(_ text: String, x: CGFloat, midY: CGFloat, line: Int,
+                      width: CGFloat = 80, height: CGFloat = 30,
+                      hasBox: Bool = true) -> ScreenshotSupport.BandWord {
+            let rect = CGRect(x: x, y: midY - height / 2, width: width, height: height)
+            return ScreenshotSupport.BandWord(text: text, rect: hasBox ? rect : nil,
+                                              lineBox: CGRect(x: 100, y: rect.minY, width: 600, height: height),
+                                              line: line)
+        }
+        // The first seam sits at row 3968 and the second at 7808.
+        let upperBand = [
+            bandRead("alpha", x: 100, midY: 1000, line: 0),
+            bandRead("beta", x: 200, midY: 1000, line: 0, hasBox: false),
+            // Guessed just past the seam here, and just before it below.
+            bandRead("lemon", x: 100, midY: 3968, line: 1),
+            bandRead("monkey", x: 190, midY: 3968, line: 1),
+            bandRead("bridge", x: 280, midY: 3968, line: 1),
+            // Guessed before the seam here, and past it below.
+            bandRead("pencil", x: 700, midY: 3965, line: 2),
+            bandRead("river", x: 790, midY: 3965, line: 2),
+            // Read only here, in rows the next band owns.
+            bandRead("orphan", x: 1000, midY: 4000, line: 3),
+            // A line just above another one the next band reads.
+            bandRead("first", x: 500, midY: 3880, line: 4),
+            // Cut by this band's edge, so read short.
+            bandRead("anch", x: 100, midY: 4088, line: 5, width: 50, height: 16),
+        ]
+        let middleBand = [
+            bandRead("lemon", x: 103, midY: 3966.5, line: 10),
+            bandRead("monkey", x: 193, midY: 3966.5, line: 10),
+            bandRead("bridge", x: 283, midY: 3966.5, line: 10),
+            bandRead("pencil", x: 698, midY: 3972, line: 11),
+            bandRead("river", x: 788, midY: 3972, line: 11),
+            // Read only here, in rows the band above owns.
+            bandRead("stray", x: 1000, midY: 3940, line: 12),
+            bandRead("second", x: 500, midY: 3905, line: 13),
+            bandRead("anchor", x: 100, midY: 4095, line: 14),
+            bandRead("middle", x: 100, midY: 6000, line: 15),
+        ]
+        let lowerBand = [
+            bandRead("lone", x: 100, midY: 7790, line: 20),
+            bandRead("tail", x: 100, midY: 8500, line: 21),
+        ]
+        let merged = ScreenshotSupport.mergedRecognition([upperBand, middleBand, lowerBand], tiles: mergeTiles)
+        let mergedTexts = merged.words.map(\.text)
+        let everyWordOnce: [String] = ["alpha", "anchor", "bridge", "first", "lemon", "lone", "middle",
+                                       "monkey", "orphan", "pencil", "river", "second", "stray", "tail"]
+        suite.expect(mergeTiles.count == 3 && mergeTiles[0].ownedRows.upperBound == 3968
+                && mergeTiles[1].ownedRows.upperBound == 7808
+                && mergedTexts.sorted() == everyWordOnce,
+               "every line read on a band seam is kept once, whichever band read it and wherever each guessed it")
+        suite.expect(merged.words.first { $0.text == "lemon" }?.line == 1
+                && merged.words.first { $0.text == "pencil" }?.line == 11
+                && merged.words.first { $0.text == "anchor" }?.line == 14,
+               "a word both bands read is kept from the band that owns the middle of the two guesses")
+        let mergedOwners = merged.words.map { word in
+            mergeTiles.firstIndex { $0.ownedRows.contains(word.rect.midY) } ?? -1
+        }
+        suite.expect(mergedOwners == mergedOwners.sorted(),
+               "merged words come band by band, so a copied selection across a seam keeps its lines in order")
+        // The same word in one column on two close lines, like a table. The
+        // band above reads both lines and the next band only the lower one,
+        // a few pixels up, so the upper line has no other read to pair with.
+        let columnAbove = [
+            bandRead("Yes", x: 1100, midY: 4040, line: 6, width: 40, height: 22),
+            bandRead("Yes", x: 1100, midY: 4068, line: 7, width: 40, height: 22),
+            bandRead("Yes", x: 400, midY: 3990, line: 8, width: 40, height: 22),
+            bandRead("Yes", x: 400, midY: 4018, line: 9, width: 40, height: 22),
+        ]
+        let columnBelow = [
+            bandRead("Yes", x: 1100, midY: 4060, line: 16, width: 40, height: 22),
+            bandRead("Yes", x: 400, midY: 4010, line: 17, width: 40, height: 22),
+        ]
+        let sameColumn = ScreenshotSupport.mergedRecognition([columnAbove, columnBelow, []], tiles: mergeTiles)
+        suite.expect(sameColumn.words.map(\.line).sorted() == [6, 8, 16, 17],
+               "a line one band missed is not paired with the same word on the next line")
+        let seamWords = ["lemon", "monkey", "bridge", "pencil", "river"]
+        let seamGuesses = (upperBand + middleBand).filter { seamWords.contains($0.text) }.compactMap(\.rect)
+        let boxlessLine = CGRect(x: 100, y: 985, width: 600, height: 30)
+        let mustCover = merged.words.map(\.rect) + seamGuesses + [boxlessLine]
+        suite.expect(merged.runs.map { runs in
+            mustCover.allSatisfy { rect in runs.contains { $0.contains(rect) } }
+        } == true, "text only runs cover both guesses of a seam word, and a word without a box of its own")
+        suite.expect(!mergedTexts.contains("beta"),
+               "a word recognition gave no box is covered but cannot be selected")
+        let failedMiddle = ScreenshotSupport.mergedRecognition([upperBand, nil, lowerBand], tiles: mergeTiles)
+        suite.expect(failedMiddle.runs == nil
+                && failedMiddle.words.contains { $0.text == "alpha" }
+                && failedMiddle.words.contains { $0.text == "tail" }
+                && ScreenshotSupport.mergedRecognition([upperBand, middleBand], tiles: mergeTiles).runs == nil,
+               "a band recognition could not read keeps text only areas covering all of themselves")
+        suite.expect(screenshotEditorSource.contains("ScreenshotSupport.mergedRecognition(reads, tiles: tiles)")
+                && screenshotEditorSource.contains("self.textRuns = merged.runs")
+                && screenshotEditorSource.contains("reads.append(nil)"),
+               "the editor publishes the merged words and runs, and marks a band recognition failed on")
+        suite.expect(screenshotEditorSource.contains("annotations[index].blurStyle = blurStyle")
+                && screenshotEditorSource.contains("annotations[index].blurTextOnly = blurTextOnly")
+                && screenshotEditorSource.contains("blurStyle: blurStyle, blurTextOnly: blurTextOnly"),
+               "new and picked blur areas take the chosen style and text only choice")
+        suite.expect(screenshotEditorSource.contains("textRuns = nil"),
+               "undoing a crop forgets runs that belong to the other picture")
+        let bigText = ScreenshotSupport.Annotation(tool: .text, stroke: .small, textSize: 48)
+        suite.expect(ScreenshotSupport.selectionStyle(for: bigText)
+                == ScreenshotSupport.SelectionStyle(color: .red, stroke: nil,
+                                                    arrowStyle: nil, textSize: 48)
+                && ScreenshotSupport.selectionStyle(for: thinArrow).textSize == nil,
+               "text exposes its own point size, not the shape thickness")
+        suite.expect(ScreenshotRenderer.fontSize(for: 48, scale: 2) == 96
+                && ScreenshotRenderer.textBounds("Hi", at: .zero, textSize: 48, scale: 1).height
+                    > ScreenshotRenderer.textBounds("Hi", at: .zero, textSize: 12, scale: 1).height,
+               "text size alone drives the rendered font")
+        suite.expect(ScreenshotSupport.sanitizedTextSize(0) == ScreenshotSupport.defaultTextSize
+                && ScreenshotSupport.sanitizedTextSize(2) == ScreenshotSupport.textSizes.first
+                && ScreenshotSupport.sanitizedTextSize(500) == ScreenshotSupport.textSizes.last
+                && ScreenshotSupport.sanitizedTextSize(19) == 19,
+               "a stored text size stays inside the offered range")
+        suite.expect(ScreenshotSupport.steppedTextSize(from: 19, up: true) == 24
+                && ScreenshotSupport.steppedTextSize(from: 19, up: false) == 16
+                && ScreenshotSupport.steppedTextSize(from: 20, up: false) == 19
+                && ScreenshotSupport.steppedTextSize(from: 96, up: true) == nil
+                && ScreenshotSupport.steppedTextSize(from: 10, up: false) == nil,
+               "the size buttons step through the presets and stop at the ends")
+        suite.expect(screenshotEditorSource.contains("let strokeChanged = usesStroke && annotations[index].stroke != stroke")
+                && screenshotEditorSource.contains("if usesStroke { annotations[index].stroke = stroke }"),
+               "picking text or a highlight never records a thickness edit it has no control for")
+        let screenshotEditorViewSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/UI/Screenshot/ScreenshotEditorView.swift",
+            encoding: .utf8)) ?? ""
+        suite.expect(screenshotEditorViewSource.contains("isHovered || isActive ? 0.9 : 0.55"),
+               "tool shortcut labels stay visible on idle rail buttons")
         suite.expect(screenshotEditorSource.contains("syncControls(to: hit)"),
                "the editor synchronizes controls from the selected annotation")
         let existingSelectionSource: String
@@ -1435,7 +2568,7 @@ enum ScreenshotFeatureTests {
         if let retinaCapture {
             let plain = ScreenshotSupport.BackdropStyle(kind: .none, cornerRadius: 0)
             let full = ScreenshotRenderer.renderExport(baseImage: retinaCapture, annotations: [],
-                                                       pixelated: nil, scale: 2,
+                                                       blurSources: .none, scale: 2,
                                                        annotationShadowsEnabled: false,
                                                        watermark: ScreenshotSupport.WatermarkStyle(),
                                                        watermarkImage: nil,
@@ -1444,7 +2577,7 @@ enum ScreenshotFeatureTests {
             suite.expect(full?.scale == 2 && full?.image.width == 8,
                    "a Retina export keeps its pixels and its density")
             let halved = ScreenshotRenderer.renderExport(baseImage: retinaCapture, annotations: [],
-                                                         pixelated: nil, scale: 2,
+                                                         blurSources: .none, scale: 2,
                                                          annotationShadowsEnabled: false,
                                                          watermark: ScreenshotSupport.WatermarkStyle(),
                                                          watermarkImage: nil,
@@ -1665,7 +2798,7 @@ enum ScreenshotFeatureTests {
         }
         func markedExport(_ watermark: ScreenshotSupport.WatermarkStyle,
                           picture: CGImage?, base: CGImage) -> [UInt8]? {
-            ScreenshotRenderer.renderExport(baseImage: base, annotations: [], pixelated: nil,
+            ScreenshotRenderer.renderExport(baseImage: base, annotations: [], blurSources: .none,
                                             scale: 1, annotationShadowsEnabled: false,
                                             watermark: watermark, watermarkImage: picture,
                                             style: ScreenshotSupport.BackdropStyle(kind: .none,
@@ -2109,6 +3242,27 @@ enum ScreenshotFeatureTests {
         }
         suite.expectClose(steppedLoupeZoom, ScreenshotSupport.captureLoupeMinZoom,
                     "all stepped magnifier levels are reversible without dead notches")
+        var plainFastZoom = ScreenshotSupport.captureLoupeMinZoom
+        var plainFastNotches = 0
+        while plainFastZoom < ScreenshotSupport.captureLoupeMaxZoom, plainFastNotches < 20 {
+            plainFastZoom = ScreenshotSupport.captureLoupeFastZoom(
+                plainFastZoom, adjustedBy: 1, isContinuous: false)
+            plainFastNotches += 1
+        }
+        suite.expect(plainFastNotches <= 6,
+               "fast zoom on a plain wheel crosses the range in a few notches, not one level each")
+        suite.expectClose(ScreenshotSupport.captureLoupeFastZoom(1, adjustedBy: 1,
+                                                                 isContinuous: true), 1.15,
+                    "fast zoom keeps its per-packet factor for a smoothed wheel")
+        suite.expectClose(ScreenshotSupport.captureLoupeFastZoom(4, adjustedBy: -1,
+                                                                 isContinuous: false),
+                    4 / (1.15 * 1.15 * 1.15),
+                    "fast zoom on a plain wheel zooms back out at the same pace")
+        // A scroll tool can write three lines per notch; the notch keeps its pace.
+        suite.expectClose(ScreenshotSupport.captureLoupeFastZoom(1, adjustedBy: 3,
+                                                                 isContinuous: false),
+                    ScreenshotSupport.captureLoupeFastZoom(1, adjustedBy: 1, isContinuous: false),
+                    "a plain notch carrying three lines lands where a one-line notch does")
         var fastLoupeZoom: CGFloat = 1
         for _ in 0..<6 {
             fastLoupeZoom = ScreenshotSupport.captureLoupeZoom(
@@ -2184,11 +3338,46 @@ enum ScreenshotFeatureTests {
                "screenshot preview placement preserves the existing automatic behavior by default")
         suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotPreviewTakesFocus] as? Bool == true,
                "the screenshot preview takes the keyboard as it appears by default, so its shortcuts work at once; leaving it is the opt-out")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotPreviewEnabled] as? Bool == true
+                && Defaults.registeredDefaults[DefaultsKey.screenshotPreviewDuration] as? Int
+                    == ScreenshotSupport.defaultConfirmationPreviewDuration,
+               "automatic screenshot confirmations stay enabled at the existing three-second duration by default")
+        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.screenshotPreviewEnabled)
+                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.screenshotPreviewDuration),
+               "screenshot confirmation preferences are included in settings backups")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotAddToShelf] as? Bool == false
+                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.screenshotAddToShelf),
+               "adding captures to the shelf ships off and travels in settings backups")
+        let captureShelfSuite = "com.vorssaint.tests.capture-shelf.\(UUID().uuidString)"
+        let captureShelfDefaults = UserDefaults(suiteName: captureShelfSuite)!
+        defer { captureShelfDefaults.removePersistentDomain(forName: captureShelfSuite) }
+        func capturesGoToShelf(option: Bool, installed: Bool, on: Bool) -> Bool {
+            captureShelfDefaults.set(option, forKey: DefaultsKey.screenshotAddToShelf)
+            captureShelfDefaults.set(installed, forKey: AppFeature.shelf.availabilityKey)
+            captureShelfDefaults.set(on, forKey: DefaultsKey.shelfEnabled)
+            return ScreenshotSupport.addsCapturesToShelf(in: captureShelfDefaults)
+        }
+        suite.expect(capturesGoToShelf(option: true, installed: true, on: true)
+                && !capturesGoToShelf(option: false, installed: true, on: true)
+                && !capturesGoToShelf(option: true, installed: true, on: false)
+                && !capturesGoToShelf(option: true, installed: false, on: true),
+               "captures go to the shelf only with the option on and the shelf installed and switched on")
         suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotSharingEnabled] as? Bool == true,
                "temporary screenshot links preserve their existing availability by default")
         suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotToolOrder] as? String
                 == ScreenshotSupport.Tool.defaultOrderStorage,
                "the screenshot rail ships in its useful numbered order")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotLastBlurLevel] as? Int
+                == ScreenshotSupport.BlurStrength.defaultLevel,
+               "the pixelate tool starts at the strength it always had")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotLastBlurStyle] as? String
+                == ScreenshotSupport.BlurStyleID.pixelate.rawValue
+                && Defaults.registeredDefaults[DefaultsKey.screenshotLastBlurTextOnly] as? Bool == false
+                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.screenshotLastBlurStyle),
+               "the blur tool starts pixelating whole areas, and its choices travel in backups")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotLastTextSize] as? Int
+                == ScreenshotSupport.defaultTextSize,
+               "text starts at the size the medium thickness used to give it")
         suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotLastSticker] as? String == "check",
                "the sticker tool starts with a safe built-in choice")
         suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotLastArrowStyle] as? String == "filled",
@@ -2453,50 +3642,50 @@ enum ScreenshotFeatureTests {
                     ScratchpadDocument.initial(defaultName: "Scratchpad").pads[0]),
                "only closing a scratchpad with content needs destructive confirmation")
 
-        suite.expect(ScratchpadFocusedTabShortcut.action(charactersIgnoringModifiers: "t",
+        suite.expect(ScratchpadFocusedShortcut.action(charactersIgnoringModifiers: "t",
                                                    commandOnly: true,
                                                    canCreatePad: true,
                                                    canClosePad: true) == .createPad,
                "Command-T creates a scratchpad tab while the pad is focused")
-        suite.expect(ScratchpadFocusedTabShortcut.action(charactersIgnoringModifiers: "t",
+        suite.expect(ScratchpadFocusedShortcut.action(charactersIgnoringModifiers: "t",
                                                    commandOnly: true,
                                                    canCreatePad: false,
                                                    canClosePad: true) == nil,
                "Command-T is idle at the scratchpad tab limit")
-        suite.expect(ScratchpadFocusedTabShortcut.action(charactersIgnoringModifiers: "w",
+        suite.expect(ScratchpadFocusedShortcut.action(charactersIgnoringModifiers: "w",
                                                    commandOnly: true,
                                                    canCreatePad: true,
                                                    canClosePad: true) == .closeSelectedPad,
                "Command-W closes the selected scratchpad tab when more than one remains")
-        suite.expect(ScratchpadFocusedTabShortcut.action(charactersIgnoringModifiers: "w",
+        suite.expect(ScratchpadFocusedShortcut.action(charactersIgnoringModifiers: "w",
                                                    commandOnly: true,
                                                    canCreatePad: true,
                                                    canClosePad: false) == .hidePad,
                "Command-W on the last scratchpad tab hides the pad")
-        suite.expect(ScratchpadFocusedTabShortcut.action(charactersIgnoringModifiers: "t",
+        suite.expect(ScratchpadFocusedShortcut.action(charactersIgnoringModifiers: "t",
                                                    commandOnly: false,
                                                    canCreatePad: true,
                                                    canClosePad: true) == nil
-                && ScratchpadFocusedTabShortcut.action(charactersIgnoringModifiers: "w",
+                && ScratchpadFocusedShortcut.action(charactersIgnoringModifiers: "w",
                                                        commandOnly: false,
                                                        canCreatePad: true,
                                                        canClosePad: true) == nil
-                && ScratchpadFocusedTabShortcut.action(charactersIgnoringModifiers: "a",
+                && ScratchpadFocusedShortcut.action(charactersIgnoringModifiers: "a",
                                                        commandOnly: true,
                                                        canCreatePad: true,
                                                        canClosePad: true) == nil,
                "scratchpad tab shortcuts need Command alone on T or W")
-        suite.expect(ScratchpadFocusedTabShortcut.action(charactersIgnoringModifiers: "W",
+        suite.expect(ScratchpadFocusedShortcut.action(charactersIgnoringModifiers: "W",
                                                    commandOnly: true,
                                                    canCreatePad: true,
                                                    canClosePad: true) == .closeSelectedPad,
                "Caps Lock preserves the scratchpad close shortcut")
-        suite.expect(ScratchpadFocusedTabShortcut.action(charactersIgnoringModifiers: "z",
+        suite.expect(ScratchpadFocusedShortcut.action(charactersIgnoringModifiers: "z",
                                                    commandOnly: true,
                                                    canCreatePad: true,
                                                    canClosePad: true) == nil,
                "the AZERTY Z at the US W position must not close a scratchpad")
-        suite.expect(ScratchpadFocusedTabShortcut.action(charactersIgnoringModifiers: nil,
+        suite.expect(ScratchpadFocusedShortcut.action(charactersIgnoringModifiers: nil,
                                                    commandOnly: true,
                                                    canCreatePad: true,
                                                    canClosePad: true) == nil,
@@ -2542,6 +3731,7 @@ enum ScreenshotFeatureTests {
         // Muting every microphone, not just the one the Mac is set to: an app
         // pointed at a device of its own has to go silent too.
         suite.expect(MicMuteSupport.isOwnDevice(name: "Vorssaint Mixer")
+                && MicMuteSupport.isOwnDevice(name: "Vorssaint AirPlay")
                 && MicMuteSupport.isOwnDevice(name: "Vorssaint Island Levels")
                 && MicMuteSupport.isOwnDevice(name: "Vorssaint Recorder")
                 && !MicMuteSupport.isOwnDevice(name: "MacBook Air Microphone"),
@@ -2592,6 +3782,7 @@ enum ScreenshotFeatureTests {
 
         suite.expect(Defaults.registeredDefaults[DefaultsKey.radialMenuEnabled] as? Bool == false,
                "the radial menu ships off by default")
+        RadialMenuProfileDeletionContract.run(suite)
         suite.expect(Defaults.registeredDefaults[DefaultsKey.radialMenuShortcut] as? String
                 == "control+option+command:49",
                "the default radial menu shortcut is control option command space")
@@ -2674,5 +3865,79 @@ enum ScreenshotFeatureTests {
                 == [.screenshot, .colorPicker],
                "capture roles are reordered for display and other roles fall away")
         GlobalShortcut.refreshLayoutLabels()
+    }
+
+    /// The island follows "Show in screenshots and videos" in Vorssaint's own
+    /// captures too, area selections included, except while it is the tool
+    /// taking the picture.
+    private static func islandCaptureChecks(_ suite: TestSuite) {
+        let island: CGWindowID = 20, copy: CGWindowID = 21, editor: CGWindowID = 11, overlay: CGWindowID = 12
+        let islandWindows: Set<CGWindowID> = [island, copy]
+        let ownWindows: Set<CGWindowID> = [editor, overlay, island, copy]
+        func shown(preference: Bool, tool: Bool) -> Set<CGWindowID> {
+            ScreenshotCapturePolicy.islandCaptureWindowIDs(
+                islandWindowIDs: islandWindows, mainWindowID: island,
+                showsInCaptures: preference, showsCaptureTool: tool)
+        }
+        suite.expect(shown(preference: true, tool: false) == islandWindows,
+                     "the island at rest, or open on a page, is in the picture when it shows in captures")
+        suite.expect(shown(preference: true, tool: true) == [copy],
+                     "the capture controls or a capture just taken stay out; copies on other displays stay in")
+        suite.expect(shown(preference: false, tool: false).isEmpty && shown(preference: false, tool: true).isEmpty,
+                     "the island stays out of every capture when it does not show in captures")
+
+        for tool in [false, true] {
+            let visible = shown(preference: true, tool: tool)
+            // What NotchService protects: the island windows not shown.
+            let protected = islandWindows.subtracting(visible).union([overlay])
+            let hidden = ScreenshotCapturePolicy.excludedWindowIDs(
+                hideVorssaintWindows: true, ownWindowIDs: ownWindows,
+                protectedWindowIDs: protected, islandWindowIDs: visible)
+            suite.expect(hidden == ownWindows.subtracting(visible),
+                         "hiding Vorssaint windows leaves the shown island in (capture tool: \(tool))")
+            let kept = ScreenshotCapturePolicy.excludedWindowIDs(
+                hideVorssaintWindows: false, ownWindowIDs: ownWindows,
+                protectedWindowIDs: protected, islandWindowIDs: visible)
+            suite.expect(kept == protected,
+                         "showing Vorssaint windows still keeps the capture interface out (capture tool: \(tool))")
+        }
+        // Watch reads an area and must never see the island, whatever the preference says.
+        suite.expect(ScreenshotCapturePolicy.excludedWindowIDs(
+            hideVorssaintWindows: true, ownWindowIDs: ownWindows,
+            protectedWindowIDs: islandWindows.union([overlay]),
+            islandWindowIDs: shown(preference: true, tool: false)) == ownWindows,
+                     "a caller that protects the island keeps it out even when it shows in captures")
+    }
+}
+
+/// Runs the production profile deletion from Settings with its view state
+/// held by a plain fixture.
+enum RadialMenuProfileDeletionContract {
+    class Fixture {
+        var profiles: [RadialMenuProfile] = []
+        var selectedProfileID: UUID?
+        var openSubmenuID: UUID?
+        var dragging: RadialMenuItem?
+        var persisted = 0
+        func persist() { persisted += 1 }
+    }
+
+    static func run(_ suite: TestSuite) {
+        let settings = Settings()
+        let first = RadialMenuProfile(name: "First")
+        let second = RadialMenuProfile(name: "Second")
+        let third = RadialMenuProfile(name: "Third")
+        settings.profiles = [first, second, third]
+        settings.selectedProfileID = third.id
+        settings.deleteProfile(id: first.id)
+        suite.expect(settings.profiles.map(\.id) == [second.id, third.id] && settings.persisted == 1,
+                     "the confirmed profile is deleted even after the selection moved to another one")
+        settings.deleteProfile(id: first.id)
+        suite.expect(settings.profiles.count == 2 && settings.persisted == 1,
+                     "a confirmation for a profile that is already gone deletes nothing")
+        settings.deleteProfile(id: second.id)
+        settings.deleteProfile(id: third.id)
+        suite.expect(settings.profiles.map(\.id) == [third.id] && settings.selectedProfileID == third.id,
+                     "the last profile is never deleted and stays selected")
     }
 }

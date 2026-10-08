@@ -70,6 +70,18 @@ enum NotchNotificationTests {
         suite.expect(NotchNotificationSupport.sourceBundleIdentifier(for: ["Chat"], applications: applications + [
             (name: "Chat", bundleIdentifier: "test.chat")]) == "test.chat",
                "multiple processes belonging to the same application do not create false ambiguity")
+        let installed = [(name: "Calendar", bundleIdentifier: "test.calendar"),
+                         (name: "Chat", bundleIdentifier: "test.chat-copy")]
+        suite.expect(NotchNotificationSupport.sourceBundleIdentifier(for: ["Calendar"], running: applications,
+                                                                     installed: installed) == "test.calendar",
+               "a message from a closed app still resolves its installed source so it can be opened")
+        suite.expect(NotchNotificationSupport.sourceBundleIdentifier(for: ["Chat"], running: applications,
+                                                                     installed: installed) == "test.chat",
+               "the running application wins over another installed copy with the same name")
+        suite.expect(NotchNotificationSupport.sourceBundleIdentifier(for: ["Chat"], running: [],
+                                                                     installed: installed + [
+            (name: "Chat", bundleIdentifier: "test.chat")]) == nil,
+               "two installed apps sharing a name never pick one of them for a closed source")
         suite.expect(NotchNotificationSupport.sourceBundleIdentifier(for: ["Contact photo", "Chat"], applications: applications) == "test.chat",
                "an application icon label can identify the source beside an unrelated contact image")
         suite.expect(NotchNotificationSupport.sourceBundleIdentifier(for: ["Chat", "Mail"], applications: applications) == nil,
@@ -115,6 +127,27 @@ enum NotchNotificationTests {
         inbox = NotchNotificationInbox()
         suite.expect(inbox.items.isEmpty, "locking or disabling discards mirrored messages")
 
+        let kept = item(), onScreen = item(), expired = item()
+        _ = inbox.update([])
+        _ = inbox.update([kept, onScreen, expired])
+        _ = inbox.update([kept, onScreen])
+        inbox.dismiss(kept.id)
+        suite.expect(inbox.items.map(\.id) == [expired.id, onScreen.id],
+               "dismissing one mirror leaves the others in place")
+        inbox.clear()
+        suite.expect(inbox.items.isEmpty, "clear all empties live and expired mirrors together")
+        let next = item()
+        suite.expect(inbox.update([kept, onScreen, next]).map(\.id) == [next.id] && inbox.items.map(\.id) == [next.id],
+               "the first pass after clearing mirrors a new notification without restoring the cleared ones")
+        let later = item()
+        suite.expect(inbox.update([onScreen, next, later]).map(\.id) == [later.id]
+               && inbox.items.map(\.id) == [later.id, next.id],
+               "banners still on screen stay cleared while later notifications keep arriving")
+        inbox.clear()
+        inbox.clear()
+        suite.expect(inbox.items.isEmpty && inbox.update([]).isEmpty,
+               "clearing an empty inbox is harmless")
+
         let domain = "com.vorssaint.tests.notch-notifications"
         let defaults = UserDefaults(suiteName: domain)!
         defaults.removePersistentDomain(forName: domain)
@@ -122,9 +155,11 @@ enum NotchNotificationTests {
         for (key, value) in Defaults.registeredDefaults where key.hasPrefix("notch") { defaults.set(value, forKey: key) }
         for (key, value) in AppFeature.availabilityDefaults { defaults.set(value, forKey: key) }
         defaults.set(true, forKey: DefaultsKey.notchEnabled)
-        suite.expect(!NotchNotificationSupport.isEnabled(in: defaults), "enabling the notch never enables message mirroring")
+        suite.expect(NotchNotificationSupport.isEnabled(in: defaults), "installed notifications start enabled in the island")
+        defaults.set(false, forKey: DefaultsKey.notchNotificationsEnabled)
+        suite.expect(!NotchNotificationSupport.isEnabled(in: defaults), "message mirroring can be turned off")
         defaults.set(true, forKey: DefaultsKey.notchNotificationsEnabled)
-        suite.expect(NotchSupport.routes(.systemNotification, in: defaults), "an explicit opt-in enables new notification banners")
+        suite.expect(NotchSupport.routes(.systemNotification, in: defaults), "turning message mirroring back on enables new banners")
         suite.expect(!NotchNotificationSupport.dismissesNative(in: defaults), "native banners remain intact by default")
         defaults.set(true, forKey: DefaultsKey.notchDismissNativeNotifications)
         suite.expect(NotchNotificationSupport.dismissesNative(in: defaults), "native closing requires both notification opt-ins")

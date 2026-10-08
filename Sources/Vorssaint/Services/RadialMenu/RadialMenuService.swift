@@ -96,6 +96,8 @@ final class RadialMenuService: ObservableObject {
     // MARK: - Lifecycle
 
     func syncWithPreferences() {
+        // The trackpad tap is recognized by the middle click's contact reader.
+        defer { MiddleClickService.shared.syncWithPreferences() }
         let defaults = UserDefaults.standard
         let enabled = AppFeature.radialMenu.isAvailable
             && defaults.bool(forKey: DefaultsKey.radialMenuEnabled)
@@ -317,6 +319,23 @@ final class RadialMenuService: ObservableObject {
             endSession()
         }
         beginSession(for: profile, hold: true)
+    }
+
+    /// A four-finger tap: opens the wheel that claims it as a sticky session,
+    /// or closes it, like a second press of its shortcut.
+    func toggleFromTrackpad() {
+        let defaults = UserDefaults.standard
+        guard AppFeature.radialMenu.isAvailable,
+              defaults.bool(forKey: DefaultsKey.radialMenuEnabled),
+              let profile = RadialMenuSupport.decodeProfiles(
+                  defaults.data(forKey: DefaultsKey.radialMenuProfiles), defaults: defaults
+              ).first(where: \.trackpadTap) else { return }
+        if sessionActive {
+            let sameWheel = activeProfile?.id == profile.id
+            endSession()
+            if sameWheel { return }
+        }
+        beginSession(for: profile, hold: false)
     }
 
     /// The Settings page's try-it button: a sticky session with the saved
@@ -572,12 +591,13 @@ final class RadialMenuService: ObservableObject {
             return event
         }) { eventMonitors.append(monitor) }
 
-        let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
-        if let monitor = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { [weak self] event in
+        if let monitor = NSEvent.addLocalMonitorForEvents(matching: RadialMenuSupport.sessionMoveMask,
+                                                          handler: { [weak self] event in
             self?.pointerMoved()
             return event
         }) { eventMonitors.append(monitor) }
-        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { [weak self] _ in
+        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: RadialMenuSupport.sessionMoveMask,
+                                                           handler: { [weak self] _ in
             self?.pointerMoved()
         }) { eventMonitors.append(monitor) }
 
@@ -878,7 +898,7 @@ final class RadialMenuService: ObservableObject {
 
     /// Borderless panels refuse key status by default, and the wheel wants it
     /// for Esc, arrows, digits and the hold-release detection.
-    private final class KeyableWheelPanel: NSPanel {
+    private final class KeyableWheelPanel: OverlayPanel {
         override var canBecomeKey: Bool { true }
     }
 

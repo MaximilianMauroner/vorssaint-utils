@@ -13,6 +13,7 @@ import VMStatisticsCompat
 
 enum RecorderFeatureTests {
     static func run(_ suite: TestSuite) {
+        RecorderSystemAudioTapLifecycleTests.run(suite)
         func pageVisible(_ page: SettingsPage, available: Set<AppFeature>) -> Bool {
             FeatureVisibilitySupport.isPageVisible(page) { available.contains($0) }
         }
@@ -93,9 +94,10 @@ enum RecorderFeatureTests {
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderGIFSize)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderMicrophone)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderAutomaticZoom)
-                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderSharingEnabled)
-                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderSaveFolder),
+                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderSharingEnabled),
                "dedicated capture shortcuts and recorder settings travel in backups")
+        suite.expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderSaveFolder),
+               "the chosen recording save folder does not travel in backups, being authority on one Mac")
         suite.expect(RecorderSupport.exceptedOwnWindowIDs(
             ownWindowIDs: [1, 2, 3], protectedWindowIDs: [2, 4]) == [1, 3],
                "recording keeps existing ordinary app windows but never its protected chrome")
@@ -192,6 +194,33 @@ enum RecorderFeatureTests {
         suite.expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderSystemAudioTapVerified)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderSystemAudio),
                "the tap grant this Mac gave stays out of the backup while the sound choice travels")
+        // A listener block handed back for removal can keep firing. Plain
+        // callbacks use numeric clients that are forgotten on every way out.
+        let systemAudioTapSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/Recorder/RecorderSystemAudioTap.swift",
+            encoding: .utf8)) ?? ""
+        suite.expect(!systemAudioTapSource.isEmpty,
+               "the system audio tap source reads back for its shape check")
+        suite.expect(!systemAudioTapSource.contains("PropertyListenerBlock"),
+               "the system audio tap never listens with a block it cannot remove")
+        suite.expect(systemAudioTapSource.components(separatedBy: "Self.removeListener(deviceListenerClient, from:").count - 1 == 2
+                && systemAudioTapSource.components(separatedBy: "Self.removeListener(rateListenerClient, from:").count - 1 == 2,
+               "the tap gives back its output listener on stop and deinit, and its rate listener with each aggregate and on deinit")
+        // The tap's mixdown keeps a quarter of what plays on an eight channel
+        // output, and the recorder turns its copy of the samples back up.
+        var restored: [Float] = [0.1, -0.2, 0.05, 0.6]
+        var restoreLimiter = BoostLimiter()
+        restored.withUnsafeMutableBufferPointer { samples in
+            RecorderSupport.restoreTapLevel(samples.baseAddress!, count: samples.count, channels: 2,
+                                            gain: 4, limiter: &restoreLimiter,
+                                            release: BoostLimiter.release(sampleRate: 48_000))
+        }
+        suite.expectClose(Double(restored[0]), 0.4, "recorded sound gets back the level the tap's mixdown took")
+        suite.expectClose(Double(restored[1]), -0.8, "the limiter leaves restored sound inside full scale alone")
+        suite.expectClose(Double(restored[3]), Double(BoostLimiter.ceiling),
+                          "a restored peak past full scale is limited instead of clipping the file")
+        suite.expectClose(Double(restored[2] / restored[3]), 0.05 / 0.6,
+                          "both channels of a limited frame come down together")
         var pauseTimeline = RecorderPauseTimeline()
         suite.expect(pauseTimeline.pause(at: 3) && !pauseTimeline.pause(at: 4),
                "a recording enters one pause only once")
@@ -1132,6 +1161,29 @@ enum RecorderFeatureTests {
                 && RecorderSupport.blurBlockSize(for: CGSize(width: 600, height: 90)) == 30
                 && RecorderSupport.blurBlockSize(for: CGSize(width: 900, height: 900)) == 48,
                "the mosaic is coarser than one line of text and never turns a big area into four squares")
+        suite.expect(RecorderSupport.blurBlockSize(for: CGSize(width: 600, height: 90), strength: 3) == 30
+                && RecorderSupport.blurBlockSize(for: CGSize(width: 600, height: 90), strength: 1) == 12
+                && RecorderSupport.blurBlockSize(for: CGSize(width: 600, height: 90), strength: 5) == 66
+                && RecorderSupport.blurBlockSize(for: CGSize(width: 300, height: 24), strength: 1) >= 2,
+               "blur strength scales the mosaic around the old strength and never to nothing")
+        suite.expect(blur.strength == ScreenshotSupport.BlurStrength.defaultLevel
+                && RecorderBlurRegion(start: 1, end: 3, strength: 9).sanitized(duration: 10)?.strength == 5,
+               "a blur starts at the old strength and a damaged strength is brought back in range")
+        let strongBlur = RecorderBlurRegion(start: 2, end: 6, strength: 5)
+        suite.expect(RecorderEditDocument.decoded(
+                RecorderEditDocument(blurs: [strongBlur]).encoded()).blurs.first?.strength == 5,
+               "a blur's strength is saved with the recording")
+        let legacyBlurJSON = #"{"id":"7F2B1E0C-8B3A-4E43-9C66-0A8E0D8E2D11","start":1,"end":4,"x":0.1,"y":0.1,"width":0.2,"height":0.2}"#
+        let legacyBlur = try? JSONDecoder().decode(RecorderBlurRegion.self,
+                                                   from: Data(legacyBlurJSON.utf8))
+        suite.expect(legacyBlur?.strength == ScreenshotSupport.BlurStrength.defaultLevel
+                && legacyBlur?.end == 4,
+               "a blur saved before strength existed opens at the strength it was drawn with")
+        let recorderControllerSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/Recorder/RecorderEditorController.swift",
+            encoding: .utf8)) ?? ""
+        suite.expect(recorderControllerSource.contains("rect: rect,\n                                      strength: item.strength)"),
+               "redrawing a blur's area keeps its strength")
         let blurredDocument = RecorderEditDocument.decoded(
             RecorderEditDocument(blurs: [blur]).encoded())
         suite.expect(blurredDocument.blurs == [blur],
@@ -1314,7 +1366,7 @@ enum RecorderFeatureTests {
         // number and is how the app already words several other counts. The
         // ones left out need no agreement: Turkish keeps the noun singular
         // after a number, and Chinese, Japanese and Korean do not inflect.
-        let agreeingLanguages: [AppLanguage] = [.enUS, .ptBR, .ru, .es, .de, .fr, .it]
+        let agreeingLanguages: [AppLanguage] = [.enUS, .ptBR, .ru, .uk, .es, .de, .fr, .it]
         for language in agreeingLanguages {
             let selection = FeatureStrings.commandBar(language).selectionCountFormat
             suite.expect(!selection.hasPrefix("%d"),

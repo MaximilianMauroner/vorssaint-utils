@@ -13,7 +13,7 @@ struct NotchTimerView: View {
     @AppStorage(DefaultsKey.notchPomodoroLongBreakMinutes) private var longBreakMinutes = 15
     @AppStorage(DefaultsKey.notchPomodoroLongBreakInterval) private var longBreakInterval = 4
     @AppStorage(DefaultsKey.notchPomodoroTotalSessions) private var totalSessions = 4
-    @State private var minutes = 15
+    @AppStorage(DefaultsKey.notchTimerMinutes) private var savedMinutes = 15
     @Namespace private var modeSelection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var text: NotchActivityStrings { FeatureStrings.notchActivities(l10n.language) }
@@ -47,7 +47,7 @@ struct NotchTimerView: View {
             HStack(spacing: 12) {
                 switch mode {
                 case .timer:
-                    NotchTimerRuler(minutes: $minutes, label: text.timer, locale: locale)
+                    NotchTimerRuler(minutes: timerMinutes, label: text.timer, locale: locale)
                         .frame(height: rulerHeight)
                 case .pomodoro:
                     NotchTimerRuler(minutes: binding(.focus), label: text.focus, locale: locale)
@@ -77,7 +77,7 @@ struct NotchTimerView: View {
     }
 
     private var startButton: some View {
-        Button { service.start(mode: mode, minutes: minutes) } label: {
+        Button { service.start(mode: mode, minutes: timerMinutes.wrappedValue) } label: {
             Text(text.start)
                 .font(.system(size: NotchTimerSupport.StartButton.labelSize, weight: .semibold))
                 .lineLimit(1)
@@ -93,7 +93,7 @@ struct NotchTimerView: View {
 
     private var setupClock: String {
         switch mode {
-        case .timer: return NotchTimerSupport.clockText(Double(minutes) * 60)
+        case .timer: return NotchTimerSupport.clockText(Double(timerMinutes.wrappedValue) * 60)
         case .pomodoro: return NotchTimerSupport.clockText(Double(binding(.focus).wrappedValue) * 60)
         case .stopwatch: return NotchTimerSupport.stopwatchText(0)
         }
@@ -107,7 +107,7 @@ struct NotchTimerView: View {
         HStack(spacing: NotchTimerSupport.ModePicker.spacing) {
             ForEach(NotchTimerMode.allCases, id: \.self) { candidate in
                 let selected = mode == candidate
-                Button { mode = candidate } label: {
+                Button { NotchService.shared.selectTimerMode(candidate) } label: {
                     Text(title(for: candidate))
                         .font(.system(size: NotchTimerSupport.ModePicker.labelSize, weight: .medium))
                         .lineLimit(1)
@@ -181,15 +181,16 @@ struct NotchTimerView: View {
         let value = NotchTimerSupport.clockText(for: service.session, at: service.now)
         let title = service.session.cycleFinished ? text.pomodoroFinished
             : service.session.completed ? text.finished : text.phase(service.session.phase)
+        let countsDown = !service.session.countsUp
         return ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title).font(.system(size: 17, weight: .medium))
-                clock(value, size: 62)
+                clock(value, size: 62).modifier(NotchRollingDigits(value: value, countsDown: countsDown))
             }.fixedSize()
             VStack(alignment: .trailing, spacing: 0) {
                 Text(title).font(.system(size: 13, weight: .medium))
                     .lineLimit(1).minimumScaleFactor(0.7)
-                clock(value, size: 62)
+                clock(value, size: 62).modifier(NotchRollingDigits(value: value, countsDown: countsDown))
             }
         }
         .foregroundStyle(.orange)
@@ -240,6 +241,11 @@ struct NotchTimerView: View {
         }
         .help(title)
         .accessibilityValue(display(option, current))
+    }
+
+    private var timerMinutes: Binding<Int> {
+        Binding(get: { NotchTimerSupport.timerMinutes(savedMinutes) },
+                set: { savedMinutes = NotchTimerSupport.timerMinutes($0) })
     }
 
     private func binding(_ option: NotchPomodoroOption) -> Binding<Int> {

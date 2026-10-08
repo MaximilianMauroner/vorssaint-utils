@@ -15,11 +15,13 @@ enum NotchNativePlayback {
         let path: NSObject
         var itemIdentifier: String?
         var allowsDirectCommands = false
+        var requiresCurrentPlayer = false
+        var playPauseCommand: Int32 = 2
         var applicationBundleIdentifier: String?
 
         var isRunning: Bool {
             guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return false }
-            return app.bundleIdentifier == bundleIdentifier
+            return NotchNativePlayback.resolvedBundleIdentifier(for: app) == bundleIdentifier
         }
     }
 
@@ -34,6 +36,8 @@ enum NotchNativePlayback {
     /// System uptime at which the chosen source, still without a track, is
     /// released. A monotonic clock, so changing the time cannot stretch it.
     private static var releaseAt: TimeInterval?
+    /// Set before the watch starts; the one-shot reader does not use selection.
+    static var includeOtherPlayers = false
 
     static var sourceReply: [String: Any] {
         lock.lock(); defer { lock.unlock() }
@@ -81,6 +85,16 @@ enum NotchNativePlayback {
         lock.lock()
         defer { lock.unlock() }
         return selected
+    }
+
+    private static func playPauseCommand(for info: [String: Any]) -> Int32 {
+        // The player's own state outranks a rate it has not updated yet.
+        let rate = (info["isPlaying"] as? Bool).map { $0 ? 1 : 0 }
+            ?? (info["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? NSNumber)?.doubleValue
+        guard let rate, rate.isFinite else { return 2 }
+        if rate > 0, info["canPause"] as? Bool == true { return 1 }
+        if rate == 0, info["canPlay"] as? Bool == true { return 0 }
+        return 2
     }
 
     static func select() -> Target? {
@@ -136,7 +150,7 @@ enum NotchNativePlayback {
         let presentation = clientPresentation
         resultsLock.unlock()
         let chosenPID = lock.withLock { selection?.pid }
-        let musicPIDs = NSWorkspace.shared.runningApplications.filter(isMusicApp).map(\.processIdentifier)
+        let musicPIDs = NSWorkspace.shared.runningApplications.filter { isMusicApp($0) }.map(\.processIdentifier)
         var applications: [NSRunningApplication] = []
         // A bounded fan-out; no timers or queries survive the adapter process.
         // Past the bound, only the least likely clients are skipped: chosen,
@@ -149,16 +163,27 @@ enum NotchNativePlayback {
             }
         }
         var candidates: [(Target, NotchPlaybackSource)] = []
+        // A rate the player has not updated would rank a paused song as
+        // playing. Its own state wins where it answers in time.
+        var states: [Int32: Bool] = [:]
+        let stateReads = DispatchGroup()
         for app in applications {
             guard var candidate = makeTarget(app) else { continue }
             // A browser can publish through a web content helper. Keep its exact
             // process for routing, and use the parent app only for presentation/opening.
             candidate.applicationBundleIdentifier = presentation[candidate.pid]?.application
                 .flatMap { NotchPlaybackCommand.validIdentifier($0) ? $0 : nil }
+            stateReads.enter()
+            readPlaybackState(candidate, queue: callbacks) { isPlaying in
+                resultsLock.lock()
+                states[candidate.pid] = isPlaying
+                resultsLock.unlock()
+                stateReads.leave()
+            }
             group.enter()
             readInfo(candidate, artwork: false, queue: callbacks) { info in
                 let source = NotchPlaybackSource(pid: candidate.pid, bundleIdentifier: candidate.bundleIdentifier,
-                    isMusicApp: isMusicApp(app),
+                    isMusicApp: isMusicApp(app, parentBundleIdentifier: candidate.applicationBundleIdentifier),
                     isPlaying: (info?["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? NSNumber)?.doubleValue ?? 0 > 0,
                     hasTrack: (info?["kMRMediaRemoteNowPlayingInfoTitle"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
                     displayName: presentation[candidate.pid]?.name ?? app.localizedName)
@@ -170,14 +195,20 @@ enum NotchNativePlayback {
         }
         // Keep completed reads when an unrelated client misses the deadline.
         _ = group.wait(timeout: .now() + 1)
+        _ = stateReads.wait(timeout: .now() + 0.2)
         resultsLock.lock()
-        let ready = candidates
+        let ready = candidates.map { candidate, source in
+            guard let playing = states[candidate.pid], playing != source.isPlaying else { return (candidate, source) }
+            return (candidate, NotchPlaybackSource(pid: source.pid, bundleIdentifier: source.bundleIdentifier,
+                                                   isMusicApp: source.isMusicApp, isPlaying: playing,
+                                                   hasTrack: source.hasTrack, displayName: source.displayName))
+        }
         resultsLock.unlock()
         let now = ProcessInfo.processInfo.systemUptime
         lock.lock()
         if let selection {
             let app = NSRunningApplication(processIdentifier: selection.pid)
-            let ended = app == nil || app?.isTerminated == true || app?.bundleIdentifier != selection.bundleIdentifier
+            let ended = app == nil || app?.isTerminated == true || app.map { resolvedBundleIdentifier(for: $0) } != selection.bundleIdentifier
             let lostTrack = ready.contains { $0.1.selection == selection && !$0.1.hasTrack }
             if ready.contains(where: { $0.1.selection == selection && $0.1.hasTrack }) { releaseAt = nil }
             // A browser clears its track between videos. The choice outlasts
@@ -201,7 +232,8 @@ enum NotchNativePlayback {
         if let requested, !bridging,
            !ready.contains(where: { $0.1.selection == requested && $0.1.hasTrack }) { return nil }
         let source = NotchPlaybackSource.preferred(in: ready.map(\.1), previousPID: target?.pid,
-                                                   systemPID: currentPID, selection: requested)
+                                                   systemPID: currentPID, selection: requested,
+                                                   includeOtherPlayers: includeOtherPlayers)
         guard var chosen = ready.first(where: { $0.1 == source })?.0 else { return nil }
         typealias IsSystemPlayer = @convention(c) (AnyObject, Selector) -> Bool
         let systemPlayer = ["isSystemMediaApplication", "isSystemPodcastsApplication", "isSystemBooksApplication"].contains { name in
@@ -209,10 +241,12 @@ enum NotchNativePlayback {
             guard chosen.path.responds(to: selector) else { return false }
             return unsafeBitCast(chosen.path.method(for: selector), to: IsSystemPlayer.self)(chosen.path, selector)
         }
-        // A third-party client can stop being the global player while a command
-        // is in flight. Its declared per-process automation avoids that race.
-        chosen.allowsDirectCommands = systemPlayer
-            && stringConstant("kMRMediaRemoteOptionNowPlayingContentItemID") != nil
+        // A third-party player without Automation can receive native commands
+        // while it owns the system session. Recheck that ownership at delivery.
+        chosen.requiresCurrentPlayer = !systemPlayer && chosen.pid == currentPID
+        chosen.allowsDirectCommands = (systemPlayer
+            && stringConstant("kMRMediaRemoteOptionNowPlayingContentItemID") != nil)
+            || chosen.requiresCurrentPlayer
         return chosen
     }
 
@@ -231,9 +265,25 @@ enum NotchNativePlayback {
             context = NotchPlaybackContext(pid: target.pid, revision: UUID())
         }
         target.itemIdentifier = next.item
+        // Some players expose Play and Pause separately. Use the command for
+        // the displayed state, keeping Toggle for players without either one.
+        target.playPauseCommand = playPauseCommand(for: info)
         selected = target
         identity = next
         return context
+    }
+
+    /// A supported-command callback may finish after the metadata snapshot.
+    /// Update only the same selected path and recording, without polling again.
+    static func updatePlayPauseCommand(for target: Target, info: [String: Any]) {
+        guard let next = Identity(info) else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard var current = selected, current.path === target.path,
+              current.pid == target.pid, current.bundleIdentifier == target.bundleIdentifier,
+              identity == next else { return }
+        current.playPauseCommand = playPauseCommand(for: info)
+        selected = current
     }
 
     static func validatedTarget(for requested: NotchPlaybackContext) -> Target? {
@@ -260,8 +310,9 @@ enum NotchNativePlayback {
         resultLock.unlock()
         lock.lock()
         defer { lock.unlock() }
-        guard matches, context == requested, identity == expected, target.isRunning else { return nil }
-        return target
+        guard matches, context == requested, identity == expected,
+              let current = selected, current.path === target.path, current.isRunning else { return nil }
+        return current
     }
 
     static func readInfo(_ target: Target, artwork: Bool, queue: DispatchQueue,
@@ -292,22 +343,65 @@ enum NotchNativePlayback {
         read(target.path, queue, completion)
     }
 
+    /// Whether the player says it is playing, as the system's Now Playing
+    /// shows it. Nil when the state is unknown or cannot be read.
+    static func readPlaybackState(_ target: Target, queue: DispatchQueue, completion: @escaping (Bool?) -> Void) {
+        typealias Read = @convention(c) (AnyObject, DispatchQueue, @escaping @convention(block) (UInt32) -> Void) -> Void
+        guard target.isRunning,
+              let read = function(handle, "MRMediaRemoteGetPlaybackStateForPlayer", as: Read.self) else {
+            completion(nil); return
+        }
+        read(target.path, queue) { state in
+            // 1 playing; 2 paused, 3 stopped, 4 interrupted. Unknown (0)
+            // and seeking (5) leave the rate to decide.
+            switch state {
+            case 1: completion(true)
+            case 2, 3, 4: completion(false)
+            default: completion(nil)
+            }
+        }
+    }
+
+    private static func currentPlayerPID() -> Int32? {
+        typealias Read = @convention(c) (DispatchQueue, @escaping @convention(block) (AnyObject?) -> Void) -> Void
+        typealias PID = @convention(c) (AnyObject) -> Int32
+        guard let read = function(handle, "MRMediaRemoteGetNowPlayingClient", as: Read.self),
+              let getPID = function(handle, "MRNowPlayingClientGetProcessIdentifier", as: PID.self) else { return nil }
+        let group = DispatchGroup()
+        let resultLock = NSLock()
+        var pid: Int32?
+        group.enter()
+        read(callbacks) { client in
+            resultLock.lock()
+            pid = client.map(getPID)
+            resultLock.unlock()
+            group.leave()
+        }
+        guard group.wait(timeout: .now() + 0.5) == .success else { return nil }
+        return resultLock.withLock { pid }
+    }
+
     @discardableResult
     static func send(_ command: Int32, options: CFDictionary? = nil, to target: Target) -> Bool {
         typealias Send = @convention(c) (Int32, CFDictionary?, AnyObject, UInt32, DispatchQueue,
             @escaping @convention(block) (UInt32, NSArray?) -> Void) -> Bool
-        guard target.isRunning, target.allowsDirectCommands, let item = target.itemIdentifier,
-              let itemKey = stringConstant("kMRMediaRemoteOptionNowPlayingContentItemID"),
+        guard target.isRunning, target.allowsDirectCommands,
+              !target.requiresCurrentPlayer || currentPlayerPID() == target.pid,
               let send = function(handle, "MRMediaRemoteSendCommandToPlayer", as: Send.self) else { return false }
         // The service may redirect unprivileged requests to the global player.
-        // The receiver must reject a different item instead of acting on it.
+        // Scope to the recording when possible; an unidentified recording is
+        // allowed only while this process remains the current system player.
         var scoped = (options as? [String: Any]) ?? [:]
-        scoped[itemKey] = item
+        if let item = target.itemIdentifier,
+           let itemKey = stringConstant("kMRMediaRemoteOptionNowPlayingContentItemID") {
+            scoped[itemKey] = item
+        } else if !target.requiresCurrentPlayer { return false }
+        let settings = scoped.isEmpty ? nil : scoped as CFDictionary
         let group = DispatchGroup()
         let resultLock = NSLock()
         var delivered = false
         group.enter()
-        guard send(command, scoped as CFDictionary, target.path, 0, callbacks, { error, responses in
+        guard send(command, settings, target.path, 0, callbacks, { error, responses in
             resultLock.lock()
             delivered = error == 0 && (responses as? [NSNumber])?.contains(where: { $0.intValue == 0 }) == true
             resultLock.unlock()
@@ -322,13 +416,23 @@ enum NotchNativePlayback {
         return symbol.assumingMemoryBound(to: NSString?.self).pointee as String?
     }
 
-    private static func isMusicApp(_ app: NSRunningApplication) -> Bool {
-        guard let url = app.bundleURL else { return false }
-        return Bundle(url: url)?.object(forInfoDictionaryKey: "LSApplicationCategoryType") as? String == "public.app-category.music"
+    /// A Now Playing client can have a registered app bundle even when its
+    /// running process has no Launch Services bundle identifier. Resolve the
+    /// bundle identity for any such player, and reuse it for later checks.
+    private static func resolvedBundleIdentifier(for app: NSRunningApplication) -> String? {
+        let identifier = app.bundleIdentifier
+            ?? app.bundleURL.flatMap { Bundle(url: $0)?.bundleIdentifier }
+        return identifier.flatMap { NotchPlaybackCommand.validIdentifier($0) ? $0 : nil }
+    }
+
+    private static func isMusicApp(_ app: NSRunningApplication, parentBundleIdentifier: String? = nil) -> Bool {
+        let category = app.bundleURL.flatMap { Bundle(url: $0)?.object(forInfoDictionaryKey: "LSApplicationCategoryType") as? String }
+        return NotchPlaybackSource.isMusicApplication(bundleIdentifier: resolvedBundleIdentifier(for: app),
+                                                      parentBundleIdentifier: parentBundleIdentifier, category: category)
     }
 
     private static func makeTarget(_ app: NSRunningApplication) -> Target? {
-        guard !app.isTerminated, let identifier = app.bundleIdentifier,
+        guard !app.isTerminated, let identifier = resolvedBundleIdentifier(for: app),
               let pathClass = NSClassFromString("MRPlayerPath"),
               let clientClass = NSClassFromString("MRClient"),
               class_getClassMethod(pathClass, NSSelectorFromString("localPlayerPath")) != nil,

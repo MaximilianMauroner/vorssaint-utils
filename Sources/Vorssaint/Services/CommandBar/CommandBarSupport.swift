@@ -256,6 +256,16 @@ enum CommandBarSearch {
         return false
     }
 
+    /// Where a color typed on its own goes in the list. It leads, unless a row
+    /// already there spells what was typed: "#1234" is also an issue number
+    /// and "#cafe" a channel someone copied, and Return must still reach
+    /// those. The swatch then sits right under the first row.
+    static func colorPreviewIndex(rowTitles: [String], query: String) -> Int {
+        let typed = normalized(query)
+        guard !typed.isEmpty else { return 0 }
+        return rowTitles.contains { normalized($0).contains(typed) } ? 1 : 0
+    }
+
     static func matches(title: String, keywords: String = "", query: String) -> Bool {
         score(title: title, keywords: keywords, query: query) != nil
     }
@@ -324,6 +334,51 @@ enum CommandBarSearch {
                 return $0.position < $1.position
             }
             .map(\.index)
+    }
+
+    /// A feature's own rows keep one order whatever their titles score: its
+    /// main command, then its presets, then its Settings page. Ranked by title
+    /// alone, the page named exactly like the feature led, the presets that
+    /// start with its name came next, and the switch the person came for was
+    /// last. The rows trade places among the slots they already hold, so
+    /// nothing else moves, and a row chosen on purpose, by a name or a habit,
+    /// keeps its place while the rest still keep their order around it.
+    /// A feature's generated switch counts as its main command, and a page
+    /// of its own, named as the feature is, as its Settings page.
+    /// `id` and `priority` read a candidate by its index.
+    static func featureOrdered(_ ranked: [Int], id: (Int) -> String, priority: (Int) -> Int) -> [Int] {
+        // The feature a row belongs to, and its turn among that feature's rows.
+        func role(_ id: String) -> (feature: Substring, turn: Int)? {
+            if id.hasPrefix("settings.feature.") { return (id.dropFirst("settings.feature.".count), 2) }
+            if id.hasPrefix("settings.") {
+                let page = id.dropFirst("settings.".count)
+                return page.contains(".") ? nil : (page, 2)
+            }
+            if id.hasPrefix("toggle.") {
+                let name = id.dropFirst("toggle.".count)
+                return (name.split(separator: ".", maxSplits: 1).first ?? name, 0)
+            }
+            guard id.hasPrefix("action.") else { return nil }
+            let name = id.dropFirst("action.".count)
+            guard let dot = name.firstIndex(of: ".") else { return (name, 0) }
+            return (name[..<dot], 1)
+        }
+        var slots: [Substring: [Int]] = [:]
+        for (position, index) in ranked.enumerated() where priority(index) == 0 {
+            guard let role = role(id(index)) else { continue }
+            slots[role.feature, default: []].append(position)
+        }
+        var result = ranked
+        for positions in slots.values where positions.count > 1 {
+            let members = positions.map { ranked[$0] }
+            // Rows with the same turn keep the order they ranked in.
+            let ordered = members.enumerated().sorted {
+                let first = role(id($0.element))?.turn ?? 0, second = role(id($1.element))?.turn ?? 0
+                return first != second ? first < second : $0.offset < $1.offset
+            }.map(\.element)
+            for (slot, index) in zip(positions, ordered) { result[slot] = index }
+        }
+        return result
     }
 
     /// Broad text quality is compared before passive signals such as usage and
@@ -873,5 +928,42 @@ enum CommandBarCompletion {
                                  completedValue: String?,
                                  afterChangingTo value: String) -> String? {
         value == completedValue ? original : nil
+    }
+}
+
+enum CommandBarAppSort {
+    enum Column { case name, alias, shortcut, pinned }
+
+    static func sorted<Item>(_ items: [Item], by column: Column, ascending: Bool,
+                             title: (Item) -> String, key: (Item) -> String,
+                             aliases: [String: String], shortcuts: [String: GlobalShortcut],
+                             pins: Set<String>) -> [Item] {
+        func text(_ item: Item) -> String? {
+            switch column {
+            case .name: return title(item)
+            case .alias: return aliases[key(item)].flatMap { $0.isEmpty ? nil : $0 }
+            case .shortcut: return shortcuts[key(item)]?.displayString
+            case .pinned: return nil
+            }
+        }
+        func byTitle(_ lhs: Item, _ rhs: Item) -> Bool {
+            title(lhs).localizedStandardCompare(title(rhs)) == .orderedAscending
+        }
+        return items.sorted { lhs, rhs in
+            if column == .pinned {
+                let left = pins.contains(key(lhs)), right = pins.contains(key(rhs))
+                if left != right { return ascending ? left : right }
+                return byTitle(lhs, rhs)
+            }
+            switch (text(lhs), text(rhs)) {
+            case (nil, nil): return byTitle(lhs, rhs)
+            case (nil, _): return false
+            case (_, nil): return true
+            case let (left?, right?):
+                let order = left.localizedStandardCompare(right)
+                if order == .orderedSame { return byTitle(lhs, rhs) }
+                return ascending ? order == .orderedAscending : order == .orderedDescending
+            }
+        }
     }
 }

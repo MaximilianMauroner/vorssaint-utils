@@ -216,7 +216,7 @@ enum MenuBarSpacingSupport {
     /// - `separateMetrics` keeps the glyph when metrics live in their own
     ///   status items and the main one would otherwise be empty.
     /// - `mustShowForSignal` brings the glyph back while it carries a signal
-    ///   (update available, mic muted indicator).
+    ///   (update available, a running Keep Awake, mic muted indicator).
     static func shouldHideStatusIcon(optionEnabled: Bool,
                                      separateMetrics: Bool,
                                      metricsEnabled: Bool,
@@ -227,6 +227,13 @@ enum MenuBarSpacingSupport {
             && metricsEnabled
             && renderedTitleLength > 0
             && !mustShowForSignal
+    }
+
+    /// Whether a running Keep Awake session needs the glyph that metrics
+    /// hide: the tinted or swapped glyph is the session's only mark there.
+    /// Untinted, the app's own mark looks the same idle and active.
+    static func keepAwakeSignals(active: Bool, tint: KeepAwakeIconTint, style: KeepAwakeActiveIcon) -> Bool {
+        active && (tint != .none || style != .vorssaint)
     }
 
     /// Whether the whole main status item may hide in the separate-items
@@ -245,6 +252,18 @@ enum MenuBarSpacingSupport {
             && metricItemsShown > 0
             && renderedTitleLength == 0
             && !mustShowForSignal
+    }
+
+    /// Whether Dynamic Island takes the glyph's place (user request). The
+    /// island itself opens Settings and the panel, so the glyph may go for as
+    /// long as the island runs. If the island hides in fullscreen, the icon
+    /// returns for access to the app even when both options were saved before
+    /// this behavior existed. Signals also bring it back, and text the main
+    /// item carries (metrics, a countdown) keeps the item.
+    static func islandHidesStatusIcon(in defaults: UserDefaults, hiddenInFullscreen: Bool = false) -> Bool {
+        defaults.bool(forKey: DefaultsKey.notchHidesMenuBarIcon)
+            && NotchSupport.isEnabled(in: defaults)
+            && !hiddenInFullscreen
     }
 
     /// How many refreshes in a row a metric may render nothing before its item

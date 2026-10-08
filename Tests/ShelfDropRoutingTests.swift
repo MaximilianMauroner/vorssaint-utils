@@ -16,6 +16,7 @@ enum ShelfDropRoutingContract {
         static var visibleModules: [NotchModule] = [.files]
         static func isEnabled() -> Bool { enabled }
         static func modules() -> [NotchModule] { visibleModules }
+        static func showsFiles() -> Bool { isEnabled() && modules().contains(.files) }
     }
     enum UserDefaults {
         static var standard = Store()
@@ -48,10 +49,12 @@ enum ShelfDropRoutingContract {
             deliveredItems = additions
             return accepts
         }
+        var interactionNotes = 0
         func dockDidAccept() { dockCompletions += 1 }
+        func noteInteraction() { interactionNotes += 1 }
     }
     class NotchState {
-        var acceptsSystemFeedback = true
+        var acceptsUserInteraction = true
         var captureControls: Int?
         var modules: [NotchModule] = [.files]
         var heldDrag = true
@@ -60,9 +63,12 @@ enum ShelfDropRoutingContract {
         var targetsMediaDrop = false
         var pinned = false
         var geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1440, height: 900), safeAreaTop: 32, cameraWidth: 180)
+        var expandedGeometry: NotchGeometry { geometry }
         var surfaceSize: CGSize { geometry.expandedSize(module: .files) }
         var opened: [NotchModule] = []
+        var reactions: [NotchMascotReaction] = []
         func refreshPresentation() {}
+        func reactMascot(_ reaction: NotchMascotReaction, patience: TimeInterval = 8) { reactions.append(reaction) }
         func open(_ module: NotchModule, pinned: Bool = false, takeFocus: Bool = true) {
             opened.append(module)
             if pinned { self.pinned = true }
@@ -125,6 +131,8 @@ enum ShelfDropRoutingTests {
                 suite.expect(notch.opened == (accepted ? [.files] : [])
                        && notch.heldDrag == !accepted && notch.dragPlaceholder == !accepted,
                        "only accepted deliveries open files and release the island placeholder")
+                suite.expect(notch.reactions == (accepted ? [.celebrate] : []),
+                       "the companion cheers only a file that landed")
                 suite.expect(!canvas.finishDrop(board), "one gesture cannot deliver twice")
 
                 let dockDrop = Context.NSDraggingInfo(draggingPasteboard: board,
@@ -132,6 +140,16 @@ enum ShelfDropRoutingTests {
                 suite.expect(shelf.accept(draggingInfo: dockDrop) == accepted
                        && shelf.dockCompletions == (accepted ? 1 : 0),
                        "the separate dock keeps its completion behavior through the shared receiver")
+
+                // A promised file is delivered asynchronously; noteInteraction()
+                // has to run at drop time or an edge peek can retract before it arrives.
+                let notesBefore = shelf.interactionNotes
+                let panelDrop = Context.NSDraggingInfo(draggingPasteboard: board,
+                                                      draggingDestinationWindow: Context.Window())
+                suite.expect(shelf.accept(draggingInfo: panelDrop) == accepted
+                       && shelf.interactionNotes == notesBefore + (accepted ? 1 : 0)
+                       && shelf.dockCompletions == (accepted ? 1 : 0),
+                       "an accepted panel drop notes interaction at drop time, before delivery")
             }
         }
         for revoked in 0..<5 {
@@ -150,7 +168,7 @@ enum ShelfDropRoutingTests {
             case 0: Context.AppFeature.shelf.isAvailable = false
             case 1: Context.UserDefaults.standard.enabled = false
             case 2: notch.modules = []
-            case 3: notch.acceptsSystemFeedback = false
+            case 3: notch.acceptsUserInteraction = false
             default: notch.captureControls = 1
             }
             suite.expect(!canvas.finishDrop(board) && shelf.promisedAccepts == 0 && notch.opened.isEmpty,
@@ -243,7 +261,7 @@ enum ShelfDropRoutingTests {
                 case 4: Context.NotchSupport.visibleModules = []
                 case 5: files.media.state = .running
                 case 6: files.isRunning = true
-                case 7: notch.acceptsSystemFeedback = false
+                case 7: notch.acceptsUserInteraction = false
                 default: notch.captureControls = 1
                 }
                 suite.expect(!notch.accept(board) && files.inputs.isEmpty && Context.ShelfService.shared.ordinaryAccepts == 0,

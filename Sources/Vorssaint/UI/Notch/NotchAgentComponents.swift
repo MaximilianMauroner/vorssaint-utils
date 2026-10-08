@@ -10,6 +10,8 @@ extension AgentProvider {
         switch self {
         case .claude: return Color(red: 0.85, green: 0.47, blue: 0.34)
         case .codex: return Color(red: 0.49, green: 0.60, blue: 1.0)
+        case .opencode: return Color(red: 0.06, green: 0.73, blue: 0.51)
+        case .copilot: return Color(red: 0.30, green: 0.78, blue: 0.68)
         }
     }
 }
@@ -123,29 +125,18 @@ struct NotchAgentRing: View {
 }
 
 /// A calm pulse that says an agent is working; still under Reduce Motion.
-/// A repeating animation runs in the render server, so an agent working for
-/// hours never redraws the island frame by frame.
+/// Native layer motion avoids driving the surrounding SwiftUI graph at the
+/// display refresh rate, including Settings previews retained after closing.
 struct NotchAgentPulse: View {
     var tint: Color
     var size: CGFloat = 6
-    @State private var spreading = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Circle()
-            .fill(tint)
-            .frame(width: size, height: size)
-            .overlay {
-                if !reduceMotion {
-                    Circle().stroke(tint, lineWidth: 1)
-                        .scaleEffect(spreading ? 1.9 : 1)
-                        .opacity(spreading ? 0 : 0.6)
-                        .animation(.easeOut(duration: 1.6).repeatForever(autoreverses: false), value: spreading)
-                }
-            }
+        NotchAgentPulseBridge(tint: NSColor(tint), size: size, animates: !reduceMotion)
             .frame(width: size * 2, height: size * 2)
-            .onAppear { spreading = true }
             .accessibilityHidden(true)
+            .allowsHitTesting(false)
     }
 }
 
@@ -155,20 +146,57 @@ struct NotchAgentGlyph: View {
     let provider: AgentProvider
     var size: CGFloat = 13
     var working = true
-    @State private var breathing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let moving = working && !reduceMotion
-        NotchAgentMark(provider: provider, size: size)
-            .scaleEffect(moving && !breathing ? 0.84 : 1)
-            .opacity(moving && !breathing ? 0.7 : 1)
-            .animation(moving ? .easeInOut(duration: 1.2).repeatForever(autoreverses: true) : .default, value: breathing)
+        NotchAgentGlyphBridge(provider: provider, size: size, animates: working && !reduceMotion)
             // Room for the widest mark, the Claude one, drawn past its size.
             .frame(width: size * 1.45 + 1, height: size * 1.45 + 1)
-            .onAppear { breathing = true }
             .accessibilityHidden(true)
+            .allowsHitTesting(false)
     }
+}
+
+private struct NotchAgentPulseBridge: NSViewRepresentable {
+    let tint: NSColor
+    let size: CGFloat
+    let animates: Bool
+
+    func makeNSView(context: Context) -> NotchAgentAnimationView { NotchAgentAnimationView() }
+    func updateNSView(_ view: NotchAgentAnimationView, context: Context) {
+        view.configurePulse(size: size, tint: tint, animates: animates)
+    }
+    static func dismantleNSView(_ view: NotchAgentAnimationView, coordinator: ()) { view.stop() }
+}
+
+private struct NotchAgentGlyphBridge: NSViewRepresentable {
+    let provider: AgentProvider
+    let size: CGFloat
+    let animates: Bool
+
+    func makeNSView(context: Context) -> NotchAgentAnimationView { NotchAgentAnimationView() }
+    func updateNSView(_ view: NotchAgentAnimationView, context: Context) {
+        let image: NSImage?
+        let markSize: CGFloat
+        let tint: NSColor?
+        switch AgentMarks.mark(for: provider) {
+        case .template(let mark):
+            image = mark
+            markSize = size * provider.markScale
+            tint = NSColor(provider.tint)
+        case .icon(let mark):
+            image = mark
+            markSize = size * 1.35
+            tint = nil
+        case nil:
+            image = NSImage(systemSymbolName: provider.symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: size, weight: .semibold))
+            markSize = size
+            tint = NSColor(provider.tint)
+        }
+        view.configureGlyph(image: image, size: markSize, tint: tint, animates: animates)
+    }
+    static func dismantleNSView(_ view: NotchAgentAnimationView, coordinator: ()) { view.stop() }
 }
 
 /// Stacked bars, one per bucket, each split by agent. Hovering a bar reports
@@ -344,7 +372,9 @@ private extension AgentProvider {
     var appIdentifiers: [String] {
         switch self {
         case .claude: return [AgentClaudeAppUsage.bundleIdentifier]
-        case .codex: return ["com.openai.codex", "com.openai.chat"]
+        case .codex: return AgentCodexServer.appIdentifiers
+        case .opencode: return ["ai.opencode.desktop", "ai.opencode.desktop.beta", "ai.opencode.desktop.dev"]
+        case .copilot: return ["com.github.githubapp"]
         }
     }
 
@@ -357,6 +387,9 @@ private extension AgentProvider {
         switch self {
         case .claude: return ["TrayIconTemplate"]
         case .codex: return ["chatgptTemplate"]
+        // The OpenCode app shows nothing in the menu bar; its icon stands in.
+        case .opencode: return []
+        case .copilot: return []
         }
     }
 }
@@ -391,4 +424,3 @@ struct NotchAgentMark: View {
         }
     }
 }
-

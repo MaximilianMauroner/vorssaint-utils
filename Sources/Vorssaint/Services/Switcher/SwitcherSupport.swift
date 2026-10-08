@@ -5,6 +5,65 @@ import AppKit
 import CoreGraphics
 import Foundation
 
+struct SwitcherScrollNavigation {
+    static let gestureStep: Double = 30
+    private var accumulated: Double = 0
+    private var lastTimestamp: CGEventTimestamp?
+    private var lastGesturePhaseTimestamp: CGEventTimestamp?
+    private var wasMouseWheel: Bool?
+
+    mutating func selectionDelta(for event: CGEvent) -> Int {
+        guard event.getIntegerValueField(.eventSourceUserData) != ScrollWheelSupport.syntheticTag else {
+            return 0
+        }
+        let traits = ScrollWheelEventTraits(
+            isContinuous: event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0,
+            momentumPhase: event.getIntegerValueField(.scrollWheelEventMomentumPhase),
+            scrollPhase: event.getIntegerValueField(.scrollWheelEventScrollPhase),
+            scrollCount: event.getIntegerValueField(.scrollWheelEventScrollCount)
+        )
+        let phase = CGScrollPhase(rawValue: UInt32(truncatingIfNeeded: traits.scrollPhase))
+        let isMouseWheel = ScrollWheelSupport.isMouseWheel(traits, secondsSinceLastGesturePhase:
+            lastGesturePhaseTimestamp.map { Double(event.timestamp &- $0) / 1_000_000_000 })
+        if traits.scrollPhase != 0 || traits.momentumPhase != 0 {
+            lastGesturePhaseTimestamp = event.timestamp
+        }
+        // Wheel fractions survive pauses; only touch gestures have an idle timeout.
+        if wasMouseWheel != isMouseWheel || phase == .began
+            || (!isMouseWheel && lastTimestamp.map({ event.timestamp &- $0 > 250_000_000 }) == true) {
+            accumulated = 0
+        }
+        wasMouseWheel = isMouseWheel
+        lastTimestamp = event.timestamp
+        guard traits.momentumPhase == 0,
+              phase != .ended, phase != .cancelled else {
+            accumulated = 0
+            return 0
+        }
+        func movement(line: CGEventField, fixed: CGEventField, point: CGEventField) -> Double {
+            guard isMouseWheel else { return event.getDoubleValueField(point) }
+            let lines = event.getDoubleValueField(line)
+            if lines != 0 { return lines }
+            let fraction = event.getDoubleValueField(fixed)
+            if fraction != 0 { return fraction }
+            return traits.isContinuous ? event.getDoubleValueField(point) / ScrollWheelSupport.pointsPerLine : 0
+        }
+        let vertical = movement(line: .scrollWheelEventDeltaAxis1, fixed: .scrollWheelEventFixedPtDeltaAxis1,
+                                point: .scrollWheelEventPointDeltaAxis1)
+        let horizontal = movement(line: .scrollWheelEventDeltaAxis2, fixed: .scrollWheelEventFixedPtDeltaAxis2,
+                                  point: .scrollWheelEventPointDeltaAxis2)
+        let delta = abs(horizontal) > abs(vertical) ? horizontal : vertical
+        guard delta.isFinite, delta != 0 else { return 0 }
+        if accumulated * delta < 0 { accumulated = 0 }
+        accumulated += delta
+        let step = isMouseWheel ? 1 : Self.gestureStep
+        guard abs(accumulated) >= step else { return 0 }
+        // Each sample advances at most one item, without acceleration or momentum.
+        accumulated = isMouseWheel ? accumulated.truncatingRemainder(dividingBy: step) : 0
+        return delta < 0 ? 1 : -1
+    }
+}
+
 struct SwitcherCloseState: Equatable {
     let remainingItemIDs: [String]
     let selectedIndex: Int
@@ -54,9 +113,20 @@ final class SwitcherWindowFocusRetryState {
                         targetMinimizedState: Bool?,
                         targetAppWindowIDs: @autoclosure () -> Set<CGWindowID>,
                         targetAppFocusedWindowID: @autoclosure () -> CGWindowID?,
+                        targetWindowIsFocused: @autoclosure () -> Bool = false,
+                        stopsWhenTargetFocused: Bool = false,
                         ignoresForeground: Bool = false,
                         ownPID: pid_t = ProcessInfo.processInfo.processIdentifier) -> Bool {
         guard isActive else { return false }
+        let observedFrontmostPID = frontmostPID()
+        if stopsWhenTargetFocused,
+           !ignoresForeground,
+           !targetStartedMinimized,
+           observedFrontmostPID == targetPID,
+           targetWindowIsFocused() {
+            isActive = false
+            return false
+        }
         isActive = SwitcherSupport.shouldContinueFocusRetry(
             targetPID: targetPID,
             sourcePID: sourcePID,
@@ -228,8 +298,8 @@ struct SwitcherAppGroup: Identifiable, Equatable {
 /// standing in for them — the number it used to be had drifted 16pt past what
 /// it stood for, and the card spent the difference on nothing.
 enum SwitcherGridCard {
-    static var width: CGFloat { 288 * PreviewSizing.scale }
-    static var height: CGFloat { 214 * PreviewSizing.scale }
+    static var width: CGFloat { 288 * PreviewSizing.switcherScale }
+    static var height: CGFloat { 214 * PreviewSizing.switcherScale }
     static let padding: CGFloat = 10
     static let titleSpacing: CGFloat = 7
     /// One 13pt line over one 10.5pt line, 2pt apart, descenders included.
@@ -242,7 +312,7 @@ enum SwitcherGridCard {
     /// Stands in for a thumbnail that has not arrived, so it has to stay
     /// inside the thumbnail at every preview size (#793 gave it the scale;
     /// naming it is what lets a test hold it to the thumbnail it sits in).
-    static var fallbackIconSize: CGFloat { 80 * PreviewSizing.scale }
+    static var fallbackIconSize: CGFloat { 80 * PreviewSizing.switcherScale }
 }
 
 struct SwitcherIconRowLayout: Equatable {
@@ -255,7 +325,7 @@ struct SwitcherIconRowLayout: Equatable {
     let panelSize: CGSize
     let showsShortcutHints: Bool
 
-    static var scale: CGFloat { min(PreviewSizing.scale, 1.15) }
+    static var scale: CGFloat { min(PreviewSizing.switcherScale, 1.15) }
     static var iconSize: CGFloat { 68 * scale }
     static var selectedIconSize: CGFloat { 78 * scale }
     static let iconTileSpacing: CGFloat = 5
@@ -621,6 +691,16 @@ enum SwitcherSupport {
         return localizedName.hasPrefix("wine")
     }
 
+    /// Wine forwards a press to a game that captures the mouse even when the
+    /// point is outside the window. A lone activation press can therefore
+    /// become a held game button. Match the loader even when its launcher
+    /// supplies a bundle identity; that identity only matters to enumeration.
+    static func usesActivationClick(executablePath: String?, localizedName: String?) -> Bool {
+        !isCompatibilityLayerApp(bundleIdentifier: nil,
+                                 executablePath: executablePath,
+                                 localizedName: localizedName)
+    }
+
     /// Some professional media apps expose their main surface as a floating
     /// or undescribed Accessibility window instead of a standard macOS window.
     /// Match bundle prefixes case-insensitively because releases vary between
@@ -652,6 +732,12 @@ enum SwitcherSupport {
     ///
     /// Every subrole the app did describe is left alone: a dialog, a sheet or
     /// a floating panel is filtered as before unless it fills the screen.
+    /// The one exception is a normal-level `AXDialog` that can be minimized.
+    /// AppKit gives that subrole to every window of a hidden app, and a window
+    /// that still carries it after the app is shown again (reported on macOS 26,
+    /// issue #2279) would otherwise drop out of the list. Alerts and panels read
+    /// `AXDialog` too but have no working minimize button, unless the app made
+    /// the panel miniaturizable; such a panel is listed like a window.
     ///
     /// A surface the app asked the window server to keep out of window cycling
     /// stays out of the switcher however it describes itself.
@@ -660,10 +746,14 @@ enum SwitcherSupport {
                                               fillsScreen: Bool,
                                               hasNormalWindowLevel: Bool,
                                               acceptsUndescribedSubroles: Bool,
+                                              canMinimize: Bool = false,
                                               isExcludedFromWindowCycle: Bool = false) -> Bool {
         guard role == "AXWindow", !isExcludedFromWindowCycle else { return false }
         if subrole == "AXUnknown" {
             return hasNormalWindowLevel || acceptsUndescribedSubroles || fillsScreen
+        }
+        if subrole == "AXDialog" {
+            return hasNormalWindowLevel && canMinimize
         }
         return fillsScreen && subrole == "AXFloatingWindow"
     }
@@ -899,6 +989,92 @@ enum SwitcherSupport {
                                              windowSpacesCount: Int) -> Bool {
         guard !isOnScreen, canResolveSpaces else { return false }
         return windowSpacesCount == 0
+    }
+
+    /// Whether a failed Accessibility read means the app never answered, as
+    /// opposed to answering that the attribute has no value. The per-window
+    /// messaging timeout reports itself as `cannotComplete`.
+    static func isUnansweredAccessibilityRead(_ error: AXError) -> Bool {
+        error == .cannotComplete
+    }
+
+    /// What an app's Accessibility answer says about one of its surfaces.
+    enum AccessibilityWitness: Equatable {
+        /// The app described the window as user facing.
+        case described
+        /// The app answered and the window did not qualify.
+        case rejected
+        /// The app listed the window but its reads timed out.
+        case unanswered
+    }
+
+    static func accessibilityWitness(isDescribed: Bool, isUnanswered: Bool) -> AccessibilityWitness {
+        if isDescribed { return .described }
+        return isUnanswered ? .unanswered : .rejected
+    }
+
+    /// Whether a window server surface stays in the list after the
+    /// Accessibility cross-check. `witness` is nil when the owner gave no
+    /// answer at all. Its siblings keep their own verdicts, so a rejected
+    /// helper cannot slip back in beside a window that timed out.
+    ///
+    /// A timed-out window gets the leftover check, and it also stays out when
+    /// the window server keeps it out of window cycling. That flag comes from
+    /// the window server by window id, so a busy app cannot withhold it. When
+    /// a whole app is busy, its hidden helpers time out along with its
+    /// workspace, and without the flag they would come back as blank entries.
+    /// An owner that never answered keeps the leftover check alone, which
+    /// compatibility-hosted apps rely on.
+    static func keepsSurface(witness: AccessibilityWitness?,
+                             keepsUnmatched: () -> Bool,
+                             isExcludedFromWindowCycle: () -> Bool,
+                             isLeftover: () -> Bool) -> Bool {
+        switch witness {
+        case .described: return true
+        case .rejected: return keepsUnmatched()
+        case .unanswered: return !isExcludedFromWindowCycle() && !isLeftover()
+        case nil: return !isLeftover()
+        }
+    }
+
+    /// Whether an app's Accessibility answer shows it has no window to switch
+    /// to, so it can get an app-only entry.
+    ///
+    /// A window that timed out may still be real, so it blocks the entry,
+    /// unless the window server keeps it out of window cycling. A busy app
+    /// whose only listed windows are such hidden helpers keeps its entry. When
+    /// some timed-out window has no window server id, nothing rules it out.
+    static func accessibilityAnswerShowsNoWindow(describedWindowCount: Int,
+                                                 unansweredIDs: Set<CGWindowID>,
+                                                 everyWindowUnanswered: Bool,
+                                                 isExcludedFromWindowCycle: (CGWindowID) -> Bool) -> Bool {
+        describedWindowCount == 0
+            && !everyWindowUnanswered
+            && unansweredIDs.allSatisfy(isExcludedFromWindowCycle)
+    }
+
+    /// How far to trust an app that described no window as user facing.
+    enum EmptyAccessibilityAnswer: Equatable {
+        /// Every window has its own verdict. Rejected windows stay out.
+        case perWindow
+        /// A timed-out window has no window server id, so no surface can be
+        /// told apart from it. Every surface counts as timed out.
+        case everyWindowUnanswered
+        /// Accessibility cannot describe the app's windows at all.
+        case noAnswer
+    }
+
+    /// A busy editor can list its windows and then time out on the role and
+    /// subrole reads that follow. Its answer still rejects the windows it did
+    /// describe, but only when every timed-out window resolves to a window
+    /// server id that can be singled out. Compatibility-hosted apps keep their
+    /// own exception, because Accessibility cannot describe their windows at
+    /// all.
+    static func emptyAccessibilityAnswer(acceptsUndescribedSubroles: Bool,
+                                         unansweredWindowCount: Int,
+                                         resolvedUnansweredIDCount: Int) -> EmptyAccessibilityAnswer {
+        if acceptsUndescribedSubroles { return .noAnswer }
+        return resolvedUnansweredIDCount == unansweredWindowCount ? .perWindow : .everyWindowUnanswered
     }
 
     /// Downsamples a capture into a small alpha grid for classification.
@@ -1359,6 +1535,21 @@ enum SwitcherSupport {
         })
     }
 
+    /// Source app for the delayed focus guards only. A session source wins;
+    /// otherwise the app a caller saw in front when the activation began keeps
+    /// the handoff retry settling, without reclaiming focus after a later
+    /// unrelated activation. The target and this process are never a handoff.
+    static func focusRetrySourcePID(sessionSourcePID: pid_t?,
+                                    handoffSourcePID: pid_t?,
+                                    targetPID: pid_t,
+                                    ownPID: pid_t = ProcessInfo.processInfo.processIdentifier) -> pid_t? {
+        if let sessionSourcePID { return sessionSourcePID }
+        guard let handoffSourcePID,
+              handoffSourcePID != targetPID,
+              handoffSourcePID != ownPID else { return nil }
+        return handoffSourcePID
+    }
+
     static func shouldContinueFocusRetry(targetPID: pid_t,
                                          sourcePID: pid_t?,
                                          frontmostPID: @autoclosure () -> pid_t?,
@@ -1376,13 +1567,20 @@ enum SwitcherSupport {
         let initialFrontmostPID = frontmostPID()
         // A hop travels across desktops, and the system fronts whatever sits
         // on top of each one it passes. Which app is in front while that runs
-        // says nothing about where the user wants to be, and reading it as
-        // "they moved on" leaves the window they picked behind that app. Such
-        // a pass gives up for the one signal that does carry intent: the app
-        // moved to a window it opened after the switch.
+        // says nothing about where the user wants to be, so hop passes opt out
+        // of this check and use the app's own focus below. Ordinary retries
+        // must never reclaim a window after an unrelated app is frontmost.
+        // The source app is allowed while the handoff is settling, because
+        // the target may still need its delayed pass.
+        let waitingForInitialMinimizedRestore = targetStartedMinimized
+            && targetIsMinimized
+            && (sourcePID == nil || initialFrontmostPID == sourcePID)
         if !ignoresForeground,
-           let sourcePID, let initialFrontmostPID,
-           initialFrontmostPID != targetPID && initialFrontmostPID != sourcePID && initialFrontmostPID != ownPID {
+           let initialFrontmostPID,
+           initialFrontmostPID != targetPID,
+           initialFrontmostPID != ownPID,
+           initialFrontmostPID != sourcePID,
+           !waitingForInitialMinimizedRestore {
             return false
         }
         // Z-order cannot identify keyboard focus: a new transparent helper

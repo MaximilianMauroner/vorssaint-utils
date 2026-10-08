@@ -21,6 +21,7 @@ struct NotchActivityStrings {
     let resume: String
     let finished: String
     let soundEnabled: String
+    let hideTimerCountdown: String
     let camera: String
     let cameraUnavailable: String
     let cameraHint: String
@@ -30,6 +31,8 @@ struct NotchActivityStrings {
     let accessoryDescription: String
     let connected: String
     let lowBattery: String
+    let keepAwakeActivity: String
+    let keepAwakeActivityHint: String
 
     func phase(_ phase: NotchTimerPhase) -> String {
         switch phase {
@@ -63,6 +66,7 @@ extension FeatureStrings {
             resume: "Resume",
             finished: "Time is up",
             soundEnabled: "Play sound when time is up",
+            hideTimerCountdown: "Hide timer countdown",
             camera: "Camera mirror",
             cameraUnavailable: "The camera could not start. Try opening it again.",
             cameraHint: "Open a live mirror here. The camera stops when you leave this view.",
@@ -71,7 +75,9 @@ extension FeatureStrings {
             accessories: "Accessory alerts",
             accessoryDescription: "Show connected accessories and warn once when their battery falls to 20%.",
             connected: "Connected",
-            lowBattery: "Low battery")
+            lowBattery: "Low battery",
+            keepAwakeActivity: "Show “Keep awake” in the closed island",
+            keepAwakeActivityHint: "A running session appears beside the camera with the time it has left, or ∞ when it has no end.")
         case .ptBR: return NotchActivityStrings(
             timer: "Temporizador",
             timerDescription: "Temporizadores, cronômetro e sessões de foco no Dynamic Island.",
@@ -90,6 +96,7 @@ extension FeatureStrings {
             resume: "Continuar",
             finished: "Tempo esgotado",
             soundEnabled: "Tocar som ao terminar",
+            hideTimerCountdown: "Ocultar contagem do temporizador",
             camera: "Espelho da câmera",
             cameraUnavailable: "Não foi possível iniciar a câmera. Tente abri-la novamente.",
             cameraHint: "Abra um espelho ao vivo aqui. A câmera para ao sair desta tela.",
@@ -98,7 +105,9 @@ extension FeatureStrings {
             accessories: "Avisos de acessórios",
             accessoryDescription: "Mostra acessórios conectados e avisa uma vez quando a bateria cai para 20%.",
             connected: "Conectado",
-            lowBattery: "Bateria baixa")
+            lowBattery: "Bateria baixa",
+            keepAwakeActivity: "Mostrar “Manter acordado” na ilha fechada",
+            keepAwakeActivityHint: "A sessão em andamento aparece ao lado da câmera com o tempo restante, ou ∞ quando não tem fim.")
         case .es: return NotchActivityStrings(
             timer: "Temporizador",
             timerDescription: "Temporizadores, cronómetro y sesiones de concentración en el Dynamic Island.",
@@ -117,6 +126,7 @@ extension FeatureStrings {
             resume: "Continuar",
             finished: "Se acabó el tiempo",
             soundEnabled: "Reproducir sonido al terminar",
+            hideTimerCountdown: "Ocultar cuenta atrás del temporizador",
             camera: "Espejo de cámara",
             cameraUnavailable: "No se pudo iniciar la cámara. Intenta abrirla de nuevo.",
             cameraHint: "Abre un espejo en directo aquí. La cámara se detiene al salir de esta vista.",
@@ -125,7 +135,39 @@ extension FeatureStrings {
             accessories: "Avisos de accesorios",
             accessoryDescription: "Muestra accesorios conectados y avisa una vez cuando la batería baja al 20 %.",
             connected: "Conectado",
-            lowBattery: "Batería baja")
+            lowBattery: "Batería baja",
+            keepAwakeActivity: "Mostrar “Mantener activo” en la isla cerrada",
+            keepAwakeActivityHint: "La sesión en curso aparece junto a la cámara con el tiempo restante, o ∞ si no tiene fin.")
+        case .sk: return NotchActivityStrings(
+            timer: "Časovač",
+            timerDescription: "Časovače, stopky a sústredené pracovné sedenia v Dynamic Island.",
+            pomodoro: "Pomodoro",
+            stopwatch: "Stopky",
+            focus: "Sústredenie",
+            shortBreak: "Krátka prestávka",
+            longBreak: "Dlhá prestávka",
+            pomodoroHint: "Každú fázu spustite, keď budete pripravení. Cyklus končí po poslednom sedení sústredenia.",
+            totalSessions: "Celkový počet sedení",
+            longBreakInterval: "Sedenia medzi dlhými prestávkami",
+            sessionProgress: "Sedenie %d z %d",
+            pomodoroFinished: "Pomodoro dokončené",
+            minutes: "Minúty",
+            start: "Spustiť",
+            resume: "Pokračovať",
+            finished: "Čas vypršal",
+            soundEnabled: "Prehrať zvuk po uplynutí času",
+            hideTimerCountdown: "Skryť odpočítavanie časovača",
+            camera: "Zrkadlo kamery",
+            cameraUnavailable: "Kameru sa nepodarilo spustiť. Skúste ju otvoriť znova.",
+            cameraHint: "Tu otvoríte živé zrkadlo. Kamera sa zastaví, keď opustíte toto zobrazenie.",
+            startCamera: "Otvoriť kameru",
+            stopCamera: "Zastaviť kameru",
+            accessories: "Upozornenia na príslušenstvo",
+            accessoryDescription: "Zobrazí pripojené príslušenstvo a raz upozorní, keď jeho batéria klesne na 20 %.",
+            connected: "Pripojené",
+            lowBattery: "Slabá batéria",
+            keepAwakeActivity: "Zobraziť „Bdelý režim“ v zatvorenom Dynamic Island",
+            keepAwakeActivityHint: "Prebiehajúca relácia sa zobrazí vedľa kamery so zostávajúcim časom alebo so znakom ∞, ak nemá koniec.")
         case .de: return NotchActivityStrings(
             timer: "Timer",
             timerDescription: "Timer, Stoppuhr und konzentrierte Arbeitsphasen im Dynamic Island.",
@@ -144,6 +186,7 @@ extension FeatureStrings {
             resume: "Fortsetzen",
             finished: "Zeit abgelaufen",
             soundEnabled: "Ton nach Ablauf abspielen",
+            hideTimerCountdown: "Timer-Countdown ausblenden",
             camera: "Kameraspiegel",
             cameraUnavailable: "Die Kamera konnte nicht starten. Versuche, sie erneut zu öffnen.",
             cameraHint: "Öffne hier ein Live-Spiegelbild. Die Kamera stoppt beim Verlassen dieser Ansicht.",
@@ -152,7 +195,9 @@ extension FeatureStrings {
             accessories: "Zubehörhinweise",
             accessoryDescription: "Zeigt verbundenes Zubehör und warnt einmal, wenn der Batteriestand auf 20 % fällt.",
             connected: "Verbunden",
-            lowBattery: "Batterie schwach")
+            lowBattery: "Batterie schwach",
+            keepAwakeActivity: "„Wachhalten“ in der geschlossenen Insel zeigen",
+            keepAwakeActivityHint: "Eine laufende Sitzung erscheint neben der Kamera mit der verbleibenden Zeit oder ∞, wenn sie kein Ende hat.")
         case .fr: return NotchActivityStrings(
             timer: "Minuteur",
             timerDescription: "Des minuteurs, un chronomètre et des séances de concentration dans le Dynamic Island.",
@@ -171,6 +216,7 @@ extension FeatureStrings {
             resume: "Reprendre",
             finished: "Temps écoulé",
             soundEnabled: "Jouer un son à la fin",
+            hideTimerCountdown: "Masquer le compte à rebours",
             camera: "Miroir de la caméra",
             cameraUnavailable: "La caméra n’a pas pu démarrer. Essayez de l’ouvrir à nouveau.",
             cameraHint: "Ouvrez un miroir en direct ici. La caméra s’arrête lorsque vous quittez cette vue.",
@@ -179,7 +225,9 @@ extension FeatureStrings {
             accessories: "Alertes des accessoires",
             accessoryDescription: "Affiche les accessoires connectés et avertit une fois quand leur batterie atteint 20 %.",
             connected: "Connecté",
-            lowBattery: "Batterie faible")
+            lowBattery: "Batterie faible",
+            keepAwakeActivity: "Afficher «\u{00A0}Garder éveillé\u{00A0}» dans l’île fermée",
+            keepAwakeActivityHint: "Une session en cours apparaît à côté de la caméra avec le temps restant, ou ∞ si elle n’a pas de fin.")
         case .it: return NotchActivityStrings(
             timer: "Timer",
             timerDescription: "Timer, cronometro e sessioni di concentrazione nel Dynamic Island.",
@@ -198,6 +246,7 @@ extension FeatureStrings {
             resume: "Riprendi",
             finished: "Tempo scaduto",
             soundEnabled: "Riproduci un suono al termine",
+            hideTimerCountdown: "Nascondi conto alla rovescia",
             camera: "Specchio della fotocamera",
             cameraUnavailable: "Impossibile avviare la fotocamera. Prova ad aprirla di nuovo.",
             cameraHint: "Apri uno specchio dal vivo qui. La fotocamera si ferma quando esci da questa vista.",
@@ -206,7 +255,9 @@ extension FeatureStrings {
             accessories: "Avvisi accessori",
             accessoryDescription: "Mostra gli accessori connessi e avvisa una volta quando la batteria scende al 20%.",
             connected: "Connesso",
-            lowBattery: "Batteria scarica")
+            lowBattery: "Batteria scarica",
+            keepAwakeActivity: "Mostra “Mantieni attivo” nell’isola chiusa",
+            keepAwakeActivityHint: "Una sessione in corso appare accanto alla fotocamera con il tempo rimanente, o ∞ se non ha una fine.")
         case .ru: return NotchActivityStrings(
             timer: "Таймер",
             timerDescription: "Таймеры, секундомер и сеансы сосредоточенной работы в вырезе экрана.",
@@ -225,6 +276,7 @@ extension FeatureStrings {
             resume: "Продолжить",
             finished: "Время вышло",
             soundEnabled: "Звук по окончании",
+            hideTimerCountdown: "Скрывать отсчёт таймера",
             camera: "Зеркало камеры",
             cameraUnavailable: "Не удалось запустить камеру. Попробуйте открыть её снова.",
             cameraHint: "Откройте зеркало здесь. Камера остановится, когда вы покинете этот экран.",
@@ -233,7 +285,9 @@ extension FeatureStrings {
             accessories: "Оповещения об аксессуарах",
             accessoryDescription: "Показывает подключённые аксессуары и предупреждает один раз при снижении заряда до 20%.",
             connected: "Подключено",
-            lowBattery: "Низкий заряд")
+            lowBattery: "Низкий заряд",
+            keepAwakeActivity: "Показывать «Не давать Mac уснуть» в закрытом острове",
+            keepAwakeActivityHint: "Текущий сеанс появляется рядом с камерой с оставшимся временем или знаком ∞, если у него нет окончания.")
         case .tr: return NotchActivityStrings(
             timer: "Zamanlayıcı",
             timerDescription: "Çentikte zamanlayıcılar, kronometre ve odaklanma oturumları.",
@@ -252,6 +306,7 @@ extension FeatureStrings {
             resume: "Sürdür",
             finished: "Süre doldu",
             soundEnabled: "Süre dolunca ses çal",
+            hideTimerCountdown: "Zamanlayıcı geri sayımını gizle",
             camera: "Kamera aynası",
             cameraUnavailable: "Kamera başlatılamadı. Yeniden açmayı deneyin.",
             cameraHint: "Burada canlı bir ayna açın. Bu görünümden çıkınca kamera durur.",
@@ -260,7 +315,9 @@ extension FeatureStrings {
             accessories: "Aksesuar uyarıları",
             accessoryDescription: "Bağlı aksesuarları gösterir ve pil %20’ye düştüğünde bir kez uyarır.",
             connected: "Bağlandı",
-            lowBattery: "Pil zayıf")
+            lowBattery: "Pil zayıf",
+            keepAwakeActivity: "“Uyanık tut” özelliğini kapalı adada göster",
+            keepAwakeActivityHint: "Süren oturum, kalan süresiyle ya da bitişi yoksa ∞ ile kameranın yanında görünür.")
         case .ja: return NotchActivityStrings(
             timer: "タイマー",
             timerDescription: "Dynamic Islandでタイマー、ストップウォッチ、集中セッションを使えます。",
@@ -279,6 +336,7 @@ extension FeatureStrings {
             resume: "再開",
             finished: "時間になりました",
             soundEnabled: "終了時にサウンドを再生",
+            hideTimerCountdown: "タイマーのカウントダウンを非表示",
             camera: "カメラミラー",
             cameraUnavailable: "カメラを開始できませんでした。もう一度開いてください。",
             cameraHint: "ここでライブミラーを開きます。この画面を離れるとカメラは停止します。",
@@ -287,7 +345,9 @@ extension FeatureStrings {
             accessories: "アクセサリの通知",
             accessoryDescription: "接続したアクセサリを表示し、バッテリーが20%に低下したときに一度通知します。",
             connected: "接続済み",
-            lowBattery: "バッテリー残量低下")
+            lowBattery: "バッテリー残量低下",
+            keepAwakeActivity: "閉じた島に「スリープ防止」を表示",
+            keepAwakeActivityHint: "実行中のセッションが残り時間とともにカメラの横に表示されます。終了時刻がない場合は∞になります。")
         case .ko: return NotchActivityStrings(
             timer: "타이머",
             timerDescription: "Dynamic Island에서 타이머, 스톱워치, 집중 세션을 사용하세요.",
@@ -306,6 +366,7 @@ extension FeatureStrings {
             resume: "계속",
             finished: "시간 종료",
             soundEnabled: "종료 시 소리 재생",
+            hideTimerCountdown: "타이머 카운트다운 숨기기",
             camera: "카메라 거울",
             cameraUnavailable: "카메라를 시작할 수 없습니다. 다시 열어 보세요.",
             cameraHint: "여기서 실시간 거울을 여세요. 이 화면을 나가면 카메라가 멈춥니다.",
@@ -314,7 +375,9 @@ extension FeatureStrings {
             accessories: "액세서리 알림",
             accessoryDescription: "연결된 액세서리를 표시하고 배터리가 20%로 떨어지면 한 번 알립니다.",
             connected: "연결됨",
-            lowBattery: "배터리 부족")
+            lowBattery: "배터리 부족",
+            keepAwakeActivity: "닫힌 섬에 절전 방지 표시",
+            keepAwakeActivityHint: "진행 중인 세션이 남은 시간과 함께 카메라 옆에 표시되며, 끝이 없으면 ∞로 표시됩니다.")
         case .zhHans: return NotchActivityStrings(
             timer: "计时器",
             timerDescription: "在Dynamic Island中使用计时器、秒表和专注时段。",
@@ -333,6 +396,7 @@ extension FeatureStrings {
             resume: "继续",
             finished: "时间到",
             soundEnabled: "结束时播放声音",
+            hideTimerCountdown: "隐藏计时器倒计时",
             camera: "摄像头镜像",
             cameraUnavailable: "无法启动摄像头，请尝试重新打开。",
             cameraHint: "在此打开实时镜像。离开此视图时摄像头会停止。",
@@ -341,7 +405,9 @@ extension FeatureStrings {
             accessories: "配件提醒",
             accessoryDescription: "显示已连接的配件，并在电量降至20%时提醒一次。",
             connected: "已连接",
-            lowBattery: "电量低")
+            lowBattery: "电量低",
+            keepAwakeActivity: "在收起的岛中显示“保持唤醒”",
+            keepAwakeActivityHint: "进行中的会话会显示在摄像头旁，并附上剩余时间；没有结束时间时显示 ∞。")
         case .zhTW: return NotchActivityStrings(
             timer: "計時器",
             timerDescription: "在Dynamic Island中使用計時器、碼錶與專注時段。",
@@ -360,6 +426,7 @@ extension FeatureStrings {
             resume: "繼續",
             finished: "時間到",
             soundEnabled: "結束時播放聲音",
+            hideTimerCountdown: "隱藏計時器倒數",
             camera: "相機鏡像",
             cameraUnavailable: "無法啟動相機，請嘗試重新打開。",
             cameraHint: "在此打開即時鏡像。離開此畫面時相機會停止。",
@@ -368,7 +435,9 @@ extension FeatureStrings {
             accessories: "配件提醒",
             accessoryDescription: "顯示已連接的配件，並在電量降至20%時提醒一次。",
             connected: "已連接",
-            lowBattery: "電量不足")
+            lowBattery: "電量不足",
+            keepAwakeActivity: "在收合的島中顯示「保持喚醒」",
+            keepAwakeActivityHint: "進行中的工作階段會顯示在相機旁並附上剩餘時間；沒有結束時間時顯示 ∞。")
         case .zhHK: return NotchActivityStrings(
             timer: "計時器",
             timerDescription: "在Dynamic Island中使用計時器、秒錶和專注時段。",
@@ -387,6 +456,7 @@ extension FeatureStrings {
             resume: "繼續",
             finished: "時間到",
             soundEnabled: "結束時播放聲音",
+            hideTimerCountdown: "隱藏計時器倒數",
             camera: "相機鏡像",
             cameraUnavailable: "無法啟動相機，請嘗試重新開啟。",
             cameraHint: "在此開啟即時鏡像。離開此畫面時相機會停止。",
@@ -395,7 +465,39 @@ extension FeatureStrings {
             accessories: "配件提示",
             accessoryDescription: "顯示已連接的配件，並在電量降至20%時提示一次。",
             connected: "已連接",
-            lowBattery: "電量不足")
+            lowBattery: "電量不足",
+            keepAwakeActivity: "在收合的島中顯示「保持喚醒」",
+            keepAwakeActivityHint: "進行中的時段會顯示在相機旁並附上剩餘時間；沒有結束時間時顯示 ∞。")
+        case .uk: return NotchActivityStrings(
+            timer: "Таймер",
+            timerDescription: "Таймери, секундомір і сеанси зосередженої роботи у Dynamic Island.",
+            pomodoro: "Помодоро",
+            stopwatch: "Секундомір",
+            focus: "Зосередженість",
+            shortBreak: "Коротка перерва",
+            longBreak: "Довга перерва",
+            pomodoroHint: "Починайте кожен етап, коли будете готові. Цикл завершується після останнього сеансу зосередженості.",
+            totalSessions: "Усього сеансів",
+            longBreakInterval: "Сеансів між довгими перервами",
+            sessionProgress: "Сеанс %d з %d",
+            pomodoroFinished: "Помодоро завершено",
+            minutes: "Хвилини",
+            start: "Почати",
+            resume: "Продовжити",
+            finished: "Час вийшов",
+            soundEnabled: "Відтворювати звук після завершення",
+            hideTimerCountdown: "Приховувати відлік таймера",
+            camera: "Дзеркало камери",
+            cameraUnavailable: "Не вдалося запустити камеру. Спробуйте відкрити її знову.",
+            cameraHint: "Відкрийте живе дзеркало тут. Камера зупиняється, коли ви виходите з цього екрана.",
+            startCamera: "Відкрити камеру",
+            stopCamera: "Зупинити камеру",
+            accessories: "Сповіщення про аксесуари",
+            accessoryDescription: "Показує підключені аксесуари та один раз попереджає, коли їхній заряд падає до 20%.",
+            connected: "Підключено",
+            lowBattery: "Низький заряд",
+            keepAwakeActivity: "Показувати «Не давати Mac заснути» в закритому острівці",
+            keepAwakeActivityHint: "Поточний сеанс з’являється біля камери із залишком часу або знаком ∞, якщо він не має завершення.")
         }
     }
 }

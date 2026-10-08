@@ -117,7 +117,7 @@ struct NotchTimerSession: Equatable {
         switch mode {
         case .timer:
             phase = .timer
-            duration = Double(min(180, max(1, minutes))) * 60
+            duration = Double(NotchTimerSupport.timerMinutes(minutes)) * 60
             anchor = now + duration
         case .pomodoro:
             phase = .focus
@@ -171,6 +171,14 @@ struct NotchTimerSession: Equatable {
 }
 
 enum NotchTimerSupport {
+    /// Hiding the countdown never disables the session or its completion
+    /// alerts, and a finished timer shows in the closed island until it is
+    /// dismissed. The expanded timer page remains available.
+    static func showsActivity(_ session: NotchTimerSession, in defaults: UserDefaults = .standard) -> Bool {
+        session.hasSession && isEnabled(in: defaults)
+            && (session.completed || !defaults.bool(forKey: DefaultsKey.notchHideTimerCountdown))
+    }
+
     static func isSoundEnabled(in defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: DefaultsKey.notchTimerSoundEnabled) as? Bool ?? true
     }
@@ -202,6 +210,8 @@ enum NotchTimerSupport {
     /// A stopwatch keeps counting; its clock saturates at the widest reading
     /// the surface fits, two hour digits.
     static let stopwatchLimit: TimeInterval = 100 * 3600 - 1
+
+    static func timerMinutes(_ value: Int) -> Int { min(180, max(1, value)) }
 
     static func savedMode(in defaults: UserDefaults = .standard) -> NotchTimerMode {
         NotchTimerMode(rawValue: defaults.string(forKey: DefaultsKey.notchTimerMode) ?? "") ?? .timer
@@ -251,6 +261,15 @@ enum NotchTimerSupport {
         session.countsUp ? stopwatchText(session.reading(at: now)) : clockText(session.reading(at: now))
     }
 
+    /// What a clock's digits roll on. The closed island can show a clock for
+    /// hours, and rolling every second kept it animating a third of the time,
+    /// at about ten times the energy of a clock that changes in place. There
+    /// the seconds change in place and the rest rolls: "12:04" rolls as "12".
+    static func rollingValue(_ value: String, everySecond: Bool) -> String {
+        guard !everySecond, let colon = value.lastIndex(of: ":") else { return value }
+        return String(value[..<colon])
+    }
+
     static func compactText(for session: NotchTimerSession, at now: TimeInterval, locale: Locale) -> String {
         let reading = session.reading(at: now)
         if session.countsUp { return compactStopwatchText(reading) }
@@ -283,5 +302,20 @@ enum NotchTimerSupport {
         return Duration.seconds(seconds).formatted(.units(
             allowed: units, width: .narrow,
             fractionalPart: .hide(rounded: .down)).locale(locale))
+    }
+
+    // MARK: Strip
+
+    /// A wing is never narrower than the music strip's; the longest readings
+    /// keep the width the strip always had.
+    static let stripWingRange: ClosedRange<CGFloat> = 44...64
+    /// Air between the camera and what sits beside it.
+    static let stripCameraGap: CGFloat = 6
+
+    static func stripTextSize(height: CGFloat) -> CGFloat { min(16, height - 6) }
+    /// The mark takes the strip's height less an even gap above and below.
+    static func stripIconSize(height: CGFloat) -> CGFloat { min(20, height - NotchLayout.compactEdgeGap * 2) }
+    static func stripAgentMarkSize(height: CGFloat, working: Int) -> CGFloat {
+        min(working > 1 ? 11 : 14, max(8, height - NotchLayout.compactEdgeGap * 2 - 4))
     }
 }

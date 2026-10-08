@@ -26,6 +26,8 @@ struct ShortcutRecorderButton: NSViewRepresentable {
     /// For local shortcuts whose typed character also depends on Caps Lock.
     /// When supplied, this handles capture instead of the ordinary callback.
     var captureWithFlagsAction: ((GlobalShortcut, CGEventFlags) -> Void)? = nil
+    /// Only hold-trigger fields opt into recording a chord without a key.
+    var captureModifiersAction: ((GlobalShortcutModifiers) -> Void)? = nil
     let invalidAction: () -> Void
     let captureAction: (GlobalShortcut) -> Void
 
@@ -78,6 +80,7 @@ struct ShortcutRecorderButton: NSViewRepresentable {
         button.notCapturedAction = notCapturedAction
         button.recordingChanged = recordingChanged
         button.captureWithFlagsAction = captureWithFlagsAction
+        button.captureModifiersAction = captureModifiersAction
         button.invalidAction = invalidAction
         button.captureAction = captureAction
         button.isEnabled = isEnabled
@@ -94,6 +97,8 @@ final class RecorderButton: NSButton {
     var notCapturedAction: (() -> Void)?
     var recordingChanged: ((Bool) -> Void)?
     var captureWithFlagsAction: ((GlobalShortcut, CGEventFlags) -> Void)?
+    var captureModifiersAction: ((GlobalShortcutModifiers) -> Void)?
+    private var modifierRecording = ModifierShortcutRecording()
     var invalidAction: (() -> Void)?
     var captureAction: ((GlobalShortcut) -> Void)?
     private var isRecording = false
@@ -133,6 +138,7 @@ final class RecorderButton: NSButton {
         }
         isRecording = true
         awaitingKeyForHeldModifiers = false
+        modifierRecording = ModifierShortcutRecording()
         ShortcutCapture.begin()
         // The tap keeps the typed combination to the field: without it, a
         // combination the system or another app answers to performs that
@@ -190,6 +196,23 @@ final class RecorderButton: NSButton {
             return
         }
         let modifiers = GlobalShortcutModifiers(eventFlags: event.modifierFlags)
+        if let captureModifiersAction {
+            let unsupported = event.modifierFlags.contains(.function)
+            let captured = modifierRecording.flagsChanged(modifiers, hasUnsupportedModifier: unsupported)
+            if unsupported {
+                invalidAction?()
+                return
+            }
+            if let captured {
+                guard captured.isValidWindowDirectionalTrigger else {
+                    invalidAction?()
+                    return
+                }
+                stopRecording()
+                captureModifiersAction(captured)
+            }
+            return
+        }
         if modifiers.hasPrimaryModifier {
             awaitingKeyForHeldModifiers = true
         } else if modifiers.isEmpty, awaitingKeyForHeldModifiers {
@@ -220,6 +243,7 @@ final class RecorderButton: NSButton {
                                     flags: CGEventFlags) {
         // A key arrived, so the modifiers being held did produce something.
         awaitingKeyForHeldModifiers = false
+        modifierRecording.keyPressed()
 
         if keyCode == Int64(kVK_Escape), !modifiers.hasPrimaryModifier {
             stopRecording()
@@ -293,6 +317,7 @@ struct ShortcutPreferenceRow: View {
     private let showsSuperKeyAlternative: Bool
     private let superKeyModifiers: GlobalShortcutModifiers
     private let includeInactiveConflicts: Bool
+    private let reservesClearButtonSpace: Bool
     private let onChange: () -> Void
     private let additionalConflict: (GlobalShortcut) -> String?
     @AppStorage private var rawValue: String
@@ -310,6 +335,7 @@ struct ShortcutPreferenceRow: View {
          showsSuperKeyAlternative: Bool = false,
          superKeyModifiers: GlobalShortcutModifiers = .validMask,
          includeInactiveConflicts: Bool = false,
+         reservesClearButtonSpace: Bool = false,
          additionalConflict: @escaping (GlobalShortcut) -> String? = { _ in nil },
          onChange: @escaping () -> Void) {
         self.role = role
@@ -322,6 +348,7 @@ struct ShortcutPreferenceRow: View {
         self.showsSuperKeyAlternative = showsSuperKeyAlternative
         self.superKeyModifiers = superKeyModifiers
         self.includeInactiveConflicts = includeInactiveConflicts
+        self.reservesClearButtonSpace = reservesClearButtonSpace
         self.additionalConflict = additionalConflict
         self.onChange = onChange
         _rawValue = AppStorage(wrappedValue: role.defaultShortcut.storageValue, role.storageKey)
@@ -355,6 +382,13 @@ struct ShortcutPreferenceRow: View {
                                                captureAction: save)
                             .frame(width: 108)
                             .disabled(!isEnabled)
+                        if reservesClearButtonSpace {
+                            // Rows beside it have a clear button here; keep the
+                            // recorders in one column.
+                            Image(systemName: "xmark.circle.fill")
+                                .hidden()
+                                .accessibilityHidden(true)
+                        }
                         Button(l10n.s.shortcutReset) {
                             rawValue = role.defaultShortcut.storageValue
                             errorText = nil
