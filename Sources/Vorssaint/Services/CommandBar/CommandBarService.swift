@@ -2436,7 +2436,7 @@ final class CommandBarService: ObservableObject {
             UserDefaults.standard.set(CommandBarUsage.encode(next), forKey: DefaultsKey.commandBarUsage)
             usageCache = next
         }
-        if entry.countsUsage, !learningQuery.isEmpty {
+        if entry.countsUsage, isVisible, !learningQuery.isEmpty {
             let prepared = CommandBarQueryHabits.prepare(
                 learningQuery, key: habitKey, cache: &preparedHabitQuery)
             if !prepared.isEmpty {
