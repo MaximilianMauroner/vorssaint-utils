@@ -977,15 +977,7 @@ final class CommandBarService: ObservableObject {
     }
 
     func setCategory(_ source: CommandBarSource?) {
-        changeCategory(to: source, clearingQuery: false)
-    }
-
-    func enterCategory(_ source: CommandBarSource) {
-        changeCategory(to: source, clearingQuery: true)
-    }
-
-    private func changeCategory(to source: CommandBarSource?, clearingQuery: Bool) {
-        guard activeCategory != source || (clearingQuery && !query.isEmpty) else { return }
+        guard activeCategory != source else { return }
         activeCategory = source
         selectedID = nil
         lastRankedQuery = nil
@@ -1303,8 +1295,7 @@ final class CommandBarService: ObservableObject {
 
     private func rebuildCatalog(index: Bool = true) {
         catalog = CommandBarCatalog.build(automationDenied: finderAutomationDenied)
-        emojiEntries = CommandBarCatalog.emojiEntries(
-            bar: FeatureStrings.commandBar(L10n.shared.language))
+        emojiEntries = CommandBarCatalog.emojiEntries(bar: FeatureStrings.commandBar(L10n.shared.language))
         builtLanguage = L10n.shared.language
         if index { indexEntries() }
     }

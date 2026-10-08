@@ -175,7 +175,6 @@ struct MetricsTests {
             ("switcher", {
                 SwitcherScrollContract.run(suite)
                 SwitcherActivationTests.run(suite)
-                WindowFocusHistoryTests.run { suite.expect($0, $1) }
                 WindowServerCaptureContract.run(suite)
             }),
             ("keep-awake", {

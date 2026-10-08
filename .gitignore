@@ -15,11 +15,6 @@ dist/
 
 # Local-only working notes
 AGENTS.md
-.gemini/
-.cursor/
-.agents/
-E2E/
-CLAUDE.md
 
 # macOS noise
 .DS_Store

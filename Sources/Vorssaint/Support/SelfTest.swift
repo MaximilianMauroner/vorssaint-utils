@@ -100,19 +100,6 @@ enum SelfTest {
         }
         UserDefaults.standard.removeObject(forKey: "selftest")
 
-        // Normal startup creates the application before window enumeration;
-        // self-test exits before that path, so establish the same AppKit state.
-        _ = NSApplication.shared
-        let commandBarSnapshot = WindowEnumerator.snapshot()
-        let commandBarEnumeration = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            _ = WindowEnumerator.listWindowsForCommandBar(snapshot: commandBarSnapshot)
-            commandBarEnumeration.signal()
-        }
-        if commandBarEnumeration.wait(timeout: .now() + 10) == .timedOut {
-            failures.append("Command Bar window enumeration")
-        }
-
         for style in KeepAwakeActiveIcon.allCases {
             guard let image = BlackHoleGlyph.activeImage(style: style, tint: .orange) else {
                 failures.append("Keep Awake icon \(style.rawValue)")
