@@ -20,6 +20,7 @@ enum CommandBarFeatureTests {
             static let general = Pasteboard()
             var accepts = true
             func clearContents() {}
+            func declareVorssaintSource() {}
             func setString(_ value: String, forType: Kind) -> Bool { accepts }
         }
         typealias NSPasteboard = Pasteboard
@@ -164,6 +165,56 @@ enum CommandBarFeatureTests {
                "the comma is the decimal point where that is the custom")
         suite.expect(math("1.500+1", decimal: ",", grouping: ".") == "1,501",
                "three digits after the grouping separator read as thousands")
+
+        // Macs that group thousands with a space or an apostrophe.
+        for (name, grouping) in [("pt_PT", "\u{00A0}"), ("fr_FR", "\u{202F}")] {
+            suite.expect(mathValue("1.5+1", decimal: ",", grouping: grouping) == 2.5
+                    && mathValue("0.1+0.2", decimal: ",", grouping: grouping) == 0.3,
+                   "a dot decimal still works where the comma is the decimal point: \(name)")
+            suite.expect(mathValue("1.500+1", decimal: ",", grouping: grouping) == 1501
+                    && mathValue("1.234,5+1", decimal: ",", grouping: grouping) == 1235.5
+                    && mathValue("1,234.5+1", decimal: ",", grouping: grouping) == 1235.5,
+                   "the dot reads as thousands only when it looks the part: \(name)")
+            suite.expect(mathValue("1\(grouping)234,5+1", decimal: ",", grouping: grouping) == 1235.5,
+                   "the Mac's own grouping space still reads as thousands: \(name)")
+            suite.expect(mathValue("1\(grouping)5+1", decimal: ",", grouping: grouping) == nil,
+                   "a grouping space is never a decimal point: \(name)")
+            suite.expect(mathValue("1\(grouping)234,5\(grouping)67+1", decimal: ",", grouping: grouping) == nil
+                    && mathValue("1\(grouping)234.5\(grouping)67+1", decimal: ",", grouping: grouping) == nil,
+                   "grouping spaces cannot silently join digits after either decimal point: \(name)")
+        }
+        suite.expect(mathValue("1,5+1", decimal: ".", grouping: "'") == 2.5
+                && mathValue("1,234.5+1", decimal: ".", grouping: "'") == 1235.5
+                && mathValue("1'234.5+1", decimal: ".", grouping: "'") == 1235.5,
+               "a comma decimal works where thousands are grouped with an apostrophe")
+        suite.expect(mathValue("1'234.5'67+1", decimal: ".", grouping: "'") == nil
+                && mathValue("1'234,5'67+1", decimal: ".", grouping: "'") == nil,
+               "an apostrophe in the fractional part is rejected instead of changing the number")
+        suite.expect(mathValue("1.2.3+1", decimal: ",", grouping: "\u{00A0}") == nil,
+               "a repeated alternate separator that is not thousands has no answer")
+
+        // A grouping space or apostrophe groups only when digits follow it.
+        suite.expect(mathValue("1\u{00A0}+ 2", decimal: ",", grouping: "\u{00A0}") == 3,
+               "a no-break space after a number before an operator is just a space")
+        suite.expect(mathValue("200*15\u{202F}%", decimal: ",", grouping: "\u{202F}") == 30,
+               "a narrow no-break space before percent still answers")
+        suite.expect(mathValue("2\u{00A0}(3)", decimal: ",", grouping: "\u{00A0}") == 6,
+               "a no-break space before a bracket keeps the implicit product")
+        suite.expect(mathValue("1,5\u{00A0}+ 2", decimal: ",", grouping: "\u{00A0}") == 3.5,
+               "a decimal followed by a no-break space reads as that decimal")
+        suite.expect(mathValue("1\u{00A0}234\u{00A0}+ 1", decimal: ",", grouping: "\u{00A0}") == 1235,
+               "grouped thousands followed by a no-break space still answer")
+        suite.expect(mathValue("1\u{00A0}5+1", decimal: ",", grouping: "\u{00A0}") == nil,
+               "a grouping space between digits is never a decimal point")
+        // Thousands never start at zero.
+        for (decimal, grouping) in [(",", "\u{00A0}"), (",", "\u{202F}"), (".", "'"), (",", "."), (".", ",")] {
+            let alternate = decimal == "," ? "." : ","
+            suite.expect(mathValue("0\(alternate)125*8", decimal: decimal, grouping: grouping) == 1
+                    && mathValue("0\(alternate)500+1", decimal: decimal, grouping: grouping) == 1.5,
+                   "a number that starts at zero has decimals, never thousands, with \(decimal) and \(grouping)")
+        }
+        suite.expect(mathValue("0\u{00A0}125+1", decimal: ",", grouping: "\u{00A0}") == nil,
+               "a grouping space after a lone zero is not thousands")
 
         suite.expect(CommandBarMath.evaluate("([2+3")?.closingBrackets == "])"
                 && CommandBarMath.evaluate("2+3")?.closingBrackets == "",
@@ -957,6 +1008,48 @@ enum CommandBarFeatureTests {
                 .map { abs($0.value - 150) < 0.001 } == true,
                "a comma decimal converts where that is the custom")
 
+        // A first group of 0 is never thousands, so "0,250" is a quarter where
+        // the dot is decimal, while "1,050" still groups.
+        let dotDecimalInputs: [(String, Double)] = [
+            ("1.5", 150.0), ("1,5", 150.0), ("-1,5", -150.0),
+            ("1,500", 150_000.0), ("-123,456", -12_345_600.0),
+            ("1,234.5", 123_450.0), ("1.234,5", 123_450.0),
+            ("1,234,567", 123_456_700.0),
+            ("0,250", 25.0), ("-0,500", -50.0), ("1,050", 105_000.0),
+        ]
+        let commaDecimalInputs: [(String, Double)] = [
+            ("1,5", 150.0), ("1.5", 150.0), ("-1.5", -150.0),
+            ("1.500", 150_000.0), ("-123.456", -12_345_600.0),
+            ("1.234,5", 123_450.0), ("1,234.5", 123_450.0),
+            ("1.234.567", 123_456_700.0),
+            ("0.250", 25.0), ("-0.500", -50.0), ("1.050", 105_000.0),
+        ]
+        // de_CH groups thousands with an apostrophe, pt_PT with a no-break
+        // space and fr_FR with a narrow one. There the alternate is whichever
+        // of "." and "," is not the decimal, the same as in the calculator.
+        for (region, decimal, grouping, inputs) in [
+            ("en_US", ".", ",", dotDecimalInputs),
+            ("de_CH", ".", "'", dotDecimalInputs),
+            ("de_DE", ",", ".", commaDecimalInputs),
+            ("pt_PT", ",", "\u{00A0}", commaDecimalInputs),
+            ("fr_FR", ",", "\u{202F}", commaDecimalInputs),
+        ] {
+            for (number, expected) in inputs {
+                let converted = CommandBarUnits.convert("\(number) m to cm",
+                                                       decimalSeparator: decimal,
+                                                       groupingSeparator: grouping,
+                                                       locale: Locale(identifier: "en_US"))
+                suite.expect(converted.map { abs($0.value - expected) < 0.001 } == true,
+                             "unit conversion in \(region) reads \(number) as \(expected) cm")
+            }
+            for number in ["1,,5", "1..5", "--1", "1-5"] {
+                suite.expect(CommandBarUnits.convert("\(number) m to cm",
+                                                     decimalSeparator: decimal,
+                                                     groupingSeparator: grouping) == nil,
+                             "unit conversion in \(region) refuses malformed number \(number)")
+            }
+        }
+
         // MeasurementFormatter words the unit from the localization data of the
         // macOS it runs on, not from the locale it is handed, so pinning
         // "5 ft 10.87 in" here failed on macOS 15.x with nothing changed
@@ -1413,6 +1506,88 @@ enum CommandBarFeatureTests {
                "a bare letter is never taken from every app on the Mac")
         suite.expect(CommandBarRowShortcuts.decode(CommandBarRowShortcuts.encode(bound)) == bound,
                "the bindings survive a round trip through storage")
+        suite.expect(CommandBarRowShortcuts.hidesAppInFront(isFrontmost: true, isHidden: false,
+                                                            ownsFrontWindow: true),
+               "an app in front with its window in front hides on its own shortcut")
+        suite.expect(!CommandBarRowShortcuts.hidesAppInFront(isFrontmost: true, isHidden: false,
+                                                             ownsFrontWindow: false),
+               "an app in front without the front window comes forward instead of hiding")
+        suite.expect(!CommandBarRowShortcuts.hidesAppInFront(isFrontmost: false, isHidden: false,
+                                                             ownsFrontWindow: true),
+               "an app behind another one comes forward")
+        suite.expect(!CommandBarRowShortcuts.hidesAppInFront(isFrontmost: true, isHidden: true,
+                                                             ownsFrontWindow: true),
+               "a hidden app comes back")
+        var windowListRead = false
+        suite.expect(!CommandBarRowShortcuts.hidesAppInFront(isFrontmost: false, isHidden: false,
+                                                             ownsFrontWindow: {
+                                                                 windowListRead = true
+                                                                 return true
+                                                             }()) && !windowListRead,
+               "bringing an app forward never reads the window list")
+        // The window server lists windows front to back. The menu bar, the
+        // Dock and floating panels sit above every app's windows on higher
+        // layers, so only the first normal window says whose window is in
+        // front.
+        func listedWindow(pid: Int32, layer: Int, alpha: Double = 1) -> [String: Any] {
+            [kCGWindowLayer as String: NSNumber(value: layer),
+             kCGWindowAlpha as String: NSNumber(value: alpha),
+             kCGWindowOwnerPID as String: NSNumber(value: pid)]
+        }
+        let finderPID: Int32 = 1001
+        let menuBarAndDock = [listedWindow(pid: 90, layer: 25), listedWindow(pid: 91, layer: 20)]
+        suite.expect(WindowServerSupport.frontWindowOwner(
+                    in: menuBarAndDock + [listedWindow(pid: finderPID, layer: 0),
+                                          listedWindow(pid: 1002, layer: 0)]) == finderPID,
+               "the window in front is the first normal one, past the menu bar and the Dock")
+        let buriedOwner = WindowServerSupport.frontWindowOwner(
+            in: menuBarAndDock + [listedWindow(pid: 1002, layer: 0), listedWindow(pid: finderPID, layer: 0)])
+        suite.expect(buriedOwner == 1002
+                && !CommandBarRowShortcuts.hidesAppInFront(isFrontmost: true, isHidden: false,
+                                                            ownsFrontWindow: buriedOwner == finderPID),
+               "an app made active under another app's windows comes forward instead of hiding them")
+        suite.expect(WindowServerSupport.frontWindowOwner(in: menuBarAndDock) == nil,
+               "an app showing only the desktop owns no front window")
+        suite.expect(WindowServerSupport.frontWindowOwner(
+                    in: [listedWindow(pid: 1002, layer: 0, alpha: 0),
+                         listedWindow(pid: finderPID, layer: 0)]) == finderPID,
+               "a fully transparent window is in front of nothing")
+        let runRowCode = commandBarServiceSource
+            .components(separatedBy: "private func runRow(withStableKey").dropFirst().first?
+            .components(separatedBy: "private var storedHiddenKeys").first ?? ""
+        suite.expect(runRowCode.contains("!isVisible, let app = installedApp(for: entry)")
+                && runRowCode.contains("CommandBarRowShortcuts.hidesAppInFront(")
+                && runRowCode.contains("running.hide() {"),
+               "only a closed bar hides an app row, through the shared rule, and a refused hide opens it")
+        suite.expect(runRowCode.contains(
+                    "NSWorkspace.shared.frontmostApplication?.processIdentifier == running.processIdentifier")
+                && runRowCode.contains("ownsFrontWindow: WindowServerSupport.frontWindowOwner(")
+                && runRowCode.contains("in: WindowServerSupport.onScreenWindowInfo()) == running.processIdentifier"),
+               "an app shortcut hides only the app in front whose window is the one in front")
+
+        // An app the uninstaller removed frees its keys for another app.
+        suite.expect(CommandBarRowShortcuts.keyFreed(
+                    byRemovingAppAt: "/Applications/Thunderbird.app", bundleID: "org.mozilla.thunderbird",
+                    remainingBundleIDs: ["com.apple.mail"]) == "app.bundle.org.mozilla.thunderbird",
+               "a removed app's shortcut is freed under the row the bar listed it as")
+        suite.expect(CommandBarRowShortcuts.keyFreed(
+                    byRemovingAppAt: "/Applications/Tool.app", bundleID: nil,
+                    remainingBundleIDs: []) == "app./Applications/Tool.app",
+               "an app with no bundle ID frees the row keyed by its path")
+        suite.expect(CommandBarRowShortcuts.keyFreed(
+                    byRemovingAppAt: "/Users/me/Applications/Thunderbird.app",
+                    bundleID: "org.mozilla.thunderbird",
+                    remainingBundleIDs: ["org.mozilla.thunderbird"]) == nil,
+               "another installed copy of the app keeps the shortcut")
+        suite.expect(CommandBarRowShortcuts.appKey(bundleID: "com.apple.mail", path: "/Applications/Mail.app")
+                == "app.bundle.com.apple.mail",
+               "an app with a bundle ID is listed by it, not by where it lives")
+        // The uninstaller frees the row under this same key, so the catalog
+        // must build it here rather than spell the format out again.
+        suite.expect(commandBarCatalogLines.contains {
+                    $0.contains("stableKey: CommandBarRowShortcuts.appKey(bundleID: app.bundleID, path: app.id)")
+                },
+               "an app row is keyed by the same seam the uninstaller frees it under")
 
         // ⌃⌘D is Look Up (symbolic hotkey 70), which System Settings does not
         // list: an app row must offer to take it over, as a window layout row
@@ -2496,6 +2671,9 @@ enum CommandBarDropletContract {
         suite.expect(shows.contains("panel.alphaValue = 1") && shows.contains("layer.add(appear, forKey: \"appear\")")
                      && !shows.contains("animator()"),
                      "the bar shows at once and fades in through Core Animation, not through main thread alpha steps")
+        let revealed = shows.components(separatedBy: "panel.alphaValue = 1").dropFirst().first ?? ""
+        suite.expect(revealed.contains("panel.makeKey()") && revealed.contains("self.focusField(in: panel)"),
+                     "the bar takes the keyboard again once the drop shows it, as the window bar does")
 
         let hurry = body(droplet, "func hurry() {")
         suite.expect(hurry.contains("guard falling, let fall, let reveal else { return }")

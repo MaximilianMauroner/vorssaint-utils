@@ -1979,10 +1979,10 @@ enum SwitcherModelFeatureTests {
         // decision above is made consciously, never by omission.
         let releasePlist = NSDictionary(contentsOfFile: "Resources/Info.plist")
         let plistVersion = (releasePlist?["CFBundleShortVersionString"] as? String) ?? ""
-        suite.expect(plistVersion == "3.4.1-beta.2",
+        suite.expect(plistVersion == "3.4.1-beta.3",
                "bumping the app version requires re-deciding the support prompt pin above")
         let plistBuild = (releasePlist?["CFBundleVersion"] as? String) ?? ""
-        suite.expect(plistBuild == "97",
+        suite.expect(plistBuild == "98",
                "every app version needs its own incremented bundle build")
         suite.expect(SupportUpdateIntroInfo.releaseVersion == "3.4.0",
                "the support prompt is prepared for the 3.4 final release")
@@ -3030,6 +3030,12 @@ enum SwitcherModelFeatureTests {
                "disk monitor panel section is shown by default")
         suite.expect(registeredDefaults[DefaultsKey.monitorSysAlerts] as? Bool == true,
                "system alert controls are shown by default")
+        suite.expect(registeredDefaults[DefaultsKey.monitorSysConnectedDevices] as? Bool == true
+                     && SettingsBackupSupport.exportKeys().contains(DefaultsKey.monitorSysConnectedDevices),
+               "the System card's connected devices row is shown by default and travels in backups")
+        suite.expect(registeredDefaults[DefaultsKey.monitorSysCPUCores] as? Bool == true
+                     && SettingsBackupSupport.exportKeys().contains(DefaultsKey.monitorSysCPUCores),
+               "the CPU row's per-core bars are shown by default and travel in backups")
         suite.expect(registeredDefaults[DefaultsKey.monitorGraphDisk] as? Bool == true,
                "disk monitor graph is shown by default")
         suite.expect(registeredDefaults[DefaultsKey.monitorNetApps] as? Bool == true,
@@ -3073,6 +3079,8 @@ enum SwitcherModelFeatureTests {
                "separate menu bar metric items are opt-in")
         suite.expect(registeredDefaults[DefaultsKey.menuBarNetworkUploadFirst] as? Bool == false,
                "network menu bar upload-first layout is opt-in")
+        suite.expect(registeredDefaults[DefaultsKey.networkSpeedUnit] as? String == NetworkSpeedUnit.bytes.rawValue,
+               "network speeds keep bytes per second by default")
         suite.expect(registeredDefaults[DefaultsKey.menuBarLabelStyle] as? String == "compact",
                "menu bar label style defaults to compact")
         suite.expect(registeredDefaults[DefaultsKey.menuBarMemoryStyle] as? String == "percent",
@@ -3085,6 +3093,8 @@ enum SwitcherModelFeatureTests {
                "dragging windows to screen edges is opt-in")
         suite.expect(registeredDefaults[DefaultsKey.windowEdgeSnapDisabledZones] as? String == "",
                "every visual edge snap zone starts enabled")
+        suite.expect(registeredDefaults[DefaultsKey.windowEdgeSnapZoneActions] as? String == "",
+               "every edge snap zone starts with its usual placement")
         suite.expect(registeredDefaults[DefaultsKey.windowGestureEnabled] as? Bool == false,
                "window move and resize gestures are opt-in")
         suite.expect(registeredDefaults[DefaultsKey.mouseSpacesGestureEnabled] as? Bool == false
@@ -3920,8 +3930,8 @@ enum SwitcherModelFeatureTests {
                                        hasFullscreenWindows: false,
                                        hasModifiers: false,
                                        minimizeEnabled: false,
-                                       hideEnabled: true) == .hide,
-               "hiding also works for a frontmost app with no windows")
+                                       hideEnabled: true) == .passThrough,
+               "a frontmost app with no windows lets the Dock open a new one")
         suite.expect(DockClickSupport.action(appIsFrontmost: true,
                                        hasUnminimizedWindows: false,
                                        hasMinimizedWindows: true,

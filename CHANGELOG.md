@@ -6,20 +6,96 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Summary
+Dynamic Island opens downloaded files directly, with fixes for Safari downloads, keyboard focus, pasting, brightness keys, Dock previews and Wine audio routing.
+
 ### Dynamic Island
+- Clicking a completed file's name or icon in Downloads opens it in its default app. The Finder and Shelf buttons remain available.
+
+### Fixed
+- Safari downloads show progress and completion notices, including quick downloads.
+- The Command Bar requests keyboard focus again when it appears after dropping out of the island.
+- Paste as plain text preserves images, videos and files and pastes them normally, including when its shortcut is Command-V.
+- Brightness keys keep their press and release together when displays reconnect, the pointer changes displays or brightness feedback changes.
+- Hovering over Dock previews no longer recenters each window while scrolling. The previous and next buttons still reveal the selected window.
+- Explicit app output choices remain enforced at 100%, including when the chosen device is the system default. Changing the output for all apps also routes processes that keep using their previous device.
+- Window switcher skips the synthetic mouse press when activating recognized Wine processes, avoiding an unmatched button press in games.
+
+### Contributors
+Feedback: Brain, Bureka, Emirhan and Gabriel.
+
+## [3.4.1-beta.3] - 2026-10-08
+
+### Summary
+Dynamic Island adds audio controls, music shortcuts and battery warnings while using less GPU and power. Window layout gains configurable snap areas, Clipboard history presents copied items as a shelf of cards, and screenshots can go straight to the Shelf.
+
+### Dynamic Island
+- Tools uses the quick panel's wand icon, so it is easier to tell apart from the sections button.
+- When hover opens Dynamic Island, you can set how long it waits before closing, from 0.10 to 2 seconds. Settings → Dynamic Island → Behavior → Closing time.
 - Controls can show a keyboard light slider next to Volume and Brightness, and its icon turns the light off and on. Settings → Dynamic Island → Content → Controls.
+- The mixer puts a microphone fader beside the output, with mute and an editable percentage on supported devices.
+- The music page can switch shuffle beside the playback controls for players that offer it. The first press asks for Automation permission.
 - Up next says when the player does not share its upcoming songs, instead of showing an empty queue.
 - The volume indicator stays hidden while headphones like AirPods Pro adjust their own level. Volume keys still show it.
 - With Hide timer countdown on, the closed island shows the timer when time is up and keeps it until you dismiss it.
+- The music bars and AI agent animations use much less GPU and battery, most of all on 120 Hz displays.
+- Switching between Timer, Pomodoro and Stopwatch animates as changing pages does, instead of the island jumping to its new size.
+- Now Playing follows music and videos from browsers and other apps on its own, and a paused video stays instead of switching to paused music. Settings → Dynamic Island → Content → Music → Automatically include videos and other apps.
+- Gestures open and close the island with shorter swipes and quick flicks.
+- The calendar month can number its weeks. Settings → Dynamic Island → Content → Calendar → Week numbers.
+- AI Agents stops counting a Claude Code turn once the Mac has been offline for about 20 seconds, unless a shell command is still running.
+- Opening lyrics or Up next no longer changes the size of the player above them.
+- The companion hides in the island by default when nothing is going on and comes out to visit and react. You can turn this off to keep it beside the camera. Settings → Dynamic Island → Companion → Hide when idle.
+- Hovering over the cover in the closed island shows the song and artist. Hovering over the music bars reveals a play and pause button.
+- In the Layout editor, the button of a section turned off in Content now looks dimmed, since the island leaves it out until the section is back on.
+- Options that need an uninstalled feature, like Lyrics, Gestures or Command Bar in the island, now read off and grayed, with a button to Features.
+- At rest keeps a choice that can't show just now, dimmed, with a link to what brings it back.
+- Hide gap below notch closes the thin strip of wallpaper beneath the island and is on by default. Settings → Dynamic Island → Layout → Notch fit.
+- The resting battery icon follows the charge and shows when the Mac is plugged in. It can turn red when low, warn in amber first, and use the same colors in the menu bar. Settings → Dynamic Island → Activity → At rest → Battery.
+
+### Added
+- The screenshot editor's Pixelate tool is now Blur, and it can pixelate, blur or erase a whole area or only the text inside it.
+- Window layout snaps to the edge two displays share once you slow down there, and a quick drag still carries the window to the other display.
+- Each edge and corner that snaps a dragged window can use any placement, like a third or two thirds, and an edge can be split into up to four areas. Settings → Window layout → Window dragging.
+- Network speeds can show in bits per second. Settings → System monitor → Network speed unit.
+- Connected Devices opens from the System section of the menu and from the island's System page, without its menu bar widget.
+- Tapping CPU in the System section of the menu shows the load of each core, grouped by core type. Settings → System monitor → CPU → Per core.
+- In the Clipboard history window, the preview lays out copied JSON one value per line, and a picture's preview can copy the text in it.
+- The screenshot editor can add its result to the Shelf, an image on the Shelf opens in the editor from its right-click menu, and every capture can go to the Shelf on its own. Settings → Screen capture → Add to the shelf automatically.
 
 ### Changed
 - Clear unpinned asks first everywhere and says how many items it removes. Anything copied while it asks is kept.
+- The Clipboard history window is a shelf of cards along the bottom of the screen, and each card shows the app the copy came from.
+- Pressing an app's Command Bar shortcut while its window is in front hides the app, and the next press brings it back.
 
 ### Fixed
+- Editing or discarding a screenshot, or turning off temporary links, prevents a late upload from copying a link to the original capture. Links returned after cancellation are revoked when the server can be reached.
+- Watch stays stopped when an earlier area selection or capture preparation finishes late.
+- Displays checks the connected screens again before turning one off, so unplugging another screen during the operation does not leave the last usable display disabled.
+- AI Agents finishes only the Claude Code command named by a tool result, even when its output mentions other commands.
+- Installing Developer no longer removes older official Vorss or Vorssaint Utils apps.
+- The Clean button stays reachable in compact Cleaner panels in Dynamic Island, the menu and the quick launcher.
+- Screen recordings release their audio-device monitoring when they stop, and cancelling startup no longer tries to release the same audio tap twice.
+- The Empty the Trash confirmation opens above Dynamic Island and accepts mouse and keyboard input.
 - In the Clipboard history window, a new copy no longer moves the highlight, so Return pastes the entry you picked.
+- The screenshot editor no longer misses lines of text in very large and scrolling captures.
+- Pen drawings in the screenshot editor no longer disappear when the stroke returns to its starting point.
+- Focus follows mouse no longer flickers toward the window behind an open sheet or dialog, like a file list in System Settings.
+- With Click the Dock icon to hide on, clicking a frontmost app that has no windows opens a new window instead of hiding it.
+- The power reading in the menu bar follows the chosen update interval while the panel is closed.
+- The Command Bar calculator and unit conversions accept both decimal separators where thousands are grouped with a space or an apostrophe, reject misplaced grouping separators and never read a number that starts with 0 as thousands.
+- Automatic Clean URL leaves a copy alone when it carries more than the link, like several items or a picture, or a different link target. It preserves case-sensitive paths and leaves a newer copy untouched if it arrives while the previous one is still being read.
+- The manual Clean URL result follows the link and rules as you edit them, and switching a site off keeps the names you added.
+- Holding an extra mouse button to use the radial menu now highlights and picks slices.
+- The screenshot editor keeps all its controls inside the window for small captures.
+- Vorssaint no longer stops responding at launch while macOS is slow to report Launch at Login.
+- Removing an app with the Uninstaller frees its Command Bar shortcut for another app.
+- The mute key no longer lowers the volume when the output loses its mute control right after the press.
+- In the Volume mixer, an app set below or above 100% no longer turns much quieter on outputs with four to eight channels, like a TV over HDMI or an audio interface.
+- Screen recordings no longer capture the Mac's sound much quieter on outputs with four to eight channels, like a TV over HDMI or an audio interface. The island's live music bars also compensate for the quieter signal.
 
 ### Contributors
-Thanks to @mugurc, @nik2k-7 and @PathGao. Feedback: Brain and Martimm500.
+Thanks to @AB-boi, @Acronyxxx, @adam8833, @Babelfisch, @dc0dr, @djc041006-bot, @emilianorobles, @georgebnov, @gorillasuti, @gxlactuss, @iamprasad88, @JamesOBrien2, @JeanBaeez, @luantedesco, @massisenergy, @mgailius, @mugurc, @mynameisluke, @naes993, @Narangor, @nik2k-7, @niukanen1, @nkudrin713, @odeioabacate, @oskarsss, @PathGao, @Polovinkin, @priyanshuvishnoi, @samanyudas, @samueltpoj, @sarat03, @suhrudsh, @ThelloD, @velit, @wuast94, @ywu73 and @zecarreira. Feedback: Barbel Design, Brain and Martimm500.
 
 ## [3.4.1-beta.2] - 2026-10-06
 

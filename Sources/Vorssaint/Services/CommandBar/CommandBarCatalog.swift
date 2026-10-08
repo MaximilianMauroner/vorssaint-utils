@@ -985,7 +985,7 @@ enum CommandBarCatalog {
                 id: "app.\(app.id)",
                 // Two copies of one app need two rows, so the row is keyed by
                 // where it lives; what the person named stays with the app.
-                stableKey: app.bundleID.map { "app.bundle.\($0)" } ?? "app.\(app.id)",
+                stableKey: CommandBarRowShortcuts.appKey(bundleID: app.bundleID, path: app.id),
                 title: app.name,
                 subtitle: bar.kindApp,
                 keywords: keywords,
@@ -1317,6 +1317,7 @@ enum CommandBarCatalog {
     private static func copyAnswer(_ value: String) {
         GeneralPasteboardAccess.shared.async({
             NSPasteboard.general.clearContents()
+            NSPasteboard.general.declareVorssaintSource()
             return NSPasteboard.general.setString(value, forType: .string)
         }, then: { copied in
             QuickToolHUD.show(icon: copied ? "doc.on.doc" : "exclamationmark.circle",

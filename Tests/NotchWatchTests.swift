@@ -6,6 +6,7 @@ import Foundation
 
 enum NotchWatchTests {
     static func run(_ suite: TestSuite) {
+        NotchWatchChoiceTests.run(suite)
         readingContracts(suite)
         numberContracts(suite)
         changeContracts(suite)

@@ -37,6 +37,7 @@ enum SettingsFeatureTests {
                 && backupKeys.contains(DefaultsKey.menuBarCPU)
                 && backupKeys.contains(DefaultsKey.language)
                 && backupKeys.contains(DefaultsKey.appVolumes)
+                && backupKeys.contains(DefaultsKey.mixerUniversalOutputDevice)
                 && backupKeys.contains(DefaultsKey.mixerShowFinder)
                 && backupKeys.contains(DefaultsKey.mixerHideInactiveApps)
                 && backupKeys.contains(DefaultsKey.keepAwakeActiveIcon)
@@ -168,6 +169,7 @@ enum SettingsFeatureTests {
         suite.expect(backupKeys.contains(DefaultsKey.windowGestureEnabled)
                 && backupKeys.contains(DefaultsKey.windowEdgeSnapEnabled)
                 && backupKeys.contains(DefaultsKey.windowEdgeSnapDisabledZones)
+                && backupKeys.contains(DefaultsKey.windowEdgeSnapZoneActions)
                 && backupKeys.contains(DefaultsKey.windowGestureModifiers)
                 && backupKeys.contains(DefaultsKey.windowGestureRaiseWindow)
                 && backupKeys.contains(DefaultsKey.windowLayoutShortcutPreviousDisplay)
@@ -264,9 +266,6 @@ enum SettingsFeatureTests {
                "the apps each mouse feature leaves alone travel with the settings backup")
         suite.expect(backupKeys.contains(DefaultsKey.clipboardHistoryIgnoredApps),
                "the apps the clipboard history skips travel with the settings backup")
-        suite.expect(!backupKeys.contains(DefaultsKey.clipboardHistoryWindowWidth)
-                && !backupKeys.contains(DefaultsKey.clipboardHistoryWindowHeight),
-               "the clipboard window size stays on the display where it was chosen")
         suite.expect(backupKeys.contains(DefaultsKey.windowLayoutIgnoredApps),
                "the apps that pause window layout travel with the settings backup")
         suite.expect(backupKeys.contains(DefaultsKey.switcherAppRules),
