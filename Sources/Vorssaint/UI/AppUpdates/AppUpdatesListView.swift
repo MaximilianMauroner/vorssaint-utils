@@ -12,16 +12,20 @@ struct AppUpdatesListView: View {
     @ObservedObject private var homebrew = HomebrewManager.shared
     @AppStorage(DefaultsKey.appUpdatesIncludeOnlineCatalog)
     private var includeOnlineCatalog = true
+    @AppStorage(DefaultsKey.appUpdatesIncludeAppStore)
+    private var includeAppStore = true
     @State private var showOperationDetails = false
     var compact = false
 
     private var text: AppUpdateStrings { FeatureStrings.appUpdates(l10n.language) }
     private var isBusy: Bool { updates.isChecking || homebrew.operation != nil }
-    private var onlineCoverageIncomplete: Bool {
-        includeOnlineCatalog
-            && updates.hasCheckedThisSession
+    private var storeCoverageIncomplete: Bool {
+        includeAppStore && !updates.appStoreAvailable
+    }
+    private var coverageIncomplete: Bool {
+        updates.hasCheckedThisSession
             && !updates.isChecking
-            && !updates.onlineCatalogAvailable
+            && (storeCoverageIncomplete || (includeOnlineCatalog && !updates.onlineCatalogAvailable))
     }
 
     var body: some View {
@@ -34,8 +38,9 @@ struct AppUpdatesListView: View {
                 list
                 if updates.selectableCount > 0 { updateButton }
             }
-            if onlineCoverageIncomplete {
-                onlineFailure
+            if !updates.rules.isEmpty { rulesSection }
+            if coverageIncomplete {
+                incompleteCheck
             }
             if let status = homebrew.operationStatus {
                 HomebrewOperationStatusView(status: status,
@@ -105,10 +110,14 @@ struct AppUpdatesListView: View {
     @ViewBuilder
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if updates.hasCheckedThisSession, !updates.isChecking, !onlineCoverageIncomplete {
-                Label(text.upToDate, systemImage: "checkmark.circle.fill")
+            if updates.hasCheckedThisSession, !updates.isChecking {
+                Label(coverageIncomplete ? text.partialUpToDate
+                      : (updates.rules.isEmpty ? text.upToDate : text.noVisibleUpdates),
+                      systemImage: coverageIncomplete || !updates.rules.isEmpty
+                          ? "info.circle" : "checkmark.circle.fill")
                     .font(.system(size: compact ? 11 : 12, weight: .medium))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(coverageIncomplete || !updates.rules.isEmpty
+                                     ? Color.secondary : Color.green)
             }
             Text(text.coverageNote)
                 .font(.system(size: compact ? 9.5 : 11))
@@ -124,15 +133,73 @@ struct AppUpdatesListView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var onlineFailure: some View {
+    private var incompleteCheck: some View {
         VStack(alignment: .leading, spacing: 3) {
             Label(text.incompleteCheck, systemImage: "exclamationmark.triangle.fill")
                 .font(.system(size: compact ? 10.5 : 11.5, weight: .medium))
                 .foregroundStyle(.orange)
+            if !updates.uncheckedAppNames.isEmpty {
+                Text(updates.uncheckedAppNames.joined(separator: ", "))
+                    .font(.system(size: compact ? 9.5 : 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(compact ? 3 : nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(updates.uncheckedAppNames.joined(separator: ", "))
+            }
             Text(text.onlineUnavailable)
                 .font(.system(size: compact ? 9.5 : 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if storeCoverageIncomplete {
+                Button(text.openAppStore) { updates.openAppStoreUpdates() }
+                    .buttonStyle(.link)
+                    .font(.system(size: compact ? 10 : 11))
+            }
+        }
+    }
+
+    // MARK: - Rules
+
+    private var rulesSection: some View {
+        DisclosureGroup(text.rulesTitle) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(text.rulesHint)
+                    .font(.system(size: compact ? 9.5 : 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if compact {
+                    ScrollView { ruleRows }
+                        .frame(height: CGFloat(min(updates.rules.count, 3)) * 54)
+                } else {
+                    ruleRows
+                }
+            }
+            .padding(.top, 4)
+        }
+        .font(.system(size: compact ? 10.5 : 12))
+    }
+
+    private var ruleRows: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(updates.rules) { rule in
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(rule.name).fontWeight(.medium).lineLimit(1)
+                        Text(rule.version.map { String(format: text.skippedVersionFormat, $0) }
+                             ?? text.excludedApp)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .help(rule.bundleID)
+                    Spacer(minLength: 0)
+                    Button(text.removeRule) { updates.removeRule(rule) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(isBusy)
+                        .accessibilityLabel("\(text.removeRule): \(rule.name)")
+                }
+                .frame(height: compact ? 48 : nil)
+            }
         }
     }
 
@@ -237,6 +304,16 @@ struct AppUpdatesListView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.primary.opacity(0.035))
         )
+        .contextMenu {
+            if item.bundleID != nil {
+                Button(String(format: text.skipVersionFormat, item.latestVersion)) {
+                    updates.skipVersion(item)
+                }
+                .disabled(isBusy)
+                Button(text.excludeApp) { updates.excludeApp(item) }
+                    .disabled(isBusy)
+            }
+        }
     }
 
     private func icon(for item: AppUpdatesSupport.Item) -> NSImage {

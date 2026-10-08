@@ -29,6 +29,7 @@ struct RecorderFeatureStrings {
     let folderChoose: String
     let moreOptions: String
     let copyButton: String
+    let copyGIFButton: String
     let saveButton: String
     let discardButton: String
     let copiedHUD: String
@@ -132,6 +133,14 @@ struct RecorderFeatureStrings {
     let blurPickArea: String
     let blurPickAreaHint: String
     let blurCaption: String
+    let addImageButton: String
+    let imageLaneLabel: String
+    let imageLaneEmptyHint: String
+    let thisImageLabel: String
+    let imageSizeLabel: String
+    let imageOpacityLabel: String
+    let imagePositionLabel: String
+    let imageImportFailed: String
 }
 
 extension FeatureStrings {
@@ -142,6 +151,7 @@ extension FeatureStrings {
         case .tr: return .tr
         case .ru: return .ru
         case .es: return .es
+        case .sk: return .sk
         case .de: return .de
         case .fr: return .fr
         case .it: return .it
@@ -150,6 +160,7 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .uk: return .uk
         }
     }
 }
@@ -180,6 +191,7 @@ extension RecorderFeatureStrings {
         folderChoose: "Choose…",
         moreOptions: "More options",
         copyButton: "Copy",
+        copyGIFButton: "Copy as GIF",
         saveButton: "Save",
         discardButton: "Delete",
         copiedHUD: "Recording copied",
@@ -282,7 +294,15 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "This blur",
         blurPickArea: "Choose the area",
         blurPickAreaHint: "Drag over what should stay hidden",
-        blurCaption: "Hidden for as long as its block lasts on the timeline."
+        blurCaption: "Hidden for as long as its block lasts on the timeline.",
+        addImageButton: "Add image",
+        imageLaneLabel: "Image",
+        imageLaneEmptyHint: "Click here to add an image",
+        thisImageLabel: "This image",
+        imageSizeLabel: "Size",
+        imageOpacityLabel: "Opacity",
+        imagePositionLabel: "Position",
+        imageImportFailed: "Couldn’t add this image."
     )
 
     static let ptBR = RecorderFeatureStrings(
@@ -310,6 +330,7 @@ extension RecorderFeatureStrings {
         folderChoose: "Escolher…",
         moreOptions: "Mais opções",
         copyButton: "Copiar",
+        copyGIFButton: "Copiar como GIF",
         saveButton: "Salvar",
         discardButton: "Apagar",
         copiedHUD: "Gravação copiada",
@@ -412,7 +433,15 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "Este desfoque",
         blurPickArea: "Escolher a área",
         blurPickAreaHint: "Arraste sobre o que deve ficar escondido",
-        blurCaption: "Fica escondido enquanto o bloco durar na linha do tempo."
+        blurCaption: "Fica escondido enquanto o bloco durar na linha do tempo.",
+        addImageButton: "Adicionar imagem",
+        imageLaneLabel: "Imagem",
+        imageLaneEmptyHint: "Clique aqui para adicionar uma imagem",
+        thisImageLabel: "Esta imagem",
+        imageSizeLabel: "Tamanho",
+        imageOpacityLabel: "Opacidade",
+        imagePositionLabel: "Posição",
+        imageImportFailed: "Não foi possível adicionar esta imagem."
     )
 
     static let tr = RecorderFeatureStrings(
@@ -440,6 +469,7 @@ extension RecorderFeatureStrings {
         folderChoose: "Seç…",
         moreOptions: "Diğer seçenekler",
         copyButton: "Kopyala",
+        copyGIFButton: "GIF olarak kopyala",
         saveButton: "Kaydet",
         discardButton: "Sil",
         copiedHUD: "Kayıt kopyalandı",
@@ -542,7 +572,15 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "Bu bulanıklık",
         blurPickArea: "Alanı seç",
         blurPickAreaHint: "Gizli kalması gerekenin üzerine sürükleyin",
-        blurCaption: "Zaman çizelgesindeki blok sürdüğü sürece gizli kalır."
+        blurCaption: "Zaman çizelgesindeki blok sürdüğü sürece gizli kalır.",
+        addImageButton: "Görsel ekle",
+        imageLaneLabel: "Görsel",
+        imageLaneEmptyHint: "Görsel eklemek için buraya tıklayın",
+        thisImageLabel: "Bu görsel",
+        imageSizeLabel: "Boyut",
+        imageOpacityLabel: "Matlık",
+        imagePositionLabel: "Konum",
+        imageImportFailed: "Bu görsel eklenemedi."
     )
 
     static let ru = RecorderFeatureStrings(
@@ -570,6 +608,7 @@ extension RecorderFeatureStrings {
         folderChoose: "Выбрать…",
         moreOptions: "Дополнительно",
         copyButton: "Скопировать",
+        copyGIFButton: "Скопировать как GIF",
         saveButton: "Сохранить",
         discardButton: "Удалить",
         copiedHUD: "Запись скопирована",
@@ -672,7 +711,15 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "Это размытие",
         blurPickArea: "Выбрать область",
         blurPickAreaHint: "Проведите по тому, что нужно скрыть",
-        blurCaption: "Скрыто, пока длится блок на шкале времени."
+        blurCaption: "Скрыто, пока длится блок на шкале времени.",
+        addImageButton: "Добавить изображение",
+        imageLaneLabel: "Изображение",
+        imageLaneEmptyHint: "Нажмите здесь, чтобы добавить изображение",
+        thisImageLabel: "Это изображение",
+        imageSizeLabel: "Размер",
+        imageOpacityLabel: "Непрозрачность",
+        imagePositionLabel: "Положение",
+        imageImportFailed: "Не удалось добавить это изображение."
     )
 
     static let es = RecorderFeatureStrings(
@@ -700,6 +747,7 @@ extension RecorderFeatureStrings {
         folderChoose: "Elegir…",
         moreOptions: "Más opciones",
         copyButton: "Copiar",
+        copyGIFButton: "Copiar como GIF",
         saveButton: "Guardar",
         discardButton: "Eliminar",
         copiedHUD: "Grabación copiada",
@@ -802,7 +850,154 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "Este desenfoque",
         blurPickArea: "Elegir el área",
         blurPickAreaHint: "Arrastra sobre lo que debe quedar oculto",
-        blurCaption: "Queda oculto mientras dure su bloque en la línea de tiempo."
+        blurCaption: "Queda oculto mientras dure su bloque en la línea de tiempo.",
+        addImageButton: "Añadir imagen",
+        imageLaneLabel: "Imagen",
+        imageLaneEmptyHint: "Haz clic aquí para añadir una imagen",
+        thisImageLabel: "Esta imagen",
+        imageSizeLabel: "Tamaño",
+        imageOpacityLabel: "Opacidad",
+        imagePositionLabel: "Posición",
+        imageImportFailed: "No se pudo añadir esta imagen."
+    )
+
+    static let sk = RecorderFeatureStrings(
+        pageTitle: "Nahrávanie obrazovky",
+        hubDescription: "Nahráva oblasť, okno alebo obrazovku a potom ju môžete upraviť",
+        panelCaption: "Nahrajte oblasť, okno alebo celú obrazovku",
+        startButton: "Spustiť nahrávanie",
+        stopButton: "Zastaviť nahrávanie",
+        fileNamePrefix: "Nahrávka",
+        selectionPurpose: "Vyberte, čo nahrať",
+        indicatorTooltip: "Ovládanie nahrávania",
+        countdownLabel: "Odpočítavanie",
+        countdownOff: "Vypnuté",
+        countdownSecondsFormat: "%d s",
+        qualityLabel: "Kvalita",
+        qualitySmall: "Malý súbor",
+        qualityBalanced: "Vyvážená",
+        qualityHigh: "Vysoká",
+        qualityCaption: "Vyvážená sa hodí na väčšinu použití. Vysoká zachová každý detail, súbory sú väčšie.",
+        frameRateLabel: "Snímky za sekundu",
+        frameRateFormat: "%d fps",
+        systemAudioToggle: "Nahrávať zvuk Macu",
+        systemAudioCaption: "Všetko, čo počujete, sa nahrá na samostatnú stopu, takže to neskôr môžete stlmiť.",
+        folderLabel: "Uložiť do",
+        folderChoose: "Vybrať…",
+        moreOptions: "Ďalšie možnosti",
+        copyButton: "Kopírovať",
+        copyGIFButton: "Kopírovať ako GIF",
+        saveButton: "Uložiť",
+        discardButton: "Vymazať",
+        copiedHUD: "Nahrávka skopírovaná",
+        savedHUDFormat: "Uložené do %@",
+        recordFailed: "Obrazovku sa nepodarilo nahrať",
+        noSpaceTitle: "Nedostatok miesta na nahrávanie",
+        noSpaceMessage: "Uvoľnite miesto na disku a skúste to znova.",
+        stoppedNoSpaceHUD: "Nahrávanie zastavené, disk je takmer plný",
+        shortcutLabel: "Skratka",
+        editorTitle: "Nahrávka",
+        saveVideoButton: "Uložiť",
+        saveGIFButton: "Uložiť ako GIF",
+        exportingLabel: "Ukladá sa…",
+        cancelButton: "Zrušiť",
+        exportFailed: "Nahrávku sa nepodarilo uložiť",
+        gifTooLongFormat: "Maximálna dĺžka GIF: %d s",
+        gifSizeLabel: "Veľkosť GIF",
+        gifSizeSmall: "Malá",
+        gifSizeMedium: "Stredná",
+        gifSizeLarge: "Veľká",
+        gifFrameRateLabel: "Plynulosť GIF",
+        discardTitle: "Vymazať túto nahrávku?",
+        discardMessage: "Zatiaľ nebola nikam uložená.",
+        openEditorToggle: "Otvoriť editor po nahrávaní",
+        openEditorCaption: "Nahrávka sa otvorí pripravená na skrátenie, stlmenie a uloženie. Vypnite to, ak chcete súbor rovno.",
+        lookLabel: "Štýl",
+        lookRaw: "Pôvodný",
+        lookClean: "Jemný",
+        lookStudio: "Štúdio",
+        lookCaption: "Východiskový bod. Čokoľvek zmeníte nižšie, zostane zmenené.",
+        pointerSectionLabel: "Kurzor",
+        pointerShowToggle: "Zobrazovať kurzor",
+        pointerSmoothingLabel: "Vyhladzovanie",
+        pointerSmoothingOff: "Žiadne",
+        pointerSmoothingLight: "Jemné",
+        pointerSmoothingSmooth: "Plynulé",
+        pointerSmoothingCinematic: "Filmové",
+        pointerSizeLabel: "Veľkosť",
+        clickRingToggle: "Označiť miesto kliknutia",
+        zoomSectionLabel: "Priblíženie",
+        zoomToggle: "Priblížiť pri každom kliknutí",
+        zoomAmountLabel: "Miera priblíženia",
+        backgroundSectionLabel: "Pozadie",
+        shapeLabel: "Tvar",
+        shapeOriginal: "Pôvodný",
+        shapeWide: "Široký",
+        shapeSquare: "Štvorcový",
+        shapeVertical: "Vysoký",
+        noPointerNote: "Táto nahrávka nemá stopu kurzora, takže nie je čo vyhladzovať. Ručne umiestnené priblíženia stále fungujú.",
+        zoomLaneEmptyHint: "Kliknutím sem pridáte priblíženie",
+        addZoomButton: "Pridať priblíženie",
+        removeZoom: "Odstrániť",
+        thisZoomLabel: "Toto priblíženie",
+        zoomWhereLabel: "Kam smeruje",
+        zoomFollowsPointer: "Sleduje kurzor",
+        zoomPickSpot: "Vybrať miesto",
+        zoomPickSpotHint: "Kliknutím na obraz nastavíte cieľ",
+        regenerateZooms: "Späť na jedno na kliknutie",
+        backToOptions: "Všetky možnosti",
+        cutOutButton: "Vystrihnúť",
+        cutHint: "Potiahnutím po páse vyberte časť na odstránenie",
+        addTextButton: "Pridať text",
+        textLaneEmptyHint: "Kliknutím sem pridáte text",
+        thisTextLabel: "Tento text",
+        textPlaceholder: "Váš text tu",
+        textContentLabel: "Text",
+        textSizeLabel: "Veľkosť",
+        textPositionLabel: "Poloha",
+        textColorLabel: "Farba",
+        removeText: "Odstrániť",
+        copyAndDeleteButton: "Kopírovať a vymazať",
+        saveAsButton: "Uložiť ako…",
+        discardSavedMessage: "Uložené a skopírované súbory zostanú na svojom mieste.",
+        presetsButton: "Predvoľby",
+        savePreset: "Uložiť aktuálnu predvoľbu…",
+        presetNamePlaceholder: "Názov predvoľby",
+        removePreset: "Odstrániť predvoľbu",
+        zoomEmptyTitle: "Zatiaľ žiadne priblíženia",
+        zoomEmptyCaption: "Vytvorte ich z kliknutí alebo jedno pridajte na časovú os.",
+        createAutomaticZooms: "Vytvoriť automatické priblíženia",
+        typingZoomToggle: "Zachovať priblíženie počas písania",
+        typingZoomCaption: "Po kliknutí písanie udržiava automatické priblíženie na danom mieste.",
+        microphoneToggle: "Nahrávať mikrofón",
+        microphoneCaption: "Váš hlas sa nahrá na samostatnú stopu a zostáva upraviteľný v editore.",
+        systemAudioTrackLabel: "Zvuk Macu",
+        microphoneTrackLabel: "Mikrofón",
+        audioVolumeLabel: "Hlasitosť",
+        removeAudio: "Odstrániť",
+        restoreAudio: "Obnoviť",
+        microphoneUnavailableHUD: "Mikrofón nie je dostupný",
+        microphonePermissionName: "Mikrofón",
+        microphonePermissionExplain: "Po zapnutí umožňuje pridať váš hlas do nahrávok obrazovky.",
+        automaticZoomToggle: "Pridávať priblíženia automaticky",
+        automaticZoomCaption: "Vypnutím tejto možnosti začnete nové nahrávky bez priblížení. Stále ich môžete pridať v editore.",
+        pauseButton: "Pozastaviť nahrávanie",
+        resumeButton: "Pokračovať v nahrávaní",
+        blurLaneLabel: "Rozmazanie",
+        addBlurButton: "Rozmazať oblasť",
+        blurLaneEmptyHint: "Kliknutím sem pridáte rozmazanie",
+        thisBlurLabel: "Toto rozmazanie",
+        blurPickArea: "Vybrať oblasť",
+        blurPickAreaHint: "Potiahnite ponad to, čo má zostať skryté",
+        blurCaption: "Skryté, kým na časovej osi trvá jeho blok.",
+        addImageButton: "Pridať obrázok",
+        imageLaneLabel: "Obrázok",
+        imageLaneEmptyHint: "Kliknutím sem pridáte obrázok",
+        thisImageLabel: "Tento obrázok",
+        imageSizeLabel: "Veľkosť",
+        imageOpacityLabel: "Nepriehľadnosť",
+        imagePositionLabel: "Poloha",
+        imageImportFailed: "Tento obrázok sa nepodarilo pridať."
     )
 
     static let de = RecorderFeatureStrings(
@@ -830,6 +1025,7 @@ extension RecorderFeatureStrings {
         folderChoose: "Auswählen…",
         moreOptions: "Weitere Optionen",
         copyButton: "Kopieren",
+        copyGIFButton: "Als GIF kopieren",
         saveButton: "Sichern",
         discardButton: "Löschen",
         copiedHUD: "Aufnahme kopiert",
@@ -932,7 +1128,15 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "Diese Unschärfe",
         blurPickArea: "Bereich wählen",
         blurPickAreaHint: "Über das ziehen, was verborgen bleiben soll",
-        blurCaption: "Bleibt verborgen, solange der Block in der Zeitleiste dauert."
+        blurCaption: "Bleibt verborgen, solange der Block in der Zeitleiste dauert.",
+        addImageButton: "Bild hinzufügen",
+        imageLaneLabel: "Bild",
+        imageLaneEmptyHint: "Hier klicken, um ein Bild hinzuzufügen",
+        thisImageLabel: "Dieses Bild",
+        imageSizeLabel: "Größe",
+        imageOpacityLabel: "Deckkraft",
+        imagePositionLabel: "Position",
+        imageImportFailed: "Dieses Bild konnte nicht hinzugefügt werden."
     )
 
     static let fr = RecorderFeatureStrings(
@@ -960,6 +1164,7 @@ extension RecorderFeatureStrings {
         folderChoose: "Choisir…",
         moreOptions: "Plus d’options",
         copyButton: "Copier",
+        copyGIFButton: "Copier en GIF",
         saveButton: "Enregistrer",
         discardButton: "Supprimer",
         copiedHUD: "Enregistrement copié",
@@ -1062,7 +1267,15 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "Ce flou",
         blurPickArea: "Choisir la zone",
         blurPickAreaHint: "Faites glisser sur ce qui doit rester caché",
-        blurCaption: "Reste caché tant que son bloc dure dans la chronologie."
+        blurCaption: "Reste caché tant que son bloc dure dans la chronologie.",
+        addImageButton: "Ajouter une image",
+        imageLaneLabel: "Image",
+        imageLaneEmptyHint: "Cliquez ici pour ajouter une image",
+        thisImageLabel: "Cette image",
+        imageSizeLabel: "Taille",
+        imageOpacityLabel: "Opacité",
+        imagePositionLabel: "Position",
+        imageImportFailed: "Impossible d’ajouter cette image."
     )
 
     static let it = RecorderFeatureStrings(
@@ -1090,6 +1303,7 @@ extension RecorderFeatureStrings {
         folderChoose: "Scegli…",
         moreOptions: "Altre opzioni",
         copyButton: "Copia",
+        copyGIFButton: "Copia come GIF",
         saveButton: "Salva",
         discardButton: "Elimina",
         copiedHUD: "Registrazione copiata",
@@ -1192,7 +1406,15 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "Questa sfocatura",
         blurPickArea: "Scegli l’area",
         blurPickAreaHint: "Trascina su ciò che deve restare nascosto",
-        blurCaption: "Resta nascosto finché dura il blocco nella timeline."
+        blurCaption: "Resta nascosto finché dura il blocco nella timeline.",
+        addImageButton: "Aggiungi immagine",
+        imageLaneLabel: "Immagine",
+        imageLaneEmptyHint: "Fai clic qui per aggiungere un’immagine",
+        thisImageLabel: "Questa immagine",
+        imageSizeLabel: "Dimensione",
+        imageOpacityLabel: "Opacità",
+        imagePositionLabel: "Posizione",
+        imageImportFailed: "Impossibile aggiungere questa immagine."
     )
 
     static let ja = RecorderFeatureStrings(
@@ -1220,6 +1442,7 @@ extension RecorderFeatureStrings {
         folderChoose: "選択…",
         moreOptions: "その他のオプション",
         copyButton: "コピー",
+        copyGIFButton: "GIFとしてコピー",
         saveButton: "保存",
         discardButton: "削除",
         copiedHUD: "画面収録をコピーしました",
@@ -1322,7 +1545,15 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "このぼかし",
         blurPickArea: "範囲を選ぶ",
         blurPickAreaHint: "隠したい部分をドラッグ",
-        blurCaption: "タイムラインのブロックが続く間は隠れたままです。"
+        blurCaption: "タイムラインのブロックが続く間は隠れたままです。",
+        addImageButton: "画像を追加",
+        imageLaneLabel: "画像",
+        imageLaneEmptyHint: "クリックして画像を追加",
+        thisImageLabel: "この画像",
+        imageSizeLabel: "サイズ",
+        imageOpacityLabel: "不透明度",
+        imagePositionLabel: "位置",
+        imageImportFailed: "この画像を追加できませんでした。"
     )
 
     static let ko = RecorderFeatureStrings(
@@ -1350,6 +1581,7 @@ extension RecorderFeatureStrings {
         folderChoose: "선택…",
         moreOptions: "추가 옵션",
         copyButton: "복사",
+        copyGIFButton: "GIF로 복사",
         saveButton: "저장",
         discardButton: "삭제",
         copiedHUD: "화면 기록을 복사했습니다",
@@ -1452,7 +1684,15 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "선택한 흐림",
         blurPickArea: "영역 선택",
         blurPickAreaHint: "숨길 부분 위로 드래그하세요",
-        blurCaption: "타임라인의 블록이 지속되는 동안 숨겨집니다."
+        blurCaption: "타임라인의 블록이 지속되는 동안 숨겨집니다.",
+        addImageButton: "이미지 추가",
+        imageLaneLabel: "이미지",
+        imageLaneEmptyHint: "여기를 클릭해 이미지를 추가하세요",
+        thisImageLabel: "선택한 이미지",
+        imageSizeLabel: "크기",
+        imageOpacityLabel: "불투명도",
+        imagePositionLabel: "위치",
+        imageImportFailed: "이 이미지를 추가할 수 없습니다."
     )
 
     static let zhHans = RecorderFeatureStrings(
@@ -1480,6 +1720,7 @@ extension RecorderFeatureStrings {
         folderChoose: "选择…",
         moreOptions: "更多选项",
         copyButton: "拷贝",
+        copyGIFButton: "拷贝为 GIF",
         saveButton: "存储",
         discardButton: "删除",
         copiedHUD: "录屏已拷贝",
@@ -1551,7 +1792,7 @@ extension RecorderFeatureStrings {
         textColorLabel: "颜色",
         removeText: "移除",
         copyAndDeleteButton: "拷贝并删除",
-        saveAsButton: "另存为…",
+        saveAsButton: "存储为…",
         discardSavedMessage: "已存储和已拷贝的文件会保留在原位置。",
         presetsButton: "预设",
         savePreset: "保存当前预设…",
@@ -1582,7 +1823,15 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "当前模糊",
         blurPickArea: "选取区域",
         blurPickAreaHint: "拖过需要隐藏的内容",
-        blurCaption: "在时间线上的区块持续期间保持隐藏。"
+        blurCaption: "在时间线上的区块持续期间保持隐藏。",
+        addImageButton: "添加图片",
+        imageLaneLabel: "图片",
+        imageLaneEmptyHint: "点按此处添加图片",
+        thisImageLabel: "当前图片",
+        imageSizeLabel: "大小",
+        imageOpacityLabel: "不透明度",
+        imagePositionLabel: "位置",
+        imageImportFailed: "无法添加此图片。"
     )
 
     static let zhTW = RecorderFeatureStrings(
@@ -1610,6 +1859,7 @@ extension RecorderFeatureStrings {
         folderChoose: "選擇…",
         moreOptions: "更多選項",
         copyButton: "拷貝",
+        copyGIFButton: "拷貝為 GIF",
         saveButton: "儲存",
         discardButton: "刪除",
         copiedHUD: "已拷貝錄製檔",
@@ -1712,7 +1962,15 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "這個模糊",
         blurPickArea: "選取區域",
         blurPickAreaHint: "拖曳過需要隱藏的內容",
-        blurCaption: "在時間軸上的區塊持續期間保持隱藏。"
+        blurCaption: "在時間軸上的區塊持續期間保持隱藏。",
+        addImageButton: "加入圖片",
+        imageLaneLabel: "圖片",
+        imageLaneEmptyHint: "按一下這裡加入圖片",
+        thisImageLabel: "這張圖片",
+        imageSizeLabel: "大小",
+        imageOpacityLabel: "不透明度",
+        imagePositionLabel: "位置",
+        imageImportFailed: "無法加入這張圖片。"
     )
 
     static let zhHK = RecorderFeatureStrings(
@@ -1740,6 +1998,7 @@ extension RecorderFeatureStrings {
         folderChoose: "選擇…",
         moreOptions: "更多選項",
         copyButton: "拷貝",
+        copyGIFButton: "拷貝為 GIF",
         saveButton: "儲存",
         discardButton: "刪除",
         copiedHUD: "錄影已拷貝",
@@ -1842,6 +2101,152 @@ extension RecorderFeatureStrings {
         thisBlurLabel: "這個模糊",
         blurPickArea: "選取區域",
         blurPickAreaHint: "拖曳過需要隱藏的內容",
-        blurCaption: "在時間軸上的區塊持續期間保持隱藏。"
+        blurCaption: "在時間軸上的區塊持續期間保持隱藏。",
+        addImageButton: "加入圖片",
+        imageLaneLabel: "圖片",
+        imageLaneEmptyHint: "點按這裡加入圖片",
+        thisImageLabel: "這張圖片",
+        imageSizeLabel: "大小",
+        imageOpacityLabel: "不透明度",
+        imagePositionLabel: "位置",
+        imageImportFailed: "無法加入這張圖片。"
+    )
+    static let uk = RecorderFeatureStrings(
+        pageTitle: "Запис екрана",
+        hubDescription: "Записує область, вікно або екран та редагує після",
+        panelCaption: "Запишіть область, вікно або весь екран",
+        startButton: "Записати зараз",
+        stopButton: "Зупинити запис",
+        fileNamePrefix: "Запис",
+        selectionPurpose: "Виберіть, що записувати",
+        indicatorTooltip: "Керування записом",
+        countdownLabel: "Зворотний відлік",
+        countdownOff: "Вимкнено",
+        countdownSecondsFormat: "%d с",
+        qualityLabel: "Якість",
+        qualitySmall: "Малий файл",
+        qualityBalanced: "Збалансована",
+        qualityHigh: "Висока",
+        qualityCaption: "«Збалансована» підходить для більшості випадків. «Висока» зберігає всі деталі та створює більші файли.",
+        frameRateLabel: "Кадрів на секунду",
+        frameRateFormat: "%d к/с",
+        systemAudioToggle: "Записати звук Mac",
+        systemAudioCaption: "Усе, що ви чуєте, потрапляє в запис на окрему доріжку, щоб ви могли заглушити це пізніше.",
+        folderLabel: "Зберегти в",
+        folderChoose: "Вибрати…",
+        moreOptions: "Більше опцій",
+        copyButton: "Скопіювати",
+        copyGIFButton: "Скопіювати як GIF",
+        saveButton: "Зберегти",
+        discardButton: "Видалити",
+        copiedHUD: "Запис скопійовано",
+        savedHUDFormat: "Збережено в %@",
+        recordFailed: "Не вдалося записати екран",
+        noSpaceTitle: "Недостатньо місця для запису",
+        noSpaceMessage: "Звільніть місце на диску та спробуйте знову.",
+        stoppedNoSpaceHUD: "Запис зупинено, диск майже повний",
+        shortcutLabel: "Клавіатурне скорочення",
+        editorTitle: "Запис",
+        saveVideoButton: "Зберегти",
+        saveGIFButton: "Зберегти як GIF",
+        exportingLabel: "Збереження…",
+        cancelButton: "Скасувати",
+        exportFailed: "Не вдалося зберегти запис",
+        gifTooLongFormat: "GIF може тривати щонайбільше %d с",
+        gifSizeLabel: "Розмір GIF",
+        gifSizeSmall: "Малий",
+        gifSizeMedium: "Середній",
+        gifSizeLarge: "Великий",
+        gifFrameRateLabel: "Плавність GIF",
+        discardTitle: "Видалити цей запис?",
+        discardMessage: "Це ще ніде не збережено.",
+        openEditorToggle: "Відкрити редактор після запису",
+        openEditorCaption: "Запис відкривається в редакторі, де його можна обрізати, вимкнути звук і зберегти. Вимкніть, щоб отримати файл одразу.",
+        lookLabel: "Вигляд",
+        lookRaw: "Оригінал",
+        lookClean: "Плавний",
+        lookStudio: "Студія",
+        lookCaption: "Стартова точка. Змініть будь-що нижче, і це збережеться.",
+        pointerSectionLabel: "Вказівник",
+        pointerShowToggle: "Відображати вказівник",
+        pointerSmoothingLabel: "Згладжування",
+        pointerSmoothingOff: "Немає",
+        pointerSmoothingLight: "Легке",
+        pointerSmoothingSmooth: "Плавне",
+        pointerSmoothingCinematic: "Кінематографічне",
+        pointerSizeLabel: "Розмір",
+        clickRingToggle: "Позначати, де ви клацаєте",
+        zoomSectionLabel: "Змінити масштаб",
+        zoomToggle: "Збільшувати при кожному клаці",
+        zoomAmountLabel: "Наскільки близько",
+        backgroundSectionLabel: "Фон",
+        shapeLabel: "Форма",
+        shapeOriginal: "Оригінал",
+        shapeWide: "Широкий",
+        shapeSquare: "Квадрат",
+        shapeVertical: "Високий",
+        noPointerNote: "Цей запис не має доріжки вказівника, тому згладжувати нічого. Масштабування, додані вручну, усе одно працюють.",
+        zoomLaneEmptyHint: "Натисніть тут, щоб додати масштаб",
+        addZoomButton: "Додати масштаб",
+        removeZoom: "Видалити",
+        thisZoomLabel: "Цей масштаб",
+        zoomWhereLabel: "Область збільшення",
+        zoomFollowsPointer: "За вказівником",
+        zoomPickSpot: "Виберіть місце",
+        zoomPickSpotHint: "Натисніть на зображення, щоб навести його",
+        regenerateZooms: "Повернутися до одного за клац",
+        backToOptions: "Усі параметри",
+        cutOutButton: "Вирізати",
+        cutHint: "Перетягніть по плівці, щоб вибрати частину для видалення",
+        addTextButton: "Додати текст",
+        textLaneEmptyHint: "Натисніть тут, щоб додати текст",
+        thisTextLabel: "Цей текст",
+        textPlaceholder: "Ваш текст тут",
+        textContentLabel: "Текст",
+        textSizeLabel: "Розмір",
+        textPositionLabel: "Позиція",
+        textColorLabel: "Колір",
+        removeText: "Видалити",
+        copyAndDeleteButton: "Скопіювати та видалити",
+        saveAsButton: "Зберегти як…",
+        discardSavedMessage: "Збережені та скопійовані файли залишаться там, де вони є.",
+        presetsButton: "Пресети",
+        savePreset: "Зберегти поточний пресет…",
+        presetNamePlaceholder: "Назва пресету",
+        removePreset: "Видалити пресет",
+        zoomEmptyTitle: "Ще немає масштабувань",
+        zoomEmptyCaption: "Створюйте їх із ваших клаців або додайте на таймлайн.",
+        createAutomaticZooms: "Створювати автоматичні масштабування",
+        typingZoomToggle: "Тримати збільшення під час набору",
+        typingZoomCaption: "Після клацу набір тексту тримає автоматичне масштабування на тій точці.",
+        microphoneToggle: "Записати мікрофон",
+        microphoneCaption: "Ваш голос йде в окрему доріжку та залишається регульованою в редакторі.",
+        systemAudioTrackLabel: "Звук Mac",
+        microphoneTrackLabel: "Мікрофон",
+        audioVolumeLabel: "Гучність",
+        removeAudio: "Видалити",
+        restoreAudio: "Відновити",
+        microphoneUnavailableHUD: "Мікрофон недоступний",
+        microphonePermissionName: "Мікрофон",
+        microphonePermissionExplain: "Дозволяє записам екрана включати ваш голос, коли ви це вмикаєте.",
+        automaticZoomToggle: "Додавати масштабування автоматично",
+        automaticZoomCaption: "Вимкніть це, щоб починати нові записи без масштабувань. Ви все ще можете додати їх у редакторі.",
+        pauseButton: "Призупинити запис",
+        resumeButton: "Відновити запис",
+        blurLaneLabel: "Розмиття",
+        addBlurButton: "Розмити область",
+        blurLaneEmptyHint: "Натисніть тут, щоб додати розмиття",
+        thisBlurLabel: "Це розмиття",
+        blurPickArea: "Виберіть область",
+        blurPickAreaHint: "Перетягніть по тому, що має лишитися прихованим",
+        blurCaption: "Залишається прихованим, поки блок триває на таймлайні.",
+        addImageButton: "Додати зображення",
+        imageLaneLabel: "Зображення",
+        imageLaneEmptyHint: "Натисніть тут, щоб додати зображення",
+        thisImageLabel: "Це зображення",
+        imageSizeLabel: "Розмір",
+        imageOpacityLabel: "Непрозорість",
+        imagePositionLabel: "Позиція",
+        imageImportFailed: "Не вдалося додати це зображення."
     )
 }
