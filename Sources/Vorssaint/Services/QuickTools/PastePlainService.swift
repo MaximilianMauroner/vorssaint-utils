@@ -162,20 +162,36 @@ final class PastePlainService: ObservableObject {
     /// The clipboard's text without any formatting: the plain string when
     /// present, else the text of its RTF or HTML content.
     static func plainText(from pasteboard: NSPasteboard) -> String? {
-        // Image and file copies can also advertise their name or source URL
-        // as text. That is a fallback, not text the user asked us to strip.
+        // File copies advertise their name or path as text, and reading
+        // anything from a promise can make the source render its files.
         let fileTypes: Set<String> = [
             "NSFilenamesPboardType", "NSFileContentsPboardType",
             "com.apple.NSFilePromiseItemMetaData", "Apple files promise pasteboard type",
             "com.apple.pasteboard.promised-file-url",
         ]
-        guard !(pasteboard.types ?? []).contains(where: { raw in
-            if fileTypes.contains(raw.rawValue) { return true }
+        let types = pasteboard.types ?? []
+        guard !types.contains(where: { raw in
+            fileTypes.contains(raw.rawValue) || UTType(raw.rawValue)?.conforms(to: .fileURL) == true
+        }) else { return nil }
+        let carriesMedia = types.contains { raw in
             guard let type = UTType(raw.rawValue) else { return false }
             return type.conforms(to: .image) || type.conforms(to: .movie) || type.conforms(to: .video)
-                || type.conforms(to: .audio) || type.conforms(to: .fileURL)
-                || type.conforms(to: .pdf)
-        }) else { return nil }
+                || type.conforms(to: .audio) || type.conforms(to: .pdf)
+        }
+        if carriesMedia {
+            // A picture or clip copied on its own may name its link or file
+            // as text, which is not text the user asked us to strip. Cells,
+            // slides and documents also carry a picture or PDF of what was
+            // copied, often with their rich text, and their text still
+            // pastes plain.
+            guard let plain = pasteboard.string(forType: .string),
+                  !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            let carriesRichText = types.contains { raw in
+                guard let type = UTType(raw.rawValue) else { return false }
+                return type.conforms(to: .rtf) || type.conforms(to: .rtfd) || type.conforms(to: .flatRTFD)
+            }
+            return carriesRichText || !QuickToolsSupport.isMediaTextFallback(plain) ? plain : nil
+        }
         if let plain = pasteboard.string(forType: .string) {
             return plain
         }
