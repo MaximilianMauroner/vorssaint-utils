@@ -11,6 +11,8 @@ enum PastePlainTests {
         static let general = NSPasteboard()
         var contents: [PasteboardType: Data] = [:]
         var reads = 0
+        var dataReads = 0
+        var changeCount = 0
         var types: [PasteboardType]? { Array(contents.keys) }
         func string(forType type: PasteboardType) -> String? {
             reads += 1
@@ -18,6 +20,7 @@ enum PastePlainTests {
         }
         func data(forType type: PasteboardType) -> Data? {
             reads += 1
+            dataReads += 1
             return contents[type]
         }
     }
@@ -79,9 +82,12 @@ enum PastePlainTests {
     /// Exercises the real forwarding method while the unchanged event-post
     /// helper is held pending, including its busy guard and completion.
     final class OriginalPasteHost {
+        typealias NSPasteboard = PastePlainTests.NSPasteboard
+        typealias GeneralPasteboardAccess = PastePlainTests.GeneralPasteboardAccess
         var isPerforming = false
         static var pending: (() -> Void)?
         static func postPasteWhenModifiersReleased(attempt: Int,
+                                                  expectedChangeCount: Int,
                                                   willPost: (() -> Void)?,
                                                   didPost: (() -> Void)?,
                                                   didFail: (() -> Void)?,
@@ -96,6 +102,7 @@ enum PastePlainTests {
         func service(_ contents: [AppKit.NSPasteboard.PasteboardType: Data]) -> Service {
             board.contents = contents
             board.reads = 0
+            board.dataReads = 0
             transient.pastedText = nil
             transient.originalPastes = 0
             transient.registeredDuringPost = nil
@@ -106,27 +113,57 @@ enum PastePlainTests {
         }
         // The alternate string is common for images copied in a browser and
         // files copied in Finder. It must not replace the image or file.
+        let fileTypes = ["public.file-url", "NSFilenamesPboardType",
+                         "NSFileContentsPboardType", "com.apple.NSFilePromiseItemMetaData",
+                         "Apple files promise pasteboard type", "com.apple.pasteboard.promised-file-url"]
         let mediaTypes = ["public.png", "public.tiff", "public.jpeg", "public.heic",
-                          "public.mpeg-4", "public.video", "com.apple.quicktime-movie", "public.file-url",
-                          "public.mp3", "com.adobe.pdf", "NSFilenamesPboardType",
-                          "NSFileContentsPboardType", "com.apple.NSFilePromiseItemMetaData",
-                          "Apple files promise pasteboard type", "com.apple.pasteboard.promised-file-url"]
-        for type in mediaTypes {
-            for textFallback in [false, true] {
+                          "public.mpeg-4", "public.video", "com.apple.quicktime-movie",
+                          "public.mp3", "com.adobe.pdf"]
+        let fallbacks: [String?] = [nil, "https://example.com/image.png", "IMG_1234.HEIC",
+                                    "data:image/png;base64,AAAA", "  \n"]
+        for type in fileTypes + mediaTypes {
+            for fallback in fallbacks {
                 var content = [AppKit.NSPasteboard.PasteboardType(type): Data([0, 1, 2, 3])]
-                if textFallback { content[.string] = Data("https://example.com/image.png".utf8) }
+                if let fallback { content[.string] = Data(fallback.utf8) }
                 let host = service(content)
                 host.hasNativeMatchStyle = true
                 host.performPastePlain()
                 suite.expect(transient.originalPastes == 1 && transient.pastedText == nil
                              && host.nativeAttempts == 0,
-                             "\(type), text=\(textFallback): media bypasses text conversion and matching-style paste")
-                suite.expect(board.contents == content && board.reads == 0,
+                             "\(type), text=\(fallback ?? "none"): media bypasses text conversion and matching-style paste")
+                suite.expect(board.contents == content && board.dataReads == 0
+                             && (!fileTypes.contains(type) || board.reads == 0),
                              "\(type): media and promised contents are neither fetched nor rewritten")
                 suite.expect(transient.registeredDuringPost == false && host.hotkey.registered,
                              "\(type): a captured Cmd-V is released for forwarding and registered afterward")
             }
         }
+        // Spreadsheets, slides and documents put a picture or PDF of what was
+        // copied beside its text. That text still pastes plain.
+        let table = "Item\tQty\nA\t1"
+        for (text, extras) in [(table, ["com.adobe.pdf", "public.tiff"]),
+                               (table, ["public.png"]),
+                               ("Total", ["com.adobe.pdf"]),
+                               ("Total:", ["public.tiff"]),
+                               ("1.2.3", ["com.adobe.pdf"]),
+                               ("example.com", ["com.adobe.pdf"]),
+                               ("2.4GHz", ["public.tiff"]),
+                               ("john@example.com", ["com.adobe.pdf"]),
+                               ("https://example.com/report", ["com.adobe.pdf", "public.rtf"]),
+                               ("photo.png", ["public.tiff", "public.rtf"])] {
+            var content: [AppKit.NSPasteboard.PasteboardType: Data] = [
+                .string: Data(text.utf8), .html: Data("<table><tr><td>\(text)</td></tr></table>".utf8)]
+            for extra in extras { content[AppKit.NSPasteboard.PasteboardType(extra)] = Data([0, 1, 2, 3]) }
+            let host = service(content)
+            host.performPastePlain()
+            suite.expect(transient.pastedText == text && transient.originalPastes == 0
+                         && host.nativeAttempts == 1 && board.dataReads == 0,
+                         "\(text) with \(extras): copied text with a picture of itself still pastes plain")
+        }
+        let filed = service([.string: Data(table.utf8), AppKit.NSPasteboard.PasteboardType("public.file-url"): Data([1])])
+        filed.performPastePlain()
+        suite.expect(transient.originalPastes == 1 && transient.pastedText == nil,
+                     "a file copy pastes the file even when it also carries text")
 
         for content: [AppKit.NSPasteboard.PasteboardType: Data] in [[:], [.string: Data()]] {
             let host = service(content)

@@ -9,7 +9,7 @@ struct ClipboardQuickPanelView: View {
     @FocusState private var searchFocused: Bool
     @State private var previewSelection = QuickPreviewSelection()
     @State private var previewIsEditing = false
-    @State private var clearingIDs: Set<UUID>?
+    @State private var clearingIDs: [UUID: Date]?
 
     private var text: ClipboardFeatureStrings {
         FeatureStrings.clipboard(l10n.language)
@@ -300,7 +300,7 @@ struct ClipboardQuickPanelView: View {
                 }
             } else {
                 Button {
-                    clearingIDs = Set(history.recentEntries.map(\.id))
+                    clearingIDs = history.recentEntriesSnapshot
                 } label: {
                     Label(text.clearRecent, systemImage: "trash")
                 }
