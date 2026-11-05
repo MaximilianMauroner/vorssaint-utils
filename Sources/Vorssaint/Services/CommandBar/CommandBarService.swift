@@ -1348,7 +1348,7 @@ final class CommandBarService: ObservableObject {
             skinTone: UserDefaults.standard.string(forKey: DefaultsKey.commandBarEmojiSkinTone) ?? "",
             accessibility: Permissions.shared.accessibility)
         if emojiEntries.isEmpty || emojiInputs != builtEmojiInputs {
-            emojiEntries = CommandBarCatalog.emojiEntries(bar: FeatureStrings.commandBar(L10n.shared.language))
+            emojiEntries = CommandBarCatalog.emojiEntries(language: L10n.shared.language)
             builtEmojiInputs = emojiInputs
         }
         builtLanguage = L10n.shared.language
