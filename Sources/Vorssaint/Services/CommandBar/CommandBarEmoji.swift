@@ -8,7 +8,7 @@ import Foundation
 enum CommandBarEmoji {
     /// One emoji as the bar offers it: the character, and the words that find
     /// it. The name and most words are the Unicode CLDR annotations made for
-    /// emoji pickers, generated into `keywordTable(_:)`.
+    /// emoji pickers, generated into `keywordTable`.
     struct Emoji {
         let character: String
         let identity: String
@@ -95,26 +95,11 @@ enum CommandBarEmoji {
         "🚀": "ship fast",
     ]
 
-    /// The emoji in the order the bar lists them. Each one answers to its
-    /// English words and to the words of `language`, so a search in either
-    /// finds it. The rows and their identities are the same in every language.
-    static func emoji(in language: AppLanguage) -> [Emoji] {
-        guard language != .enUS else { return english }
-        let local = keywordEntries(language)
-        return english.map { emoji in
-            guard let words = local[canonicalCharacter(emoji.character)] else { return emoji }
-            return Emoji(character: emoji.character,
-                         identity: emoji.identity,
-                         name: emoji.name,
-                         keywords: [emoji.keywords, words.name, words.keywords].joined(separator: " "))
-        }
-    }
-
     /// Popular emoji first, followed by every single-scalar emoji in Unicode
     /// sorted by name. Resolved once, so searching the larger set does not
     /// repeat the table and Unicode-name work on each keystroke.
-    private static let english: [Emoji] = {
-        let words = keywordEntries(.enUS)
+    static let emoji: [Emoji] = {
+        let words = keywordEntries()
         var seen: Set<String> = []
         func makeEmoji(_ character: String, aliasCharacter: String? = nil) -> Emoji? {
             let canonical = canonicalCharacter(character)
@@ -186,11 +171,11 @@ enum CommandBarEmoji {
         String(character.unicodeScalars.filter { $0.value != 0xFE0F && $0.value != 0xFE0E })
     }
 
-    /// One language's generated table, keyed by the emoji without its
-    /// presentation selector.
-    private static func keywordEntries(_ language: AppLanguage) -> [String: (name: String, keywords: String)] {
+    /// The generated table, keyed by the emoji without its presentation
+    /// selector.
+    private static func keywordEntries() -> [String: (name: String, keywords: String)] {
         var entries: [String: (name: String, keywords: String)] = [:]
-        for line in keywordTable(language).split(separator: "\n") {
+        for line in keywordTable.split(separator: "\n") {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
             entries[String(fields[0])] = (String(fields[1]), String(fields[2]))
         }
