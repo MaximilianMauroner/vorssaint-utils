@@ -11,9 +11,8 @@ struct SettingsDirectoryItem: Identifiable {
     /// Labels of options living inside the page, so a search finds a page by
     /// what it contains, in the user's language.
     var keywords: [String] = []
-    /// Feature ownership for keyword rows on shared pages. `nil` means the
-    /// setting belongs to the page itself and remains searchable whenever the
-    /// page is visible.
+    /// The feature each keyword's control needs, so search offers it only
+    /// while the page shows it. `nil` means the page always shows it.
     var keywordFeatures: [AppFeature?] = []
     var id: SettingsPage { page }
 
@@ -48,7 +47,8 @@ enum SettingsDirectory {
                                 isAvailable: (AppFeature) -> Bool) -> [SettingsSidebarSection] {
         let hub = FeatureStrings.hub(language)
         let grouped: [SettingsSidebarSection] = sections(
-            s, language: language, superKeySource: superKeySource
+            s, language: language, superKeySource: superKeySource,
+            hasInternalBattery: PowerSampler.hasInternalBattery
         ).enumerated().compactMap { index, section -> SettingsSidebarSection? in
                 let items = section.items.flatMap { pageItem -> [SettingsSidebarItem] in
                     var rows = SettingsSidebarSupport.items(
@@ -139,7 +139,8 @@ enum SettingsDirectory {
     static func searchItems(_ s: Strings,
                             language: AppLanguage,
                             superKeySource: SuperKeySource = SuperKeyService.shared.source) -> [SettingsSearchItem] {
-        let pageItems = sections(s, language: language, superKeySource: superKeySource)
+        let pageItems = sections(s, language: language, superKeySource: superKeySource,
+                                 hasInternalBattery: PowerSampler.hasInternalBattery)
             .flatMap(\.items).map { item in
                 SettingsSearchItem(id: .page(item.page),
                                    destination: FeatureSettingsDestination(item.page),
@@ -167,9 +168,12 @@ enum SettingsDirectory {
         return items
     }
 
+    /// The caller says whether this Mac has a battery, as its battery
+    /// settings show only then.
     static func sections(_ s: Strings,
                          language: AppLanguage,
-                         superKeySource: SuperKeySource = SuperKeyService.shared.source)
+                         superKeySource: SuperKeySource = SuperKeyService.shared.source,
+                         hasInternalBattery: Bool)
         -> [(title: String, items: [SettingsDirectoryItem])] {
         let categories = FeatureStrings.settingsCategories(language)
         let quitProtection = FeatureStrings.quitProtection(language)
@@ -181,19 +185,18 @@ enum SettingsDirectory {
         let notchCalendar = FeatureStrings.notchCalendar(language)
         let notchAgents = FeatureStrings.notchAgents(language)
         let notchLowBattery = NotchLowBatteryStrings.localized(language)
-        let liquidGlass: [String]
+        var liquidGlass: [String] = []
+#if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             liquidGlass = [FeatureStrings.appearance(language).liquidGlass]
-        } else {
-            liquidGlass = []
         }
+#endif
         return [
             (categories.essentials, [
                 SettingsDirectoryItem(page: .general, title: s.tabGeneral, icon: "gearshape",
                                        keywords: [s.launchAtLogin, s.languageLabel,
                                                   FeatureStrings.appearance(language).label,
                                                   FeatureStrings.appearance(language).dark,
-                                                  s.globalHotkeySection,
                                                   FeatureStrings.feedback(language).sectionTitle] + liquidGlass,
                                        // The first title of each feature places its sidebar row,
                                        // so these follow the sidebar's order.
@@ -202,6 +205,7 @@ enum SettingsDirectory {
                                         (.mixer, [s.mixerSection]),
                                         (.soundOutputSwitcher, [s.soundOutputSwitcherTitle]),
                                         (.audioPriority, [s.audioPrioritySection]),
+                                        (.keepAwake, [s.globalHotkeySection]),
                                        ]),
                 // Searching any feature name lands here even when the feature
                 // is hidden, so the hub is always the way back.
@@ -227,7 +231,8 @@ enum SettingsDirectory {
                                                         .allowDisplaySleep,
                                                       s.keepAwakeOptions, s.keepAwakeAutoStart,
                                                       s.keepAwakeRightClickToggle, s.keepAwakeMouseJiggle,
-                                                      s.batteryDisableBelow, s.dimScreenOnLidCloseTitle]),
+                                                      s.dimScreenOnLidCloseTitle]
+                                                     + (hasInternalBattery ? [s.batteryDisableBelow] : [])),
                                         (.brightness, [FeatureStrings.brightness(language).pageTitle,
                                                        FeatureStrings.brightness(language).osdToggle,
                                                        FeatureStrings.brightness(language).keyStep,
@@ -256,9 +261,10 @@ enum SettingsDirectory {
                                         (.monitorMemory, [s.monitorMemoryPressureDot, monitorAlerts.memory,
                                                           s.monitorMemoryMetricLabel]),
                                         (.monitorDisk, [monitorAlerts.disk, monitorAlerts.diskThreshold]),
-                                        (.monitorPower, [monitorAlerts.battery, monitorAlerts.batteryThreshold,
-                                                         monitorAlerts.batteryTemperature,
-                                                         monitorAlerts.batteryTemperatureThreshold]),
+                                        (.monitorPower, hasInternalBattery
+                                            ? [monitorAlerts.battery, monitorAlerts.batteryThreshold,
+                                               monitorAlerts.batteryTemperature,
+                                               monitorAlerts.batteryTemperatureThreshold] : []),
                                         (.monitorNetwork, [FeatureStrings.monitorLayout(language).networkSpeedUnit]),
                                         (.fanControl, [FeatureStrings.fanControl(language).menuBarTitle]),
                                        ]),
@@ -437,12 +443,10 @@ enum SettingsDirectory {
                                                  notch.size, notch.translucentBackground, notch.showOutline,
                                                  notch.playingMusic, notchMusic.includeOtherPlayers,
                                                  notchMusic.showVolume, notchMusic.preferredPlayer,
-                                                 notchMusic.browserCovers,
-                                                 notch.files, notch.dragReveal, notch.clipboardActivity,
-                                                 FeatureStrings.notchClipboardSize(language).entrySize,
-                                                 notch.captureActivity,
+                                                 notchMusic.enableLyrics, notchMusic.browserCovers,
+                                                 notchMusic.enableQueue,
+                                                 notch.files,
                                                  notchEditor.resting, notch.coverMenus, notchEditor.feedback,
-                                                 notchLowBattery.title, notchLowBattery.early, notchLowBattery.menuBar,
                                                  notchEditor.opening, notchEditor.hiddenShowsActivity,
                                                  s.quickToolShortcutToggle, notch.hapticFeedback,
                                                  notchEditor.reopening, notchEditor.openActivity,
@@ -459,8 +463,19 @@ enum SettingsDirectory {
                                         (.notchNotifications,
                                          [FeatureStrings.notchNotifications(language).hideSystemBanner]),
                                         (.notchTimer, [FeatureStrings.notchActivities(language).soundEnabled]),
-                                        (.notchLyrics, [notchMusic.enableLyrics, notchMusic.online]),
-                                        (.notchQueue, [notchMusic.enableQueue]),
+                                        (.notchLyrics, [notchMusic.online]),
+                                        (.shelf, [notch.dragReveal]),
+                                        (.clipboardHistory, [notch.clipboardActivity,
+                                                             FeatureStrings.notchClipboardSize(language).entrySize]),
+                                        // The captures section shows while any capture tool is on.
+                                        (.screenshot, [notch.captureActivity]),
+                                        (.screenRecorder, [notch.captureActivity]),
+                                        (.screenOCR, [notch.captureActivity]),
+                                        (.colorPicker, [notch.captureActivity]),
+                                        // The low battery colors belong to the battery resting choice, which needs Power.
+                                        (.monitorPower, hasInternalBattery
+                                            ? [notchLowBattery.title, notchLowBattery.early, notchLowBattery.menuBar]
+                                            : []),
                                         (.notchAgents, [notchAgents.limitsAs, notchAgents.limitFocus,
                                                         notchAgents.liveActivity, notchAgents.readout,
                                                         notchAgents.finishAlert, notchAgents.finishAfter,

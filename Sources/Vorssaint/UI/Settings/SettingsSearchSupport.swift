@@ -17,8 +17,8 @@ struct SettingsSearchItem: Identifiable {
     let title: String
     let icon: String
     var keywords: [String] = []
-    /// Optional feature owner for each keyword. This is parallel to
-    /// `keywords`; absent entries are page-level settings.
+    /// The feature each keyword's control needs, parallel to `keywords`.
+    /// Absent entries are controls the page always shows.
     var keywordFeatures: [AppFeature?] = []
     /// The hub feature this result represents, when it corresponds to exactly
     /// one `AppFeature` — including a dedicated page result such as Homebrew,
@@ -27,10 +27,9 @@ struct SettingsSearchItem: Identifiable {
     var feature: AppFeature?
 }
 
-/// One selectable row inside a grouped Settings search result. A page-level
-/// keyword routes to its containing page, while a feature-owned keyword keeps
-/// the same exact section destination and unavailable-feature fallback as the
-/// feature row itself.
+/// One selectable row inside a grouped Settings search result. It opens the
+/// page that lists it, at its feature's section when that section is on the
+/// same page.
 struct SettingsSearchSuggestion: Identifiable {
     enum ID: Hashable {
         case page(SettingsPage)
@@ -269,8 +268,12 @@ enum SettingsSearchSupport {
                         ? item.keywordFeatures[index] : nil
                     if let keywordFeature, !isAvailable(keywordFeature) { continue }
                     let suggestionItem = keywordFeature.map { feature in
+                        // A feature from another page, such as Keep Awake for
+                        // the shortcut on General, only decides when the
+                        // control shows here.
                         SettingsSearchItem(id: .feature(feature),
-                                           destination: feature.settingsDestination,
+                                           destination: feature.settingsDestination.page == page
+                                               ? feature.settingsDestination : pageItem.destination,
                                            title: keyword,
                                            icon: feature.symbolName,
                                            feature: feature)
@@ -372,6 +375,7 @@ enum SettingsSearchSupport {
         "storage": "disk", "drive": "disk", "ssd": "disk",
         "ram": "memory",
         "warn": "alert", "warning": "alert", "notify": "alert", "notification": "alert",
+        "jiggle": "pointer slightly", "interval": "update every",
     ]
 
     /// The query itself, then the query with each synonym word replaced.

@@ -37,8 +37,10 @@ enum SettingsSearchCoverageTests {
         let resolver = Resolver(sourceRoot: "Sources/Vorssaint")
         var indexed = Set<String>()
         for source in searchSources {
-            let words = resolver.searchWords(path: source.path, declaration: source.declaration,
-                                             selfType: source.selfType)
+            let words = (try? String(contentsOfFile: source.path, encoding: .utf8)).flatMap {
+                resolver.searchWords(in: SwiftSource(path: source.path, text: $0),
+                                     declaration: source.declaration, selfType: source.selfType)
+            }
             suite.expect(words?.isEmpty == false, "\(source.path) gives Settings search its words")
             indexed.formUnion(words ?? [])
         }
@@ -100,6 +102,17 @@ enum SettingsSearchCoverageTests {
                      "the coverage scan follows aliases, shadowing, line breaks and helpers: \(sampleLabels)")
         suite.expect(sampleFailures == ["item.name"],
                      "the coverage scan fails on a title it cannot follow: \(sampleFailures)")
+        let built = SwiftSource(path: "Built.swift", text: """
+            static func sections() -> [[String]] {
+                var left: [String] = []
+                left = [FeatureStrings.notch(language).size]
+                let kept = [FeatureStrings.notch(language).title]
+                return [kept]
+            }
+            """)
+        let builtWords = resolver.searchWords(in: built, declaration: "static func sections(", selfType: nil)
+        suite.expect(builtWords == ["NotchStrings.title"],
+                     "a label in a local that no keyword list reads is not a search word: \(builtWords ?? [])")
     }
 
     struct Unresolved: Error, CustomStringConvertible {
@@ -151,17 +164,16 @@ enum SettingsSearchCoverageTests {
         }
 
         /// Every strings member that one declaration's body names, or nil
-        /// when the declaration is gone.
-        func searchWords(path: String, declaration: String, selfType: String?) -> Set<String>? {
-            guard let text = try? String(contentsOfFile: path, encoding: .utf8),
-                  text.components(separatedBy: declaration).count == 2,
-                  let start = text.range(of: declaration) else { return nil }
-            let source = SwiftSource(path: path, text: text)
-            let offset = text.utf8.distance(from: text.startIndex, to: start.lowerBound)
-            guard let body = source.blocks.filter({ $0.open > offset }).min(by: { $0.open < $1.open })
+        /// when the declaration is gone. A local the body never reads gives
+        /// no words, as no keyword list includes it.
+        func searchWords(in source: SwiftSource, declaration: String, selfType: String?) -> Set<String>? {
+            guard let offset = source.uniqueOffset(of: declaration),
+                  let body = source.blocks.filter({ $0.open > offset }).min(by: { $0.open < $1.open })
             else { return nil }
+            let unread = source.unreadWrites(in: body.open..<body.close)
             var words = Set<String>()
-            for match in source.matches(#"(?<![\w.$])[A-Za-z_]\w*"#, in: body.open..<body.close) {
+            for match in source.matches(#"(?<![\w.$])[A-Za-z_]\w*"#, in: body.open..<body.close)
+                where !unread.contains(where: { $0.contains(match.range.location) }) {
                 let links = source.chain(from: match.range.location).links
                 if let selfType, links.count == 1, case .name(let member) = links[0] {
                     words.insert("\(selfType).\(member)")
@@ -320,6 +332,30 @@ extension SettingsSearchCoverageTests {
 
         func line(at offset: Int) -> Int {
             lineStarts.lastIndex { $0 <= offset }.map { $0 + 1 } ?? 1
+        }
+
+        /// Where `text` stands in the code, when it stands there once.
+        func uniqueOffset(of text: String) -> Int? {
+            let parts = (code as String).components(separatedBy: text)
+            return parts.count == 2 ? parts[0].utf8.count : nil
+        }
+
+        /// The declaration and assignments of each local declared in `range`
+        /// that `range` only writes and never reads.
+        func unreadWrites(in range: Range<Int>) -> [Range<Int>] {
+            variables.flatMap { name, declarations -> [Range<Int>] in
+                let local = declarations.filter { range.contains($0.start) }
+                guard !local.isEmpty else { return [] }
+                var writes = local.map { $0.start..<statementEnd(from: $0.nameEnd) }
+                for match in matches(#"(?<![\w.$])"# + name + #"\b"#, in: range)
+                    where !local.contains(where: { $0.nameEnd == match.range.location + name.count }) {
+                    let next = skipSpace(from: match.range.location + name.count, newlines: false)
+                    guard next + 1 < bytes.count, bytes[next] == UInt8(ascii: "="),
+                          bytes[next + 1] != UInt8(ascii: "=") else { return [] }
+                    writes.append(match.range.location..<statementEnd(from: next + 1))
+                }
+                return writes
+            }
         }
 
         func matches(_ pattern: String, in range: Range<Int>? = nil) -> [NSTextCheckingResult] {
