@@ -48,8 +48,10 @@ enum CommandBarEmoji {
     /// The emoji people reach for most, in the order they are usually wanted.
     /// They lead browsing and break equally good search ties; the Unicode set
     /// below supplies the long tail without displacing these familiar rows.
+    /// 😂 is the most used emoji of all, so it comes before the other faces
+    /// that carry "lol" and "haha".
     private static let popularEmojiCharacters = [
-        "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "😉", "😊",
+        "😀", "😂", "😃", "😄", "😁", "😆", "😅", "🤣", "🙂", "🙃", "😉", "😊",
         "😍", "🥰", "😘", "😗", "😜", "🤪", "🤔", "🤗", "🤩", "🥳", "😎", "🤓",
         "😐", "😑", "😶", "🙄", "😏", "😥", "😮", "😴", "😌", "😔", "😪", "🤤",
         "😭", "😢", "😤", "😠", "😡", "🤬", "🤯", "😳", "🥺", "😱", "😨", "😰", "💀", "☠️",
@@ -74,8 +76,7 @@ enum CommandBarEmoji {
         "😂": "laughing",
         "😊": "happy",
         "🥰": "affection",
-        "🤔": "think",
-        "🤬": "swear angry",
+        "🤬": "angry",
         "💀": "dying skeleton halloween",
         "☠️": "danger poison pirate",
         "🙏": "thank you prayer",

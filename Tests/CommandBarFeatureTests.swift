@@ -1839,6 +1839,15 @@ enum CommandBarFeatureTests {
                "usage boost reorders equally good matches")
         suite.expect(CommandBarSearch.rankedIndexes(candidates: boosted, matching: "capturar") == [0],
                "a boost never resurrects a non-match")
+        let appRows = [
+            CommandBarCandidate(index: 0, title: "Lollipop Timer"),
+            CommandBarCandidate(index: 1, title: "Laugh Track", keywords: "lol"),
+            CommandBarCandidate(index: 2, title: "Point Finder"),
+        ]
+        suite.expect(CommandBarSearch.rankedIndexes(candidates: appRows, matching: "lol") == [0, 1],
+               "outside emoji a title that starts with the query still leads a keyword the row carries")
+        suite.expect(CommandBarSearch.rankedIndexes(candidates: appRows, matching: "pointer").isEmpty,
+               "outside emoji a word matches as typed, not in its other forms")
         let awakeRows = [
             ("settings.feature.keepAwake", "Keep Awake"),
             ("action.keepAwake.15", "Keep awake for 15 minutes"),
