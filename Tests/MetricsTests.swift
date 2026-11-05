@@ -37,7 +37,10 @@ struct MetricsTests {
                 SuperKeyTapContract.run(suite)
                 PointerScreenContract.run(suite)
             }),
-            ("scroll-modifier", { ScrollHorizontalModifierTests.run(suite) }),
+            ("scroll-modifier", {
+                ScrollHorizontalModifierTests.run(suite)
+                ScrollZoomFocusTests.run(suite)
+            }),
             ("linear-scroll", { LinearScrollTapTests.run(suite) }),
             ("preferences", { PreferencesFeatureTests.run(suite) }),
             ("app-management", {
@@ -53,6 +56,7 @@ struct MetricsTests {
                 MixerHeadphonesDisconnectContract.run(suite)
                 MixerLevelCompensationContract.run(suite)
                 MixerTapConfigurationTests.run(suite)
+                MixerGainRampContract.run(suite)
                 SoundOutputSwitchContract.run(suite)
                 MixerUniversalRoutingContract.run(suite)
                 AirPlayRingBufferContract.run(suite)
@@ -134,10 +138,13 @@ struct MetricsTests {
                 UtilitiesFeatureTests.run(suite)
                 TextSnippetExpansionTests.run(suite)
                 QuickTogglesAlertTests.run(suite)
+                QuickTogglesQuitAllTests.run(suite)
+                QuitAppsRuntimeTests.run(suite)
                 PortManagerRefreshTests.run(suite)
             }),
             ("settings", {
                 SettingsFeatureTests.run(suite)
+                RadialFilePickerTests.run(suite)
                 SettingsWindowTests.run { suite.expect($0, $1) }
                 NotchSettingsChoiceTests.run(suite)
                 MonitorTokenTests.run(suite)
@@ -193,6 +200,7 @@ struct MetricsTests {
                 CleanerLayoutTests.run(suite)
             }),
             ("uninstaller", {
+                HomebrewOwnershipTests.run(suite)
                 UninstallerFlowTests.run(suite)
                 UninstallerCommandBarCleanupTests.run(suite)
                 SelfUninstallContract.run(suite)
@@ -207,6 +215,7 @@ struct MetricsTests {
             }),
             ("spaces-order", { SpacesOrderTests.run(suite) }),
             ("switcher", {
+                SwitcherAllWindowsTests.run(suite)
                 AXWindowResolverTests.run(suite)
                 SwitcherSearchLayoutTests.run(suite)
                 SwitcherScrollContract.run(suite)
@@ -221,7 +230,10 @@ struct MetricsTests {
                 KeepAwakeLidSleepTests.run { suite.expect($0, $1) }
                 KeepAwakeTimerHandoffTests.run { suite.expect($0, $1) }
             }),
-            ("wallpaper", { WallpaperContract.run(suite) }),
+            ("wallpaper", {
+                WallpaperContract.run(suite)
+                WallpaperThumbnailTests.run(suite)
+            }),
             ("emoji", { CommandBarEmojiContract.run(suite) }),
         ]
         var selected = Set<String>()
