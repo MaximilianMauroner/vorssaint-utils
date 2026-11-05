@@ -41,6 +41,24 @@ enum SettingsFeatureTests {
             suite.expect(sidebar.prefix(3).map(\.id) == [.feature(.scrollInverter), .feature(.scrollHorizontal), .feature(.scrollZoom)],
                          "the sidebar places Zoom beside scrolling in \(language.rawValue)")
         }
+        let directory = SettingsDirectory.sections(.enUS, language: .enUS).flatMap(\.items).map {
+            SettingsSearchItem(id: .page($0.page), destination: FeatureSettingsDestination($0.page),
+                               title: $0.title, icon: $0.icon,
+                               keywords: $0.keywords, keywordFeatures: $0.keywordFeatures)
+        }
+        let alerts = FeatureStrings.monitorAlerts(.enUS)
+        for query in ["storage", "low storage", "free space", "warn"] {
+            let groups = SettingsSearchSupport.groupedMatchingItems(
+                query: query, items: directory, isAvailable: { _ in true })
+            let monitor = groups.first { $0.id == .monitor }
+            suite.expect(monitor?.suggestions.contains {
+                [alerts.disk, alerts.diskThreshold, alerts.section].contains($0.title)
+            } == true, "searching \"\(query)\" offers the Monitor disk space alert")
+        }
+        suite.expect(SettingsSearchSupport.groupedMatchingItems(
+            query: "storage", items: directory, isAvailable: { $0 != .monitorDisk })
+            .first { $0.id == .monitor }?.suggestions.contains { $0.title == alerts.disk } != true,
+                     "the disk alert is not offered while disk monitoring is off")
         let isCodeLine: (String) -> Bool = {
             !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
         }

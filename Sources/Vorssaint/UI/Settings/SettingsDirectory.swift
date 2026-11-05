@@ -172,6 +172,7 @@ enum SettingsDirectory {
         -> [(title: String, items: [SettingsDirectoryItem])] {
         let categories = FeatureStrings.settingsCategories(language)
         let quitProtection = FeatureStrings.quitProtection(language)
+        let monitorAlerts = FeatureStrings.monitorAlerts(language)
         return [
             (categories.essentials, [
                 SettingsDirectoryItem(page: .general, title: s.tabGeneral, icon: "gearshape",
@@ -213,9 +214,17 @@ enum SettingsDirectory {
                                                            FeatureStrings.bluetoothSleep(language).enable]),
                                        ]),
                 SettingsDirectoryItem(page: .monitor, title: s.tabMonitor, icon: "chart.line.uptrend.xyaxis",
-                                       keywords: [s.menuBarSpacingLabel, s.menuBarHideIconToggle],
+                                       keywords: [s.menuBarSpacingLabel, s.menuBarHideIconToggle,
+                                                  monitorAlerts.section, monitorAlerts.cooldown],
                                        featureKeywords: [
-                                        (.monitorMemory, [s.monitorMemoryPressureDot]),
+                                        (.monitorCPU, [monitorAlerts.cpu, monitorAlerts.cpuThreshold,
+                                                       monitorAlerts.cpuTemperature,
+                                                       monitorAlerts.cpuTemperatureThreshold]),
+                                        (.monitorMemory, [s.monitorMemoryPressureDot, monitorAlerts.memory]),
+                                        (.monitorDisk, [monitorAlerts.disk, monitorAlerts.diskThreshold]),
+                                        (.monitorPower, [monitorAlerts.battery, monitorAlerts.batteryThreshold,
+                                                         monitorAlerts.batteryTemperature,
+                                                         monitorAlerts.batteryTemperatureThreshold]),
                                         (.monitorNetwork, [FeatureStrings.monitorLayout(language).networkSpeedUnit]),
                                         (.fanControl, [FeatureStrings.fanControl(language).menuBarTitle]),
                                        ]),

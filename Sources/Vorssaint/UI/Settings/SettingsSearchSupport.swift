@@ -264,7 +264,7 @@ enum SettingsSearchSupport {
                     builder.parentMatches = true
                 }
                 for (index, keyword) in item.keywords.enumerated()
-                    where fold(keyword).contains(foldedQuery) {
+                    where keywordMatches(keyword, foldedQuery: foldedQuery) {
                     let keywordFeature = item.keywordFeatures.indices.contains(index)
                         ? item.keywordFeatures[index] : nil
                     if let keywordFeature, !isAvailable(keywordFeature) { continue }
@@ -366,13 +366,33 @@ enum SettingsSearchSupport {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Everyday words people type for an option whose label uses another
+    /// term: "storage" finds "Low disk space". Keys and values are folded.
+    private static let synonyms: [String: String] = [
+        "storage": "disk", "drive": "disk", "ssd": "disk",
+        "ram": "memory",
+        "warn": "alert", "warning": "alert", "notify": "alert", "notification": "alert",
+    ]
+
+    /// The query itself, then the query with each synonym word replaced.
+    private static func queryVariants(_ foldedQuery: String) -> [String] {
+        let words = foldedQuery.split(separator: " ").map(String.init)
+        let replaced = words.map { synonyms[$0] ?? $0 }
+        guard replaced != words else { return [foldedQuery] }
+        return [foldedQuery, replaced.joined(separator: " ")]
+    }
+
+    private static func keywordMatches(_ keyword: String, foldedQuery: String) -> Bool {
+        let foldedKeyword = fold(keyword)
+        return queryVariants(foldedQuery).contains { foldedKeyword.contains($0) }
+    }
+
     private static func matchRank(foldedQuery: String,
                                    title: String,
                                    keywords: [String]) -> MatchRank? {
-        let foldedTitle = fold(title)
-        if foldedTitle == foldedQuery { return .exactTitle }
-        if foldedTitle.contains(foldedQuery) { return .title }
-        if keywords.contains(where: { fold($0).contains(foldedQuery) }) { return .keyword }
+        if fold(title) == foldedQuery { return .exactTitle }
+        if keywordMatches(title, foldedQuery: foldedQuery) { return .title }
+        if keywords.contains(where: { keywordMatches($0, foldedQuery: foldedQuery) }) { return .keyword }
         return nil
     }
 
