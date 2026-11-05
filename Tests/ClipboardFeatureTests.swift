@@ -33,7 +33,11 @@ enum ClipboardFeatureTests {
     final class QuickPasteHost {
         final class App {
             let isTerminated: Bool
-            init(isTerminated: Bool) { self.isTerminated = isTerminated }
+            let bundleIdentifier: String?
+            init(isTerminated: Bool, bundleIdentifier: String? = "com.example.writer") {
+                self.isTerminated = isTerminated
+                self.bundleIdentifier = bundleIdentifier
+            }
             func activate(options: [Int]) { host?.events.append("activate") }
         }
         typealias NSRunningApplication = App
@@ -187,6 +191,7 @@ enum ClipboardFeatureTests {
                      && cleanerBoard.string(forType: .string) == "https://example.com/path?id=42"
                      && cleanerBoard.string(forType: .source) == nil,
                      "a rewritten copy that named no app gains no mark, so the app that copied it is still credited")
+        URLCleanerMetadataTests.run(suite)
         cleanerBoard.releaseGlobally()
         func expectEqual(_ actual: String, _ expected: String, _ label: String,
                          file: StaticString = #filePath, line: UInt = #line) {
@@ -665,6 +670,9 @@ enum ClipboardFeatureTests {
         suite.expect(Defaults.registeredDefaults[DefaultsKey.clipboardHistoryQuickPreview] as? Bool == false,
                "clipboard history quick preview is closed by default")
 
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.clipboardHistoryShowSourceAppIcons] as? Bool == false,
+                     "source app icons are opt-in, preserving the existing list by default")
+
         // MARK: Clipboard history layout
 
         suite.expect(Defaults.registeredDefaults[DefaultsKey.clipboardHistoryLayout] as? String
@@ -950,6 +958,10 @@ enum ClipboardFeatureTests {
                    && !clipboardStrings.historyLayoutList.isEmpty
                    && clipboardStrings.historyLayoutCards != clipboardStrings.historyLayoutList,
                    "\(language.rawValue) clipboard history layout choice is localized")
+            suite.expect(!clipboardStrings.showSourceAppIconsInList.isEmpty
+                         && (language == .enUS || clipboardStrings.showSourceAppIconsInList
+                             != FeatureStrings.clipboard(.enUS).showSourceAppIconsInList),
+                         "\(language.rawValue) source app icons setting is localized")
             let layoutStrings = FeatureStrings.windowLayout(language)
             suite.expect(!layoutStrings.sixths.isEmpty
                    && !layoutStrings.topLeftSixth.isEmpty
@@ -1619,6 +1631,16 @@ enum ClipboardFeatureTests {
             suite.expect(host.events == expected,
                    "quick paste beeps or asks for Accessibility when it cannot paste, found \(host.events)")
         }
+        for bundleID in ["com.microsoft.rdc.macos", "com.microsoft.rdc.mac"] {
+            let host = QuickPasteHost()
+            host.pasteIntoPreviousApp(QuickPasteHost.App(isTerminated: false, bundleIdentifier: bundleID))
+            suite.expect(host.events == ["activate"],
+                   "quick paste into a remote desktop session leaves the pick on the clipboard, found \(host.events)")
+        }
+        let unnamed = QuickPasteHost()
+        unnamed.pasteIntoPreviousApp(QuickPasteHost.App(isTerminated: false, bundleIdentifier: nil))
+        suite.expect(unnamed.events == ["activate", "paste"],
+               "quick paste still pastes into an app without a bundle identifier, found \(unnamed.events)")
         for trusted in [true, false] {
             let host = QuickPasteHost()
             host.trusted = trusted
