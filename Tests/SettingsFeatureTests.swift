@@ -85,6 +85,8 @@ enum SettingsFeatureTests {
             (FeatureStrings.notchClipboardSize(.enUS).entrySize, .notch, [], [.clipboardHistory], false),
             (notch.clipboardActivity, .notch, [], [.clipboardHistory], false),
             (notch.dragReveal, .notch, [], [.shelf], false),
+            (FeatureStrings.notchCalendar(.enUS).weekNumbers, .notch, [], [.notchCalendar], false),
+            (FeatureStrings.notchActivities(.enUS).hideTimerCountdown, .notch, [], [.notchTimer], false),
             (notch.captureActivity, .notch, captureTools.subtracting([.colorPicker]), captureTools, false),
             (lowBattery.title, .notch, [], [.monitorPower], true),
             (lowBattery.early, .notch, [], [.monitorPower], true),
