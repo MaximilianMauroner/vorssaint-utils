@@ -332,14 +332,16 @@ enum CommandBarSearch {
         }
     }
 
-    /// A token that found its own word, or the same word in another form.
+    /// A token that found its own word.
+    private static let exactWordScore = 140
+    /// A token that found the same word in another form.
     private static let wholeWordScore = 120
 
     private static func score(normalizedTitle: String,
                               normalizedKeywords: String,
                               normalizedQuery: String,
                               tokens: [QueryToken],
-                              wordForms: Bool) -> (score: Int, wholeWords: Bool)? {
+                              wordForms: Bool) -> (score: Int, words: Int)? {
         guard !normalizedQuery.isEmpty else { return nil }
         let haystack = normalizedKeywords.isEmpty
             ? normalizedTitle
@@ -352,6 +354,7 @@ enum CommandBarSearch {
         let haystackIsASCII = haystack.utf8.allSatisfy { $0 < 0x80 }
 
         var score = 0
+        var exactWords = true
         var wholeWords = true
         for token in tokens {
             guard let tokenScore = bestTokenScore(token, in: words, haystack: haystack,
@@ -360,6 +363,7 @@ enum CommandBarSearch {
                 return nil
             }
             score += tokenScore
+            exactWords = exactWords && tokenScore >= exactWordScore
             wholeWords = wholeWords && tokenScore >= wholeWordScore
         }
 
@@ -372,7 +376,7 @@ enum CommandBarSearch {
         } else if !normalizedKeywords.isEmpty, normalizedKeywords.contains(normalizedQuery) {
             score += 350
         }
-        return (score, wholeWords)
+        return (score, exactWords ? 2 : wholeWords ? 1 : 0)
     }
 
     /// Indexes of the matching candidates, best first. Deliberate preferences
@@ -384,11 +388,13 @@ enum CommandBarSearch {
     /// form: "pointer" finds the hand whose words are "point" and "pointing".
     /// A row that has every typed word whole leads one whose name only starts
     /// with the letters, so "lol" is the laughing face before the lollipop.
+    /// The typed word itself leads another form of it, so "win" is the
+    /// trophy before the wine that only shares its stem.
     static func rankedIndexes(candidates: [CommandBarCandidate], matching query: String,
                               wordForms: Bool = false) -> [Int] {
         let normalizedQuery = normalized(query)
         let tokens = QueryToken.tokens(of: normalizedQuery)
-        let scored: [(index: Int, priority: Int, words: Bool, tier: Int, score: Int, position: Int)]
+        let scored: [(index: Int, priority: Int, words: Int, tier: Int, score: Int, position: Int)]
             = candidates.enumerated().compactMap { position, candidate in
                 guard let base = score(normalizedTitle: candidate.normalizedTitle,
                                        normalizedKeywords: candidate.normalizedKeywords,
@@ -398,13 +404,13 @@ enum CommandBarSearch {
                 let tier = matchTier(title: candidate.normalizedTitle,
                                      keywords: candidate.normalizedKeywords,
                                      query: normalizedQuery)
-                return (candidate.index, candidate.priority, wordForms && base.wholeWords, tier,
+                return (candidate.index, candidate.priority, wordForms ? base.words : 0, tier,
                         base.score + candidate.boost, position)
             }
         return scored
             .sorted {
                 if $0.priority != $1.priority { return $0.priority > $1.priority }
-                if $0.words != $1.words { return $0.words }
+                if $0.words != $1.words { return $0.words > $1.words }
                 if $0.tier != $1.tier { return $0.tier > $1.tier }
                 if $0.score != $1.score { return $0.score > $1.score }
                 return $0.position < $1.position
@@ -473,10 +479,10 @@ enum CommandBarSearch {
         var best: Int?
         for word in words {
             if ascii {
-                if word.utf8.elementsEqual(token.utf8) { return 140 }
+                if word.utf8.elementsEqual(token.utf8) { return exactWordScore }
                 if word.utf8.starts(with: token.utf8) { best = max(best ?? 0, 80) }
             } else {
-                if word == token.text { return 140 }
+                if word == token.text { return exactWordScore }
                 if word.hasPrefix(token.text) { best = max(best ?? 0, 80) }
             }
         }

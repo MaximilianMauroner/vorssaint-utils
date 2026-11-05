@@ -120,6 +120,8 @@ enum CommandBarEmojiContract {
         }
         suite.expect(firstFound("lol").first == "😂",
                      "a word the emoji carries whole leads a name that only starts with it, found \(firstFound("lol"))")
+        suite.expect(firstFound("win").contains("🏆") && !firstFound("win").contains("🍷"),
+                     "the typed word itself leads a word that only shares its stem, found \(firstFound("win"))")
         for (query, leads, otherForm) in [
             ("laughing", Set(["😂", "🤣", "😆", "😹"]), "😄"),
             ("crying", ["😢", "😭"], nil),
