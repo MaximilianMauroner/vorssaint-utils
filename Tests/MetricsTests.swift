@@ -144,6 +144,7 @@ struct MetricsTests {
             }),
             ("settings", {
                 SettingsFeatureTests.run(suite)
+                SettingsSearchCoverageTests.run(suite)
                 RadialFilePickerTests.run(suite)
                 SettingsWindowTests.run { suite.expect($0, $1) }
                 NotchSettingsChoiceTests.run(suite)
