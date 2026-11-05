@@ -1348,7 +1348,7 @@ final class CommandBarService: ObservableObject {
             skinTone: UserDefaults.standard.string(forKey: DefaultsKey.commandBarEmojiSkinTone) ?? "",
             accessibility: Permissions.shared.accessibility)
         if emojiEntries.isEmpty || emojiInputs != builtEmojiInputs {
-            emojiEntries = CommandBarCatalog.emojiEntries(bar: FeatureStrings.commandBar(L10n.shared.language))
+            emojiEntries = CommandBarCatalog.emojiEntries(language: L10n.shared.language)
             builtEmojiInputs = emojiInputs
         }
         builtLanguage = L10n.shared.language
@@ -1769,7 +1769,8 @@ final class CommandBarService: ObservableObject {
                                                ?? CommandBarSearch.normalized(entry.keywords),
                                            priority: habitBoost)
             }
-            let ranked = CommandBarSearch.rankedIndexes(candidates: candidates, matching: trimmed)
+            let ranked = CommandBarSearch.rankedIndexes(candidates: candidates, matching: trimmed,
+                                                         wordForms: category == .emoji)
             return ranked.prefix(40).map { pool[$0] }
         }
 
@@ -1800,7 +1801,8 @@ final class CommandBarService: ObservableObject {
                                            priority: habitPriority)
             }
             let ranked = CommandBarSearch.rankedIndexes(candidates: candidates,
-                                                         matching: emojiQuery)
+                                                         matching: emojiQuery,
+                                                         wordForms: true)
             return ranked.prefix(40).map { pool[$0] }
         }
 
