@@ -143,7 +143,7 @@ enum CommandBarEmojiContract {
             suite.expect(firstFound(query).contains(expected),
                          "\(query) lists \(expected) among the first results, found \(firstFound(query))")
         }
-        for (query, expected) in [("thumbsup", "👍"), ("sweat_smile", "😅"), ("heart_eyes", "😍"), ("shit", "💩")] {
+        for (query, expected) in [("thumbsup", "👍"), ("sweat_smile", "😅"), ("heart_eyes", "😍"), ("point_right", "👉"), ("shit", "💩")] {
             suite.expect(firstFound(query).first == expected,
                          "the Slack shortcode \(query) leads with \(expected), found \(firstFound(query))")
         }

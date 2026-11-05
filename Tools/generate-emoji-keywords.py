@@ -69,13 +69,15 @@ def searchable(name, phrases):
 
 
 def table(entries, emoji_set, slack):
-    """CLDR's words plus Slack's shortcodes, and Slack's Unicode name where
-    CLDR has none, so every line carries a name."""
+    """CLDR's words plus the words of Slack's shortcodes, and Slack's Unicode
+    name where CLDR has none, so every line carries a name. The search reads
+    an emoji query's underscores as spaces, so sweat_smile needs only its
+    words."""
     lines = []
     for emoji in emoji_set:
         entry = entries.get(emoji, {})
         name = (entry.get("tts") or [slack[emoji]["name"].lower()])[0]
-        codes = slack[emoji]["short_names"]
+        codes = [word for code in slack[emoji]["short_names"] for word in code.split("_")]
         words = searchable(name, entry.get("default", []) + codes)
         if name or words:
             line = f"{emoji}\t{name}\t{words}"

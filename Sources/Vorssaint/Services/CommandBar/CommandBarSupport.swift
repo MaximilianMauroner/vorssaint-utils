@@ -389,10 +389,11 @@ enum CommandBarSearch {
     /// A row that has every typed word whole leads one whose name only starts
     /// with the letters, so "lol" is the laughing face before the lollipop.
     /// The typed word itself leads another form of it, so "win" is the
-    /// trophy before the wine that only shares its stem.
+    /// trophy before the wine that only shares its stem. Underscores are
+    /// spaces, so the shortcode sweat_smile finds the words sweat and smile.
     static func rankedIndexes(candidates: [CommandBarCandidate], matching query: String,
                               wordForms: Bool = false) -> [Int] {
-        let normalizedQuery = normalized(query)
+        let normalizedQuery = normalized(wordForms ? query.replacingOccurrences(of: "_", with: " ") : query)
         let tokens = QueryToken.tokens(of: normalizedQuery)
         let scored: [(index: Int, priority: Int, words: Int, tier: Int, score: Int, position: Int)]
             = candidates.enumerated().compactMap { position, candidate in
