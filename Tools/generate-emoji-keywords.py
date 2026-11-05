@@ -4,10 +4,10 @@
 
 """Regenerate the words that find emoji in the command bar.
 
-Downloads pinned copies of the Unicode CLDR emoji annotations, the names and
-search keywords Unicode publishes for emoji pickers in every language, and of
-Slack's shortcodes from iamcal/emoji-data. Writes one table per app language
-into the Swift source the app and the tests compile, and the license notices
+Downloads pinned copies of the Unicode CLDR English emoji annotations, the
+names and search keywords Unicode publishes for emoji pickers, and of Slack's
+shortcodes from iamcal/emoji-data. Writes one table into the Swift source the
+app and the tests compile, and the license notices
 of both into THIRD-PARTY-NOTICES.md. Change a pin, then run it again.
 """
 
@@ -32,14 +32,6 @@ SLACK = (f"https://raw.githubusercontent.com/iamcal/emoji-data/{SLACK_COMMIT}/em
 SLACK_LICENSE = (f"https://raw.githubusercontent.com/iamcal/emoji-data/{SLACK_COMMIT}/LICENSE",
                  "sha256-ee9953a79bf2132b59b1342b217f1c377b3d03d9e7713006f6c3b89eb159f1db")
 
-# Each AppLanguage case and the CLDR locales it reads, parent first. Hong
-# Kong only records where it differs from Taiwan's traditional Chinese.
-LOCALES = {
-    "enUS": ["en"], "ptBR": ["pt"], "tr": ["tr"], "ru": ["ru"], "es": ["es"],
-    "sk": ["sk"], "de": ["de"], "fr": ["fr"], "it": ["it"], "ja": ["ja"],
-    "ko": ["ko"], "uk": ["uk"], "zhHans": ["zh"], "zhTW": ["zh-Hant"],
-    "zhHK": ["zh-Hant", "zh-Hant-HK"],
-}
 
 
 def fetch(url, digest):
@@ -57,13 +49,10 @@ def canonical(emoji):
     return emoji.replace("\ufe0f", "").replace("\ufe0e", "")
 
 
-def annotations(archive, locales):
-    merged = {}
-    for locale in locales:
-        member = archive.extractfile(f"package/annotations/{locale}/annotations.json")
-        for emoji, fields in json.load(member)["annotations"]["annotations"].items():
-            merged.setdefault(canonical(emoji), {}).update(fields)
-    return merged
+def annotations(archive):
+    member = archive.extractfile("package/annotations/en/annotations.json")
+    return {canonical(emoji): fields
+            for emoji, fields in json.load(member)["annotations"]["annotations"].items()}
 
 
 def searchable(name, phrases):
@@ -79,15 +68,14 @@ def searchable(name, phrases):
     return " ".join(kept)
 
 
-def table(entries, emoji_set, slack=None):
-    """English also gets Slack's shortcodes, and Slack's Unicode name where
-    CLDR has none, so every English line carries a name."""
+def table(entries, emoji_set, slack):
+    """CLDR's words plus Slack's shortcodes, and Slack's Unicode name where
+    CLDR has none, so every line carries a name."""
     lines = []
     for emoji in emoji_set:
         entry = entries.get(emoji, {})
-        fallback = slack[emoji]["name"].lower() if slack else ""
-        name = (entry.get("tts") or [fallback])[0]
-        codes = slack[emoji]["short_names"] if slack else []
+        name = (entry.get("tts") or [slack[emoji]["name"].lower()])[0]
+        codes = slack[emoji]["short_names"]
         words = searchable(name, entry.get("default", []) + codes)
         if name or words:
             line = f"{emoji}\t{name}\t{words}"
@@ -109,10 +97,7 @@ def main():
             singles[emoji] = entry
     emoji_set = sorted(singles, key=ord)
 
-    cases = []
-    for language, locales in LOCALES.items():
-        body = table(annotations(archive, locales), emoji_set, singles if language == "enUS" else None)
-        cases.append(f'        case .{language}: return #"""\n{body}\n"""#\n')
+    body = table(annotations(archive), emoji_set, singles)
 
     cldr_license = archive.extractfile("package/LICENSE").read().decode()
     slack_license = fetch(*SLACK_LICENSE).decode()
@@ -127,10 +112,7 @@ def main():
         "extension CommandBarEmoji {\n"
         "    /// One line per emoji, without its presentation selector: the emoji,\n"
         "    /// its name and the other words that find it, split by tabs.\n"
-        "    static func keywordTable(_ language: AppLanguage) -> String {\n"
-        "        switch language {\n"
-        + "".join(cases)
-        + "        }\n    }\n}\n")
+        f'    static let keywordTable = #"""\n{body}\n"""#\n}}\n')
     NOTICES.write_text(
         "# Third-party notices\n\n"
         "Vorssaint is licensed under the GPL 3.0 or later, see [LICENSE](LICENSE).\n"

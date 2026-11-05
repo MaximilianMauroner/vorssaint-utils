@@ -1577,7 +1577,7 @@ enum CommandBarFeatureTests {
 
         // MARK: Command bar emoji
 
-        let englishEmoji = CommandBarEmoji.emoji(in: .enUS)
+        let englishEmoji = CommandBarEmoji.emoji
         suite.expect(englishEmoji.count > 1_000, "the searchable Unicode emoji set is there")
         suite.expect(englishEmoji.allSatisfy { !$0.name.isEmpty && !$0.character.isEmpty },
                "every emoji carries the words that find it")

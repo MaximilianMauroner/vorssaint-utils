@@ -99,8 +99,8 @@ enum CommandBarEmojiContract {
         }, "excluding family preserves supported single-person and multi-person tones")
 
         // Rows folded and ranked the way the bar does it, leading results first.
-        func firstFound(_ query: String, in language: AppLanguage = .enUS, limit: Int = 5) -> [String] {
-            let rows = Catalog.emojiEntries(language: language)
+        func firstFound(_ query: String, limit: Int = 5) -> [String] {
+            let rows = Catalog.emojiEntries(bar: .enUS)
             let candidates = rows.enumerated().map { index, row in
                 CommandBarCandidate(index: index, title: row.matchTitle ?? row.title, keywords: row.keywords)
             }
@@ -147,27 +147,15 @@ enum CommandBarEmojiContract {
             suite.expect(firstFound(query).first == expected,
                          "the Slack shortcode \(query) leads with \(expected), found \(firstFound(query))")
         }
-        for (query, language, expected) in [
-            ("bier", AppLanguage.de, "🍺"), ("beer", .de, "🍺"), ("ピザ", .ja, "🍕"),
-            ("cerveza", .es, "🍺"), ("какашка", .ru, "💩"),
-        ] {
-            suite.expect(firstFound(query, in: language).contains(expected),
-                         "\(query) in \(language.rawValue) lists \(expected), found \(firstFound(query, in: language))")
-        }
-        suite.expect(firstFound("ピザ").isEmpty,
-                     "another language's words do not crowd English searches")
-        suite.expect(AppLanguage.allCases.allSatisfy {
-            CommandBarEmoji.emoji(in: $0).map(\.identity) == CommandBarEmoji.emoji(in: .enUS).map(\.identity)
-        }, "every interface language offers the same rows, so pins and learned searches survive a switch")
 
         // Exercise actual row construction, not just the helper used for IDs.
-        let originalIDs = CommandBarEmoji.emoji(in: .enUS).map { "emoji." + $0.identity }
+        let originalIDs = CommandBarEmoji.emoji.map { "emoji." + $0.identity }
         let thumbID = "emoji.👍"
         defaults.set(CommandBarPreferences.encodePins([thumbID]), forKey: DefaultsKey.commandBarPins)
         let pins = defaults.string(forKey: DefaultsKey.commandBarPins)
         for tone in tones {
             defaults.set(tone.rawValue, forKey: DefaultsKey.commandBarEmojiSkinTone)
-            let rows = Catalog.emojiEntries(language: .enUS)
+            let rows = Catalog.emojiEntries(bar: .enUS)
             suite.expect(rows.map(\.id) == originalIDs,
                          "\(tone.rawValue) keeps every stored row identity")
             Catalog.typed = []
@@ -217,14 +205,14 @@ enum CommandBarEmojiContract {
             // A different preference may change after the one-off insertion.
             defaults.set("emoji", forKey: DefaultsKey.commandBarDisabledSources)
             defaults.set("", forKey: DefaultsKey.commandBarDisabledSources)
-            let reopened = Catalog.emojiEntries(language: .enUS).first { $0.id == thumbID }!
+            let reopened = Catalog.emojiEntries(bar: .enUS).first { $0.id == thumbID }!
             reopened.run(nil)
             suite.expect(Catalog.typed.last == CommandBarEmoji.applying(tone, to: "👍"),
                          "reopening after another preference change still uses the saved default")
         }
 
         defaults.removeObject(forKey: DefaultsKey.commandBarUsage)
-        let row = Catalog.emojiEntries(language: .enUS).first { $0.id == thumbID }!
+        let row = Catalog.emojiEntries(bar: .enUS).first { $0.id == thumbID }!
         let normal = Service()
         NotchService.shared.reactions = []
         normal.finish(row, value: nil)
